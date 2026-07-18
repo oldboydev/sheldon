@@ -17,3 +17,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Workspace npm/TypeScript inicial com formatação, lint, typecheck, testes, lint de Markdown, Commitlint e validação de domínio.
 - Baseline em Node.js 24 LTS usando o SQLite nativo do runtime para evitar dependências binárias externas.
 - Contratos de tópicos e projetos com identidade estável, slugs normalizados, renomeação e arquivamento.
+- Serviço de vault com descoberta explícita, layout canônico, metadados YAML, escrita atômica e proteção contra colisões.
