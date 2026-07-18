@@ -6,6 +6,8 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
+Já estão implementados o workspace verificável e o domínio de entidades, incluindo slugs Unicode-safe, identidade estável, renomeação e arquivamento.
+
 ## Decisões principais
 
 - Core em TypeScript sobre Node.js LTS.

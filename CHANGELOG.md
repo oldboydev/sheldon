@@ -16,3 +16,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Plano TDD detalhado para a implementação da fundação e do vault central.
 - Workspace npm/TypeScript inicial com formatação, lint, typecheck, testes, lint de Markdown, Commitlint e validação de domínio.
 - Baseline em Node.js 24 LTS usando o SQLite nativo do runtime para evitar dependências binárias externas.
+- Contratos de tópicos e projetos com identidade estável, slugs normalizados, renomeação e arquivamento.
