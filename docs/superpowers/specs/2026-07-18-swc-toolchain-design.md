@@ -7,15 +7,15 @@ Sheldon will use SWC for both production compilation and Vitest TypeScript trans
 ## Scope
 
 - Replace the current `esbuild` API build script with `@swc/core`.
-- Produce the existing CLI artifact at `apps/cli/dist/sheldon.js` as ESM targeting Node.js 24.
-- Keep runtime dependencies (`commander`, `yaml`, and Node built-ins) external rather than bundling them.
+- Compile each workspace `src/` tree into its adjacent `dist/` tree, including the existing CLI artifact at `apps/cli/dist/sheldon.js`, as ESM targeting Node.js 24.
+- Keep runtime dependencies (`commander`, `yaml`, Node built-ins, and internal workspace packages) external rather than bundling them; internal package exports resolve to their generated `dist/` entry points.
 - Configure Vitest to transform TypeScript with SWC.
 - Preserve the existing `npm run build`, `npm test`, and `npm run verify` interfaces.
 - Remove `esbuild` from development dependencies.
 
 ## Build flow
 
-`scripts/build.mjs` clears the generated output directory, compiles the CLI entry point through SWC, and writes the ESM artifact to its existing path. The build must preserve `node:` imports and leave package imports resolvable from the workspace installation.
+`scripts/build.mjs` clears each generated output directory, compiles every TypeScript source file through SWC, and preserves its relative path beneath the matching `dist/` directory. The build must preserve `node:` imports and leave package imports resolvable from the workspace installation.
 
 ## Test flow
 
