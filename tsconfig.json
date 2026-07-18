@@ -11,6 +11,7 @@
       "@sheldon/core": ["./packages/core/src/index.ts"],
       "@sheldon/vault": ["./packages/vault/src/index.ts"],
       "@sheldon/persistence": ["./packages/persistence/src/index.ts"],
+      "@sheldon/plugin-sdk": ["./packages/plugin-sdk/src/index.ts"],
       "@sheldon/cli": ["./apps/cli/src/main.ts"]
     },
     "types": ["node", "vitest/globals"]
