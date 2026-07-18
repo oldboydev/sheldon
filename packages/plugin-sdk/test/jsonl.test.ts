@@ -14,6 +14,27 @@ describe('JSONL framing', () => {
     await expect(reader.next()).resolves.toEqual({ a: 1 });
   });
 
+  it('decodes a UTF-8 code point split across chunks', async () => {
+    const input = new PassThrough();
+    const reader = new JsonlReader(input, 128);
+    const line = Buffer.from('{"text":"ação"}\n');
+    const split = line.indexOf(0xc3) + 1;
+    input.write(line.subarray(0, split));
+    input.end(line.subarray(split));
+
+    await expect(reader.next()).resolves.toEqual({ text: 'ação' });
+  });
+
+  it('rejects malformed UTF-8 inside an otherwise valid JSON string', async () => {
+    const input = new PassThrough();
+    const reader = new JsonlReader(input, 128);
+    input.end(
+      Buffer.concat([Buffer.from('{"text":"'), Buffer.from([0xc3, 0x28]), Buffer.from('"}\n')]),
+    );
+
+    await expect(reader.next()).rejects.toThrow(/UTF-8/i);
+  });
+
   it('rejects oversized and malformed lines', async () => {
     const oversized = new PassThrough();
     const oversizedReader = new JsonlReader(oversized, 4);

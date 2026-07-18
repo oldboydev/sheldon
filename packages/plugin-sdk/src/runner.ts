@@ -73,38 +73,48 @@ export async function runPlugin(
         error.write(`${message.replace(/[\r\n]+/g, ' ')}\n`, 'utf8');
       },
     };
-    const completion = runPrimary(implementation, request, context, output);
-    active = { requestId: request.requestId, controller, completion };
+    const state: OperationState = { allowOutput: true, settled: false };
+    const completion = runPrimary(implementation, request, context, output, state).finally(() => {
+      state.settled = true;
+    });
+    active = { requestId: request.requestId, controller, completion, state };
   }
 
-  let pendingRead = reader.next();
-  while (true) {
-    const event = await Promise.race([
-      pendingRead.then((raw) => ({ kind: 'request' as const, raw })),
-      active.completion.then(() => ({ kind: 'complete' as const })),
-    ]);
-
-    if (event.kind === 'complete') {
-      if (!input.readableEnded && !input.destroyed) input.destroy();
-      await pendingRead.catch(() => undefined);
-      return;
-    }
-    if (event.raw === undefined) {
-      await active.completion;
-      return;
-    }
-
-    const request = parseRequestEnvelope(event.raw);
-    if (request.operation === 'cancel') {
-      await handleCancel(implementation, request, active, output);
-    } else {
-      await writeFailure(
-        output,
-        request.requestId,
-        'Only one primary plugin operation may run in a process.',
-      );
-    }
+  let pendingRead: Promise<unknown | undefined> | undefined;
+  try {
     pendingRead = reader.next();
+    while (true) {
+      const event = await Promise.race([
+        pendingRead.then((raw) => ({ kind: 'request' as const, raw })),
+        active.completion.then(() => ({ kind: 'complete' as const })),
+      ]);
+
+      if (event.kind === 'complete') return;
+      if (event.raw === undefined) {
+        await active.completion;
+        return;
+      }
+
+      const request = parseRequestEnvelope(event.raw);
+      if (request.operation === 'cancel') {
+        await handleCancel(implementation, request, active, output);
+      } else {
+        await writeFailure(
+          output,
+          request.requestId,
+          'Only one primary plugin operation may run in a process.',
+        );
+      }
+      pendingRead = reader.next();
+    }
+  } finally {
+    active.state.allowOutput = false;
+    if (!active.state.settled) {
+      active.controller.abort(new Error('Plugin runner stopped.'));
+    }
+    if (!input.readableEnded && !input.destroyed) input.destroy();
+    await pendingRead?.catch(() => undefined);
+    await active.completion;
   }
 }
 
@@ -112,6 +122,12 @@ interface ActiveOperation {
   readonly requestId: string;
   readonly controller: AbortController;
   readonly completion: Promise<void>;
+  readonly state: OperationState;
+}
+
+interface OperationState {
+  allowOutput: boolean;
+  settled: boolean;
 }
 
 async function runPrimary(
@@ -119,9 +135,15 @@ async function runPrimary(
   request: Exclude<RequestEnvelope, { readonly operation: 'cancel' }>,
   context: PluginExecutionContext,
   output: Writable,
+  state: OperationState,
 ): Promise<void> {
   try {
     const result = await dispatch(implementation, request, context);
+    if (context.signal.aborted) {
+      if (state.allowOutput) await writeCancelled(output, request.requestId);
+      return;
+    }
+    if (!state.allowOutput) return;
     const response: ResponseEnvelope<unknown> = {
       protocolVersion: PROTOCOL_VERSION,
       requestId: request.requestId,
@@ -131,21 +153,27 @@ async function runPrimary(
     await writeJsonl(output, response);
   } catch (error) {
     if (context.signal.aborted) {
-      const response: ResponseEnvelope = {
-        protocolVersion: PROTOCOL_VERSION,
-        requestId: request.requestId,
-        status: 'cancelled',
-        error: {
-          code: 'PLUGIN_CANCELLED',
-          message: 'Plugin operation cancelled.',
-        },
-      };
-      await writeJsonl(output, response);
+      if (state.allowOutput) await writeCancelled(output, request.requestId);
       return;
     }
 
-    await writeFailure(output, request.requestId, errorMessage(error));
+    if (state.allowOutput) {
+      await writeFailure(output, request.requestId, errorMessage(error));
+    }
   }
+}
+
+async function writeCancelled(output: Writable, requestId: string): Promise<void> {
+  const response: ResponseEnvelope = {
+    protocolVersion: PROTOCOL_VERSION,
+    requestId,
+    status: 'cancelled',
+    error: {
+      code: 'PLUGIN_CANCELLED',
+      message: 'Plugin operation cancelled.',
+    },
+  };
+  await writeJsonl(output, response);
 }
 
 function dispatch(

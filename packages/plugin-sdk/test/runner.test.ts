@@ -217,6 +217,91 @@ describe('TypeScript plugin runner', () => {
       ]),
     );
   });
+
+  it('emits cancelled when the implementation resolves after observing abort', async () => {
+    const resolvingAfterAbort = definePlugin({
+      ...implementation,
+      ingest: async (_request, context) => {
+        await new Promise<void>((resolve) => {
+          context.signal.addEventListener('abort', () => resolve(), { once: true });
+        });
+        return [];
+      },
+    });
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let stdout = '';
+    output.on('data', (chunk) => (stdout += chunk.toString()));
+    const running = runPlugin(resolvingAfterAbort, { input, output });
+    input.write(
+      `${JSON.stringify(
+        request('ingest-1', 'ingest', {
+          input: { kind: 'fixture' },
+          options: {},
+          temporaryDirectory: 'C:\\temp\\operation',
+        }),
+      )}\n`,
+    );
+    input.end(
+      `${JSON.stringify(request('cancel-1', 'cancel', { targetRequestId: 'ingest-1' }))}\n`,
+    );
+
+    await running;
+
+    expect(decode(stdout)).toContainEqual({
+      protocolVersion: '1',
+      requestId: 'ingest-1',
+      status: 'cancelled',
+      error: {
+        code: 'PLUGIN_CANCELLED',
+        message: 'Plugin operation cancelled.',
+      },
+    });
+  });
+
+  it('aborts and settles the active operation when a follow-up line is malformed', async () => {
+    let aborted = false;
+    let settled = false;
+    const activeUntilAbort = definePlugin({
+      ...implementation,
+      ingest: async (_request, context) => {
+        await new Promise<void>((resolve) => {
+          context.signal.addEventListener(
+            'abort',
+            () => {
+              aborted = true;
+              settled = true;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        return [];
+      },
+    });
+    const input = new PassThrough();
+    const output = new PassThrough();
+    let stdout = '';
+    output.on('data', (chunk) => (stdout += chunk.toString()));
+    const running = runPlugin(activeUntilAbort, { input, output });
+    input.write(
+      `${JSON.stringify(
+        request('ingest-1', 'ingest', {
+          input: { kind: 'fixture' },
+          options: {},
+          temporaryDirectory: 'C:\\temp\\operation',
+        }),
+      )}\n`,
+    );
+    input.end('not-json\n');
+
+    await expect(running).rejects.toThrow(/JSON/i);
+    expect(aborted).toBe(true);
+    expect(settled).toBe(true);
+    expect(stdout).toBe('');
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(stdout).toBe('');
+  });
 });
 
 function request(

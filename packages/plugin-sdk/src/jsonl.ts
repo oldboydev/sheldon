@@ -7,6 +7,7 @@ const noValue = Symbol('no JSONL value');
 export class JsonlReader {
   private readonly iterator;
   private readonly decoder = new StringDecoder('utf8');
+  private readonly utf8Validator = new TextDecoder('utf-8', { fatal: true });
   private buffered = '';
   private bufferedBytes = 0;
   private remainder: Buffer | undefined;
@@ -27,6 +28,7 @@ export class JsonlReader {
 
       const item = await this.iterator.next();
       if (item.done) {
+        this.finishUtf8Line();
         this.buffered += this.decoder.end();
         if (this.buffered.length === 0) return undefined;
         throw new Error('JSONL stream ended with an unterminated line.');
@@ -49,6 +51,7 @@ export class JsonlReader {
     }
 
     this.remainder = newline + 1 < chunk.length ? chunk.subarray(newline + 1) : undefined;
+    this.finishUtf8Line();
     const line = `${this.buffered}${this.decoder.end()}`.replace(/\r$/, '');
     this.buffered = '';
     this.bufferedBytes = 0;
@@ -62,11 +65,25 @@ export class JsonlReader {
   }
 
   private append(segment: Buffer): void {
-    this.bufferedBytes += segment.length;
-    if (this.bufferedBytes > this.lineLimitBytes) {
+    const bufferedBytes = this.bufferedBytes + segment.length;
+    if (bufferedBytes > this.lineLimitBytes) {
       throw new Error('JSONL line limit exceeded.');
     }
+    this.validateUtf8(segment, true);
+    this.bufferedBytes = bufferedBytes;
     this.buffered += this.decoder.write(segment);
+  }
+
+  private finishUtf8Line(): void {
+    this.validateUtf8(undefined, false);
+  }
+
+  private validateUtf8(segment: Buffer | undefined, stream: boolean): void {
+    try {
+      this.utf8Validator.decode(segment, { stream });
+    } catch (error) {
+      throw new Error('Invalid UTF-8 in JSONL line.', { cause: error });
+    }
   }
 }
 
