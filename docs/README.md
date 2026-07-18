@@ -28,3 +28,9 @@
 ## Estado
 
 Os documentos descrevem o design aprovado e a decomposição do produto. Planos de implementação task-by-task ainda não foram escritos; eles serão derivados de cada PRD após revisão.
+
+## Padrões de manutenção
+
+- [README do projeto](../README.md)
+- [Changelog](../CHANGELOG.md)
+- [Guia de contribuição, commits e gates](../CONTRIBUTING.md)

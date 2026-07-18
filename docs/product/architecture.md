@@ -104,3 +104,23 @@ Busca vetorial não é requisito do MVP. Uma implementação local e gratuita po
 ## Compatibilidade e licenciamento
 
 O núcleo e os plugins oficiais devem usar componentes open source com licenças compatíveis com distribuição. Nenhuma funcionalidade obrigatória pode depender de cota gratuita, período de avaliação ou endpoint pago. Integrações opcionais com serviços externos ficam fora dos plugins oficiais do MVP.
+
+## Gates de qualidade
+
+O workspace terá um comando único de verificação que agrega:
+
+- formatação e lint de TypeScript, JavaScript e JSON;
+- typecheck do workspace;
+- lint de Markdown;
+- testes unitários, de contrato e end-to-end aplicáveis;
+- verificação de whitespace do Git;
+- lints de domínio para estrutura do vault, wiki, manifests de plugins e bundles OKF.
+
+Nenhuma entrega é concluída com gate obrigatório falhando. Plugins oficiais executam a suíte comum de contrato além de seus testes específicos.
+
+## Disciplina do repositório
+
+- Commits seguem Conventional Commits.
+- Mudanças relevantes entram em `CHANGELOG.md` na seção `Unreleased`.
+- Mudanças públicas atualizam o README correspondente no mesmo commit.
+- Contratos, comandos e exemplos documentados mudam junto do código que os altera.

@@ -14,6 +14,8 @@ Entrega: CLI inicial, vault central, tópicos, projetos, configuração e SQLite
 
 Saída: criar um vault, reiniciar o processo e reencontrar o mesmo estado sem depender da web.
 
+O marco também estabelece Conventional Commits, `CHANGELOG.md`, READMEs e os comandos unificados de lint, typecheck, testes e verificação.
+
 ### M1 — Plataforma de plugins
 
 **PRD:** 002
@@ -93,6 +95,18 @@ No Windows, o usuário consegue:
 7. usar conhecimento em outro projeto via MCP e skill;
 8. gerar e validar um bundle OKF;
 9. concluir tudo sem API paga obrigatória.
+
+## Definição de pronto para todos os marcos
+
+Uma entrega só conclui um marco quando:
+
+- lint, formatação, typecheck e testes aplicáveis passam;
+- lints de vault, wiki, plugin ou OKF passam quando a entrega toca esses domínios;
+- `git diff --check` não encontra erros;
+- commits seguem Conventional Commits;
+- mudanças relevantes estão no `CHANGELOG.md`;
+- README correspondente foi revisado e atualizado junto de mudanças públicas;
+- critérios de aceitação do PRD possuem evidência verificável.
 
 ## Depois do MVP
 

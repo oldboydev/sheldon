@@ -59,3 +59,27 @@
 **Decisão:** recursos obrigatórios usam somente componentes open source e execução local.
 
 **Razão:** nenhuma função central deve parar porque uma cota, trial ou preço externo mudou.
+
+## ADR-011 — Conventional Commits
+
+**Decisão:** todo commit usa o formato `type(scope): descrição`, conforme Conventional Commits.
+
+**Razão:** histórico legível e semântica consistente facilitam revisão, automação de releases e geração de changelog.
+
+## ADR-012 — Changelog mantido desde o início
+
+**Decisão:** mudanças relevantes são registradas em `CHANGELOG.md`, seguindo Keep a Changelog.
+
+**Razão:** commits descrevem alterações isoladas; o changelog oferece uma visão curada do impacto para usuários e integradores.
+
+## ADR-013 — Gates obrigatórios de lint e verificação
+
+**Decisão:** formatação, lint, typecheck, testes e lints de domínio aplicáveis bloqueiam a conclusão de uma mudança.
+
+**Razão:** plugins multilíngues e artefatos gerados exigem contratos verificáveis, não apenas revisão manual.
+
+## ADR-014 — README acompanha mudanças públicas
+
+**Decisão:** mudanças de comportamento, instalação, comandos, configuração, contratos públicos ou arquitetura atualizam o README correspondente no mesmo commit.
+
+**Razão:** documentação separada do código perde confiabilidade rapidamente e prejudica humanos e agentes consumidores.

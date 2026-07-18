@@ -20,6 +20,8 @@ Pessoa técnica no Windows, operando um único vault e uma única identidade loc
 - Criar SQLite operacional separado do conhecimento.
 - Oferecer configuração local e comando de diagnóstico.
 - Garantir escritas atômicas e trilha de operações.
+- Estabelecer comandos de lint, typecheck, testes e verificação do workspace.
+- Estabelecer README, changelog e política de Conventional Commits.
 
 ## Fora de escopo
 
@@ -40,6 +42,10 @@ Pessoa técnica no Windows, operando um único vault e uma única identidade loc
 8. Escritas de configuração e metadados usam arquivo temporário e rename atômico.
 9. `sheldon doctor` verifica permissões, estrutura, SQLite, Node.js e disponibilidade dos CLIs.
 10. Nenhuma operação requer rede ou serviço externo.
+11. O workspace oferece comandos únicos para lint, typecheck, testes e verificação completa.
+12. Lints de Markdown e whitespace cobrem a documentação desde o primeiro marco.
+13. `CHANGELOG.md` mantém uma seção `Unreleased` e segue Keep a Changelog.
+14. O README raiz descreve estado, decisões, documentação e comandos disponíveis.
 
 ## Requisitos não funcionais
 
@@ -56,6 +62,9 @@ Pessoa técnica no Windows, operando um único vault e uma única identidade loc
 - Após renomear um tópico, seu identificador e histórico permanecem iguais.
 - Após remover o SQLite operacional, `sheldon doctor` explica como reconstruí-lo sem perda de wiki ou raws.
 - Uma falha simulada durante escrita não deixa arquivo final parcialmente gravado.
+- Um commit fora do padrão Conventional Commits é rejeitado pela validação configurada quando hooks ou CI estiverem ativos.
+- A verificação completa falha quando lint, typecheck, teste ou lint de domínio obrigatório falha.
+- Uma mudança pública sem atualização do changelog ou README é detectada pelo checklist de contribuição e pela revisão.
 
 ## Dependências
 
