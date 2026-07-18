@@ -13,6 +13,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 ### Added
 
 - Protocol v1 schemas and manifest validation.
+- TypeScript plugin runner with cooperative cancellation.
 - Visão, arquitetura, modelo de conhecimento e decisões do produto.
 - Roadmap do MVP e pós-MVP.
 - Dez PRDs cobrindo fundação, plugins, ingestão, agentes, wiki, busca, MCP, OKF, interface e redes sociais.

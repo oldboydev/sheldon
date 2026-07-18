@@ -42,6 +42,27 @@ O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. O
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
+Um plugin TypeScript define as quatro operações primárias e o cancelamento cooperativo, depois entrega o controle ao runner:
+
+```ts
+import { definePlugin, runPlugin } from '@sheldon/plugin-sdk';
+
+const plugin = definePlugin({
+  describe: async () => description,
+  probe: async ({ input }) => probe(input),
+  ingest: async (request, context) => ingest(request, context.signal),
+  healthcheck: async (context) => {
+    context.log('plugin saudável');
+    return { checks: [] };
+  },
+  cancel: async (targetRequestId) => cancel(targetRequestId),
+});
+
+await runPlugin(plugin);
+```
+
+O `runPlugin` lê envelopes JSONL de stdin, mantém uma operação primária por processo e aceita um pedido de cancelamento enquanto ela estiver pendente. Respostas de protocolo são escritas exclusivamente em stdout; mensagens humanas emitidas por `context.log` usam stderr.
+
 O `npm run coverage` mede todo o TypeScript em `apps/**/src` e `packages/**/src`, inclusive arquivos não alcançados pelos testes, com o provider V8 local do Vitest. O gate exige no mínimo 80% de statements, functions e lines e 70% de branches. Os relatórios text, JSON e HTML são gerados localmente em `coverage/`; `npm run verify` executa esse gate depois da suíte rápida de testes.
 
 Comandos individuais:

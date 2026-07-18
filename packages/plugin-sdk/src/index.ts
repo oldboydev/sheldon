@@ -19,4 +19,12 @@ export {
   parseResponseEnvelope,
   parseSourceArtifacts,
 } from './validation.js';
+export { JsonlReader, writeJsonl } from './jsonl.js';
+export {
+  definePlugin,
+  runPlugin,
+  type PluginExecutionContext,
+  type PluginImplementation,
+  type PluginRunnerOptions,
+} from './runner.js';
 export * from './types.js';
