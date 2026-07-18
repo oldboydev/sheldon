@@ -3,6 +3,9 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "sheldon": "apps/cli/dist/sheldon.js"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -12,6 +15,8 @@
   },
   "scripts": {
     "prepare": "husky",
+    "build": "node scripts/build.mjs",
+    "sheldon": "node apps/cli/dist/sheldon.js",
     "lint": "eslint .",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -19,13 +24,14 @@
     "test": "vitest run --passWithNoTests",
     "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
     "lint:domain": "node scripts/verify-domain.mjs",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run lint:md && npm run test && npm run lint:domain && git diff --check"
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run lint:md && npm run test && npm run build && npm run lint:domain && git diff --check"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.1",
     "@commitlint/config-conventional": "^21.2.0",
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.1.1",
+    "esbuild": "^0.28.1",
     "eslint": "^10.7.0",
     "eslint-config-prettier": "^10.1.8",
     "globals": "^17.7.0",

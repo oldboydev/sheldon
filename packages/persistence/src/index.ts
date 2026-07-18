@@ -1,5 +1,6 @@
 export {
   OperationsDatabase,
+  type DatabaseHealth,
   type OperationInput,
   type OperationRecord,
   type RebuildStatus,

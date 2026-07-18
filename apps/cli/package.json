@@ -3,9 +3,17 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/main.ts"
+  },
+  "bin": {
+    "sheldon": "./dist/sheldon.js"
+  },
   "dependencies": {
     "@sheldon/core": "*",
     "@sheldon/persistence": "*",
-    "@sheldon/vault": "*"
+    "@sheldon/vault": "*",
+    "commander": "^15.0.0",
+    "yaml": "^2.9.0"
   }
 }

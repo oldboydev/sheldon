@@ -19,3 +19,5 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Contratos de tópicos e projetos com identidade estável, slugs normalizados, renomeação e arquivamento.
 - Serviço de vault com descoberta explícita, layout canônico, metadados YAML, escrita atômica e proteção contra colisões.
 - Trilha operacional reconstruível em `node:sqlite` para criação, renomeação e arquivamento de entidades.
+- CLI local para inicialização, diagnóstico e ciclo de vida de tópicos e projetos, com configuração separada em `%APPDATA%`.
+- Bundle executável da CLI com preservação explícita dos módulos nativos `node:*`.

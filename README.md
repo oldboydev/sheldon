@@ -6,7 +6,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
-Já estão implementados o workspace verificável, o domínio de entidades, o serviço de vault e a trilha operacional em SQLite. A base atual cria a estrutura canônica, grava YAML atomicamente, impede colisões, preserva identidade e conteúdo e mantém o banco reconstruível separado do conhecimento.
+Já estão implementados o workspace verificável, o domínio de entidades, o serviço de vault, a trilha operacional em SQLite e a primeira CLI local. A base atual cria a estrutura canônica, grava YAML atomicamente, impede colisões, preserva identidade e conteúdo e mantém o banco reconstruível separado do conhecimento.
 
 ## Decisões principais
 
@@ -46,6 +46,42 @@ Comandos individuais:
 - `npm run lint:md`
 - `npm test`
 - `npm run lint:domain`
+
+## Uso da CLI
+
+Compile e execute localmente:
+
+```powershell
+npm run build
+npm run sheldon -- init C:\knowledge\sheldon
+npm run sheldon -- doctor --vault C:\knowledge\sheldon
+```
+
+Gerencie tópicos e projetos:
+
+```powershell
+npm run sheldon -- topic create "Agentes locais" --vault C:\knowledge\sheldon
+npm run sheldon -- topic list --vault C:\knowledge\sheldon
+npm run sheldon -- topic show agentes-locais --vault C:\knowledge\sheldon
+npm run sheldon -- topic rename agentes-locais "Agentes de código" --vault C:\knowledge\sheldon
+npm run sheldon -- topic archive agentes-de-codigo --vault C:\knowledge\sheldon
+```
+
+Os mesmos subcomandos existem em `project`. Depois de `init`, o caminho fica em `%APPDATA%\Sheldon\config.yaml`, então `--vault` é opcional. Sem um caminho, `init` propõe `%USERPROFILE%\Documents\Sheldon` e exige confirmação ou `--yes`.
+
+Estrutura criada:
+
+```text
+vault/
+  topics/
+  projects/
+  bundles/
+  system/
+    vault.yaml
+    operations.db
+```
+
+`doctor` não modifica o vault. Se `operations.db` estiver ausente ou corrompido, ele explica como reconstruir o estado operacional sem remover os arquivos de conhecimento.
 
 ## Padrões do repositório
 

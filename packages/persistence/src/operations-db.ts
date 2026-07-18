@@ -23,6 +23,9 @@ export interface RebuildStatus {
   readonly message: string;
 }
 
+export type DatabaseHealth =
+  { readonly healthy: true } | { readonly healthy: false; readonly reason: string };
+
 export class OperationsDatabase {
   private constructor(private readonly database: DatabaseSync) {
     this.database.exec(`
@@ -39,6 +42,26 @@ export class OperationsDatabase {
   public static open(path: string): OperationsDatabase {
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true });
     return new OperationsDatabase(new DatabaseSync(path, { allowExtension: false }));
+  }
+
+  public static checkHealth(path: string): DatabaseHealth {
+    let database: DatabaseSync | undefined;
+    try {
+      database = new DatabaseSync(path, { readOnly: true, allowExtension: false });
+      const row = database
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'operations'")
+        .get();
+      return row === undefined
+        ? { healthy: false, reason: 'operations table is missing' }
+        : { healthy: true };
+    } catch (error) {
+      return {
+        healthy: false,
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    } finally {
+      database?.close();
+    }
   }
 
   public recordOperation(input: OperationInput): void {
