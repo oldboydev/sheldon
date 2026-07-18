@@ -108,9 +108,12 @@ vault/
   system/
     vault.yaml
     operations.db
+    plugin-state.db
 ```
 
 `doctor` não modifica o vault. Se `operations.db` estiver ausente ou corrompido, ele explica como reconstruir o estado operacional sem remover os arquivos de conhecimento.
+
+`plugin-state.db` guarda o último estado de saúde reconstruível de cada plugin e os 10.000 resumos de execução sanitizados mais recentes; não é fonte de verdade para o conhecimento do vault.
 
 ## Padrões do repositório
 
