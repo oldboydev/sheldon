@@ -21,18 +21,20 @@
 
 ## File Structure
 
-| File | Responsibility |
-| --- | --- |
-| `vitest.config.ts` | Registers SWC's Vite transform and resolves Sheldon packages to TypeScript source during tests. |
-| `vitest.config.test.ts` | Proves the Vitest configuration contains the SWC transform and source aliases. |
-| `scripts/build.mjs` | Compiles each workspace source directory into its matching `dist/` directory with SWC. |
-| `scripts/build.test.ts` | Proves the build produces runnable CLI and workspace JavaScript artifacts. |
-| `package.json` | Replaces esbuild dependencies with SWC dependencies while retaining scripts. |
-| `apps/cli/package.json` | Points package exports at compiled JavaScript. |
-| `packages/*/package.json` | Points workspace exports at compiled JavaScript. |
-| `package-lock.json` | Locks the new free build and test-transform dependencies. |
-| `README.md` | Documents the SWC/Vitest toolchain and build expectation. |
-| `CHANGELOG.md` | Records the internal build-tool migration. |
+| File                      | Responsibility                                                                                  |
+| ------------------------- | ----------------------------------------------------------------------------------------------- |
+| `vitest.config.ts`        | Registers SWC's Vite transform and resolves Sheldon packages to TypeScript source during tests. |
+| `vitest.config.test.ts`   | Proves the Vitest configuration contains the SWC transform and source aliases.                  |
+| `scripts/build.mjs`       | Compiles each workspace source directory into its matching `dist/` directory with SWC.          |
+| `scripts/build.test.ts`   | Proves the build produces runnable CLI and workspace JavaScript artifacts.                      |
+| `package.json`            | Replaces esbuild dependencies with SWC dependencies while retaining scripts.                    |
+| `apps/cli/package.json`   | Points package exports at compiled JavaScript.                                                  |
+| `packages/*/package.json` | Points workspace exports at compiled JavaScript.                                                |
+| `package-lock.json`       | Locks the new free build and test-transform dependencies.                                       |
+| `README.md`               | Documents the SWC/Vitest toolchain and build expectation.                                       |
+| `CHANGELOG.md`            | Records the internal build-tool migration.                                                      |
+| `eslint.config.mjs`       | Ignores generated `dist/` output for every workspace.                                           |
+| `eslint.config.test.ts`   | Prevents generated workspace output from being linted as source.                                |
 
 ### Task 1: Configure SWC as the Vitest TypeScript transformer
 
@@ -46,9 +48,9 @@
 **Interfaces:**
 
 - Consumes: the root `tsconfig.json` package aliases and Vitest's Vite configuration interface.
-- Produces: a default Vitest config whose `plugins` include `unplugin-swc` and whose aliases resolve `@sheldon/*` imports to source entry points.
+- Produces: a default Vitest config whose `plugins` include SWC, whose `oxc` transform is disabled, and whose aliases resolve `@sheldon/*` imports to source entry points.
 
-- [ ] **Step 1: Write the failing configuration test**
+- [x] **Step 1: Write the failing configuration test**
 
 ```ts
 import { describe, expect, it } from 'vitest';
@@ -57,7 +59,8 @@ import config from './vitest.config.js';
 
 describe('Vitest configuration', () => {
   it('uses SWC and resolves workspace packages to source', () => {
-    expect(config.plugins?.map((plugin) => plugin.name)).toContain('unplugin-swc');
+    expect(config.plugins?.map((plugin) => plugin.name)).toContain('swc');
+    expect(config.oxc).toBe(false);
     expect(config.resolve?.alias).toMatchObject({
       '@sheldon/core': expect.stringMatching(/packages[\\/]core[\\/]src[\\/]index\.ts$/),
       '@sheldon/vault': expect.stringMatching(/packages[\\/]vault[\\/]src[\\/]index\.ts$/),
@@ -69,13 +72,13 @@ describe('Vitest configuration', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test to verify it fails**
+- [x] **Step 2: Run the test to verify it fails**
 
 Run: `npm test -- vitest.config.test.ts`
 
 Expected: FAIL because `vitest.config.ts` does not exist.
 
-- [ ] **Step 3: Install the SWC compiler and Vite adapter**
+- [x] **Step 3: Install the SWC compiler and Vite adapter**
 
 Run: `npm install --save-dev @swc/core unplugin-swc`
 
@@ -83,7 +86,7 @@ Run: `npm uninstall --save-dev esbuild`
 
 Expected: root `package.json` and `package-lock.json` contain `@swc/core` and `unplugin-swc`, and no root `esbuild` development dependency.
 
-- [ ] **Step 4: Create the minimal shared Vitest configuration**
+- [x] **Step 4: Create the minimal shared Vitest configuration**
 
 ```ts
 import { fileURLToPath } from 'node:url';
@@ -96,6 +99,7 @@ function sourcePath(relativePath: string): string {
 }
 
 export default defineConfig({
+  oxc: false,
   plugins: [swc.vite()],
   resolve: {
     alias: {
@@ -107,7 +111,7 @@ export default defineConfig({
 });
 ```
 
-- [ ] **Step 5: Run configuration and existing test suites**
+- [x] **Step 5: Run configuration and existing test suites**
 
 Run: `npm test -- vitest.config.test.ts`
 
@@ -117,7 +121,7 @@ Run: `npm test`
 
 Expected: all existing tests plus the new configuration test PASS.
 
-- [ ] **Step 6: Commit the test-transform configuration**
+- [x] **Step 6: Commit the test-transform configuration**
 
 ```bash
 git add package.json package-lock.json vitest.config.ts vitest.config.test.ts
@@ -140,7 +144,7 @@ git commit -m "build: transform tests with SWC"
 - Consumes: source directories `packages/*/src` and `apps/cli/src`.
 - Produces: `packages/*/dist/**/*.js`, `apps/cli/dist/**/*.js`, and package exports that resolve `@sheldon/*` to `dist/index.js` at runtime.
 
-- [ ] **Step 1: Write the failing build contract test**
+- [x] **Step 1: Write the failing build contract test**
 
 ```ts
 import { access, readFile } from 'node:fs/promises';
@@ -170,13 +174,13 @@ describe('SWC build', () => {
 });
 ```
 
-- [ ] **Step 2: Run the build contract test to verify it fails**
+- [x] **Step 2: Run the build contract test to verify it fails**
 
 Run: `npm test -- scripts/build.test.ts`
 
 Expected: FAIL because the existing esbuild build does not emit `packages/*/dist/index.js` and the workspace export still references `src/index.ts`.
 
-- [ ] **Step 3: Replace the build script with a minimal SWC tree compiler**
+- [x] **Step 3: Replace the build script with a minimal SWC tree compiler**
 
 ```js
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
@@ -221,7 +225,7 @@ async function compile(sourceDirectory, outputDirectory) {
 await Promise.all(targets.map(([source, output]) => compile(source, output)));
 ```
 
-- [ ] **Step 4: Point workspace exports at compiled JavaScript**
+- [x] **Step 4: Point workspace exports at compiled JavaScript**
 
 Set each internal package's export to `./dist/index.js`; set the CLI package export to `./dist/main.js`; keep its `bin.sheldon` as `./dist/sheldon.js`.
 
@@ -244,7 +248,7 @@ Set each internal package's export to `./dist/index.js`; set the CLI package exp
 }
 ```
 
-- [ ] **Step 5: Verify the build contract and executable CLI**
+- [x] **Step 5: Verify the build contract and executable CLI**
 
 Run: `npm test -- scripts/build.test.ts`
 
@@ -258,7 +262,7 @@ Run: `node apps/cli/dist/sheldon.js --help`
 
 Expected: exit code 0 and the `init`, `doctor`, `topic`, and `project` commands listed.
 
-- [ ] **Step 6: Commit the SWC production build**
+- [x] **Step 6: Commit the SWC production build**
 
 ```bash
 git add scripts/build.mjs scripts/build.test.ts apps/cli/package.json packages/core/package.json packages/vault/package.json packages/persistence/package.json
@@ -271,13 +275,15 @@ git commit -m "build: compile workspaces with SWC"
 
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
+- Modify: `eslint.config.mjs`
+- Create: `eslint.config.test.ts`
 
 **Interfaces:**
 
 - Consumes: the stable `build`, `test`, and `verify` commands.
 - Produces: developer documentation that accurately states SWC's role in production and test compilation.
 
-- [ ] **Step 1: Add documentation expectations as a failing repository-policy check**
+- [x] **Step 1: Add documentation expectations as a failing repository-policy check**
 
 Extend `scripts/change-policy.test.ts` with a test that treats `vitest.config.ts` and `scripts/build.mjs` as implementation changes requiring `README.md` and `CHANGELOG.md` in the same change set.
 
@@ -290,7 +296,7 @@ it('requires documentation when the toolchain changes', () => {
 });
 ```
 
-- [ ] **Step 2: Run the policy test to verify it fails**
+- [x] **Step 2: Run the policy test to verify it fails**
 
 Run: `npm test -- scripts/change-policy.test.ts`
 
@@ -298,7 +304,7 @@ Expected: FAIL because toolchain configuration is not yet classified as an imple
 
 - [ ] **Step 3: Extend the policy and update developer documentation**
 
-Update `scripts/change-policy.mjs` so `vitest.config.ts` is in the implementation-change set. Add a README tooling note stating that `npm run build` compiles workspace source with SWC and `npm test` runs Vitest through `unplugin-swc`. Add a `Changed` entry to CHANGELOG describing replacement of esbuild with SWC.
+Update `scripts/change-policy.mjs` so `vitest.config.ts` is in the implementation-change set. Add a README tooling note stating that `npm run build` compiles workspace source with SWC and `npm test` runs Vitest through `unplugin-swc`. Add a `Changed` entry to CHANGELOG describing replacement of esbuild with SWC. Add a test and a broad `**/dist/**` ESLint ignore so generated package output is never linted as source.
 
 ```js
 const implementationPatterns = [
@@ -307,19 +313,19 @@ const implementationPatterns = [
 ];
 ```
 
-- [ ] **Step 4: Run the focused policy test**
+- [x] **Step 4: Run the focused policy test**
 
 Run: `npm test -- scripts/change-policy.test.ts`
 
 Expected: PASS.
 
-- [ ] **Step 5: Run the full repository verification**
+- [x] **Step 5: Run the full repository verification**
 
 Run: `npm run verify`
 
 Expected: formatting, ESLint, type checking, Markdown linting, all Vitest tests, SWC build, domain checks, repository policy, and `git diff --check` PASS.
 
-- [ ] **Step 6: Commit the documentation and verification policy**
+- [x] **Step 6: Commit the documentation and verification policy**
 
 ```bash
 git add README.md CHANGELOG.md scripts/change-policy.mjs scripts/change-policy.test.ts

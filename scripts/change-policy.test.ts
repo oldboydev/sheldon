@@ -19,4 +19,11 @@ describe('evaluateChangePolicy', () => {
   it('does not require product documentation for planning-only changes', () => {
     expect(evaluateChangePolicy(['docs/roadmap.md'])).toEqual([]);
   });
+
+  it('requires documentation when the toolchain changes', () => {
+    expect(evaluateChangePolicy(['vitest.config.ts'])).toEqual([
+      'Implementation changes require README.md in the same change set.',
+      'Implementation changes require CHANGELOG.md in the same change set.',
+    ]);
+  });
 });

@@ -38,6 +38,8 @@ npm run verify
 
 Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, build, validações de domínio, política documental e `git diff --check`.
 
+O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
+
 Comandos individuais:
 
 - `npm run format:check`

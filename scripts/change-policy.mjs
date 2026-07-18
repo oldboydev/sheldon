@@ -1,6 +1,6 @@
 const implementationPatterns = [
   /^(apps|packages|scripts)\//,
-  /^(package(-lock)?\.json|tsconfig\.json|eslint\.config\.mjs|prettier\.config\.mjs)$/,
+  /^(vitest\.config\.ts|package(-lock)?\.json|tsconfig\.json|eslint\.config\.mjs|prettier\.config\.mjs)$/,
 ];
 
 export function evaluateChangePolicy(paths) {

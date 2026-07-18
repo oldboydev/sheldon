@@ -6,6 +6,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Changed
+
+- Build dos workspaces e transformação TypeScript do Vitest migrados de esbuild para SWC.
+
 ### Added
 
 - Visão, arquitetura, modelo de conhecimento e decisões do produto.
