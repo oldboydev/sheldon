@@ -16,6 +16,7 @@ export default defineConfig({
       '@sheldon/vault': sourcePath('./packages/vault/src/index.ts'),
       '@sheldon/persistence': sourcePath('./packages/persistence/src/index.ts'),
       '@sheldon/plugin-sdk': sourcePath('./packages/plugin-sdk/src/index.ts'),
+      '@sheldon/plugin-host': sourcePath('./packages/plugin-host/src/index.ts'),
     },
   },
   test: {

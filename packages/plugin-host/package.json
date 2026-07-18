@@ -1,0 +1,14 @@
+{
+  "name": "@sheldon/plugin-host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@sheldon/persistence": "*",
+    "@sheldon/plugin-sdk": "*",
+    "yaml": "^2.9.0"
+  }
+}

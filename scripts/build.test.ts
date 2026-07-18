@@ -15,6 +15,7 @@ describe('SWC build', () => {
     await expect(access('packages/vault/dist/index.js')).resolves.toBeUndefined();
     await expect(access('packages/persistence/dist/index.js')).resolves.toBeUndefined();
     await expect(access('packages/plugin-sdk/dist/index.js')).resolves.toBeUndefined();
+    await expect(access('packages/plugin-host/dist/index.js')).resolves.toBeUndefined();
     await expect(access('apps/cli/dist/sheldon.js')).resolves.toBeUndefined();
 
     const corePackage = JSON.parse(await readFile('packages/core/package.json', 'utf8'));
@@ -22,6 +23,11 @@ describe('SWC build', () => {
 
     const pluginSdkPackage = JSON.parse(await readFile('packages/plugin-sdk/package.json', 'utf8'));
     expect(pluginSdkPackage.exports['.']).toBe('./dist/index.js');
+
+    const pluginHostPackage = JSON.parse(
+      await readFile('packages/plugin-host/package.json', 'utf8'),
+    );
+    expect(pluginHostPackage.exports['.']).toBe('./dist/index.js');
 
     const cli = await execFileAsync(process.execPath, ['apps/cli/dist/sheldon.js', '--help']);
     expect(cli.stdout).toContain('Local-first personal knowledge vault.');

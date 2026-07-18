@@ -42,6 +42,10 @@ O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. O
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
+Plugins locais são instalados exclusivamente a partir de um diretório local. Sheldon valida o manifesto e todos os links, copia o conteúdo para uma área de staging e publica a instalação em `%APPDATA%\Sheldon\plugins\<id>` junto de um registro YAML atômico. Identificadores já usados por plugins oficiais ou instalados são rejeitados, sem opção de sobrescrita no M1.
+
+A instalação apenas copia arquivos: não executa código ou scripts de pacote, não instala dependências, não faz downloads e não acessa a rede. A remoção aceita somente um identificador registrado e apaga apenas o filho exato correspondente dentro do diretório de plugins.
+
 Um plugin TypeScript define as quatro operações primárias e o cancelamento cooperativo, depois entrega o controle ao runner:
 
 ```ts

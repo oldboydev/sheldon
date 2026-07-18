@@ -31,3 +31,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Lint de repositório que exige `README.md` e `CHANGELOG.md` junto de mudanças de implementação.
 - Gate local de cobertura Vitest/V8 para `apps/**/src` e `packages/**/src`, com relatórios text, JSON e HTML e mínimos de 80% para statements, functions e lines e 70% para branches.
 - Estado operacional de plugins para o M1 em `plugin-state.db`, com última saúde reconstruível e os 10.000 resumos de execução sanitizados mais recentes.
+- Registro local de plugins com instalação por cópia em staging, publicação e persistência YAML atômicas, rejeição de identificadores duplicados e remoção restrita ao filho registrado exato.

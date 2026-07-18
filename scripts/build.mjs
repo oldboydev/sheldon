@@ -8,6 +8,7 @@ const targets = [
   ['packages/vault/src', 'packages/vault/dist'],
   ['packages/persistence/src', 'packages/persistence/dist'],
   ['packages/plugin-sdk/src', 'packages/plugin-sdk/dist'],
+  ['packages/plugin-host/src', 'packages/plugin-host/dist'],
   ['apps/cli/src', 'apps/cli/dist'],
 ];
 
