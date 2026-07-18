@@ -21,13 +21,17 @@
 9. [Interface web local](prds/009-local-web-interface.md)
 10. [Plugins de redes sociais](prds/010-social-media-plugins.md)
 
+## Planos de implementação
+
+- [Fundação e vault central](superpowers/plans/2026-07-18-vault-foundation.md)
+
 ## Pesquisa
 
 - [Panorama de LLM Wiki, segundos cérebros e ferramentas](research/landscape.md)
 
 ## Estado
 
-Os documentos descrevem o design aprovado e a decomposição do produto. Planos de implementação task-by-task ainda não foram escritos; eles serão derivados de cada PRD após revisão.
+Os documentos descrevem o design aprovado e a decomposição do produto. O plano task-by-task do PRD 001 já está disponível; os demais serão derivados de seus PRDs antes da implementação.
 
 ## Padrões de manutenção
 

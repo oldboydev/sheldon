@@ -23,6 +23,7 @@ O projeto está na fase de planejamento. A arquitetura, o roadmap e dez PRDs for
 - [Arquitetura](docs/product/architecture.md)
 - [Roadmap](docs/roadmap.md)
 - [Pesquisa comparativa](docs/research/landscape.md)
+- [Plano de implementação da fundação](docs/superpowers/plans/2026-07-18-vault-foundation.md)
 
 ## Padrões do repositório
 

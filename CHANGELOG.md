@@ -13,3 +13,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Dez PRDs cobrindo fundação, plugins, ingestão, agentes, wiki, busca, MCP, OKF, interface e redes sociais.
 - Pesquisa comparativa de projetos LLM Wiki, memória, RAG e ferramentas de ingestão.
 - Política de commits semânticos, changelog, lint e atualização coordenada de READMEs.
+- Plano TDD detalhado para a implementação da fundação e do vault central.
