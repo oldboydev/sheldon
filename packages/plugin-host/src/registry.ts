@@ -49,6 +49,10 @@ export interface PluginDirectoryCopier {
   copy(source: string, destination: string): Promise<void>;
 }
 
+export interface PluginDirectoryPublisher {
+  publish(stage: string, finalRoot: string): Promise<void>;
+}
+
 export interface PluginDirectoryRemover {
   remove(path: string): Promise<void>;
 }
@@ -56,6 +60,7 @@ export interface PluginDirectoryRemover {
 export interface PluginRegistryOptions {
   readonly persistence?: RegistryPersistence;
   readonly copier?: PluginDirectoryCopier;
+  readonly publisher?: PluginDirectoryPublisher;
   readonly remover?: PluginDirectoryRemover;
   readonly manifestOpener?: ManifestFileOpener;
   readonly lock?: RegistryLockOptions;
@@ -74,6 +79,9 @@ const safePluginDirectoryCopier: PluginDirectoryCopier = {
       force: false,
     });
   },
+};
+const atomicPluginDirectoryPublisher: PluginDirectoryPublisher = {
+  publish: rename,
 };
 const pluginDirectoryRemover: PluginDirectoryRemover = {
   remove: async (path) => rm(path, { recursive: true, force: true }),
@@ -102,8 +110,13 @@ function sourceError(code: string, message: string, target: string): PluginHostE
   );
 }
 
-async function preflightSource(sourceDirectory: string): Promise<void> {
-  const lexicalRoot = await lstat(sourceDirectory);
+interface DirectoryIdentity {
+  readonly dev: bigint;
+  readonly ino: bigint;
+}
+
+async function preflightSource(sourceDirectory: string): Promise<DirectoryIdentity> {
+  const lexicalRoot = await lstat(sourceDirectory, { bigint: true });
   if (lexicalRoot.isSymbolicLink()) {
     throw sourceError(
       'PLUGIN_SOURCE_ESCAPE',
@@ -175,6 +188,7 @@ async function preflightSource(sourceDirectory: string): Promise<void> {
   }
 
   await visit(canonicalSource);
+  return { dev: lexicalRoot.dev, ino: lexicalRoot.ino };
 }
 
 function assertExactPluginChild(pluginsRoot: string, id: string, candidate: string): string {
@@ -438,6 +452,7 @@ export class PluginRegistry {
     private records: PluginInstallationRecord[],
     private readonly persistence: RegistryPersistence,
     private readonly copier: PluginDirectoryCopier,
+    private readonly publisher: PluginDirectoryPublisher,
     private readonly remover: PluginDirectoryRemover,
     private readonly manifestOpener: ManifestFileOpener | undefined,
     private readonly lockOptions: RegistryLockOptions,
@@ -458,6 +473,7 @@ export class PluginRegistry {
       records,
       options.persistence ?? atomicRegistryPersistence,
       options.copier ?? safePluginDirectoryCopier,
+      options.publisher ?? atomicPluginDirectoryPublisher,
       options.remover ?? pluginDirectoryRemover,
       options.manifestOpener,
       options.lock ?? {},
@@ -506,7 +522,7 @@ export class PluginRegistry {
       let operationFailed = false;
       try {
         await this.copier.copy(sourceDirectory, stage);
-        await preflightSource(stage);
+        const stageIdentity = await preflightSource(stage);
         const staged = await loadPluginManifest(stage, 'installed', {
           opener: this.manifestOpener,
         });
@@ -519,8 +535,17 @@ export class PluginRegistry {
           );
         }
 
-        await rename(stage, finalRoot);
+        await this.publisher.publish(stage, finalRoot);
         finalIdentity = await lstat(finalRoot, { bigint: true });
+        if (finalIdentity.dev !== stageIdentity.dev || finalIdentity.ino !== stageIdentity.ino) {
+          const rollback = await rollbackIfSameDirectory(finalRoot, stageIdentity, this.remover);
+          throw new PluginHostError(
+            'PLUGIN_STAGE_IDENTITY_CHANGED',
+            'The staged plugin root changed before publication completed.',
+            finalRoot,
+            rollbackRecovery(rollback, finalRoot),
+          );
+        }
         const record: PluginInstallationRecord = {
           id,
           version: staged.manifest.version,

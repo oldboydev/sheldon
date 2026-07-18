@@ -10,6 +10,7 @@ export {
   PluginRegistry,
   type InstalledPlugin,
   type PluginDirectoryCopier,
+  type PluginDirectoryPublisher,
   type PluginDirectoryRemover,
   type PluginInstallationRecord,
   type PluginRegistryOptions,

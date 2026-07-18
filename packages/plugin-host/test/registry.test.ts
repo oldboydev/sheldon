@@ -23,6 +23,7 @@ import {
   PluginRegistry,
   type ManifestFileOpener,
   type PluginDirectoryCopier,
+  type PluginDirectoryPublisher,
   type PluginDirectoryRemover,
   type RegistryLockFileSystem,
   type RegistryPersistence,
@@ -262,6 +263,32 @@ describe('PluginRegistry installation', () => {
       code: 'PLUGIN_SOURCE_ESCAPE',
     });
     await expect(access(join(appRoot, 'plugins', 'fixture.node'))).rejects.toThrow();
+  });
+
+  it('rejects a staging root replaced after validation without deleting the replacement', async () => {
+    const parent = await makeTemporaryDirectory('stage-publication-race');
+    const sourceRoot = await makePluginSource(parent);
+    const outside = join(parent, 'outside-owner');
+    await mkdir(outside);
+    await writeFile(join(outside, 'owner.txt'), 'replacement owner', 'utf8');
+    const publisher: PluginDirectoryPublisher = {
+      publish: async (stage, finalRoot) => {
+        await rename(stage, join(parent, 'validated-stage-owner'));
+        await symlink(outside, stage, process.platform === 'win32' ? 'junction' : 'dir');
+        await rename(stage, finalRoot);
+      },
+    };
+    const appRoot = join(parent, 'app');
+    const finalRoot = join(appRoot, 'plugins', 'fixture.node');
+    const registry = await PluginRegistry.open(appRoot, { publisher });
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_STAGE_IDENTITY_CHANGED',
+      recovery: expect.stringMatching(/left in place.*identity changed/i),
+    });
+
+    await expect(readFile(join(finalRoot, 'owner.txt'), 'utf8')).resolves.toBe('replacement owner');
+    expect(registry.listRecords()).toEqual([]);
   });
 
   it('rolls back only the new final directory when registry persistence fails', async () => {
