@@ -1,9 +1,12 @@
 import {
   access,
+  cp,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   readdir,
+  rename,
   rm,
   symlink,
   writeFile,
@@ -14,7 +17,14 @@ import { join } from 'node:path';
 import { parse, stringify } from 'yaml';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { loadPluginManifest, PluginRegistry, type RegistryPersistence } from '../src/index.js';
+import {
+  loadPluginManifest,
+  PluginRegistry,
+  type ManifestFileOpener,
+  type PluginDirectoryCopier,
+  type PluginDirectoryRemover,
+  type RegistryPersistence,
+} from '../src/index.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -87,6 +97,25 @@ describe('plugin manifest loading', () => {
 
     await expect(loadPluginManifest(root, 'installed')).rejects.toMatchObject({ code });
   });
+
+  it('rejects bytes when the opened manifest identity differs from the resolved target', async () => {
+    const parent = await makeTemporaryDirectory('manifest-identity');
+    const sourceRoot = await makePluginSource(parent);
+    const opener: ManifestFileOpener = {
+      open: async (path) => {
+        const contents = JSON.parse(await readFile(path, 'utf8'));
+        const handle = await open(path, 'r');
+        await rename(path, join(sourceRoot, 'original-manifest.json'));
+        await writeFile(path, JSON.stringify({ ...contents, id: 'fixture.swapped' }), 'utf8');
+        return handle;
+      },
+    };
+
+    await expect(loadPluginManifest(sourceRoot, 'installed', { opener })).rejects.toMatchObject({
+      code: 'PLUGIN_MANIFEST_CHANGED',
+    });
+    await expect(access(join(sourceRoot, 'original-manifest.json'))).resolves.toBeUndefined();
+  });
 });
 
 describe('PluginRegistry installation', () => {
@@ -154,6 +183,36 @@ describe('PluginRegistry installation', () => {
     await expect(access(join(appRoot, 'plugins', 'fixture.node'))).rejects.toThrow();
   });
 
+  it('rejects an escaping link introduced in staging after source preflight', async () => {
+    const parent = await makeTemporaryDirectory('staged-escape');
+    const sourceRoot = await makePluginSource(parent);
+    const outside = join(parent, 'outside');
+    await mkdir(outside);
+    const copier: PluginDirectoryCopier = {
+      copy: async (source, destination) => {
+        await cp(source, destination, {
+          recursive: true,
+          dereference: false,
+          verbatimSymlinks: true,
+          errorOnExist: true,
+          force: false,
+        });
+        await symlink(
+          outside,
+          join(destination, 'escaped-after-copy'),
+          process.platform === 'win32' ? 'junction' : 'dir',
+        );
+      },
+    };
+    const appRoot = join(parent, 'app');
+    const registry = await PluginRegistry.open(appRoot, { copier });
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_SOURCE_ESCAPE',
+    });
+    await expect(access(join(appRoot, 'plugins', 'fixture.node'))).rejects.toThrow();
+  });
+
   it('rolls back only the new final directory when registry persistence fails', async () => {
     const parent = await makeTemporaryDirectory('rollback');
     const firstSource = await makePluginSource(join(parent, 'sources'), 'fixture.first');
@@ -176,6 +235,113 @@ describe('PluginRegistry installation', () => {
     await expect(access(join(appRoot, 'plugins', 'fixture.first'))).resolves.toBeUndefined();
     expect(await readdir(join(appRoot, 'plugins'))).toEqual(['fixture.first']);
     expect(failingRegistry.listRecords()).toHaveLength(1);
+  });
+
+  it('leaves a replacement directory in place and reports an identity-changed rollback', async () => {
+    const parent = await makeTemporaryDirectory('rollback-replaced');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    const finalRoot = join(appRoot, 'plugins', 'fixture.node');
+    const persistence: RegistryPersistence = {
+      write: async () => {
+        await rename(finalRoot, join(appRoot, 'original-installed-directory'));
+        await mkdir(finalRoot);
+        await writeFile(join(finalRoot, 'replacement.txt'), 'keep replacement', 'utf8');
+        throw new Error('simulated registry replacement failure');
+      },
+    };
+    const registry = await PluginRegistry.open(appRoot, { persistence });
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_REGISTRY_WRITE_FAILED',
+      recovery: expect.stringMatching(/left in place.*identity changed/i),
+    });
+
+    await expect(readFile(join(finalRoot, 'replacement.txt'), 'utf8')).resolves.toBe(
+      'keep replacement',
+    );
+  });
+
+  it('keeps the stable registry error when rollback removal fails', async () => {
+    const parent = await makeTemporaryDirectory('rollback-remove-failure');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    const finalRoot = join(appRoot, 'plugins', 'fixture.node');
+    const remover: PluginDirectoryRemover = {
+      remove: async () => {
+        throw new Error('simulated directory removal failure');
+      },
+    };
+    const registry = await PluginRegistry.open(appRoot, {
+      persistence: failingPersistence,
+      remover,
+    });
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_REGISTRY_WRITE_FAILED',
+      recovery: expect.stringMatching(/could not be removed.*inspect/i),
+    });
+
+    await expect(access(finalRoot)).resolves.toBeUndefined();
+  });
+
+  it('preserves both records when different identifiers install concurrently', async () => {
+    const parent = await makeTemporaryDirectory('concurrent-different');
+    const firstSource = await makePluginSource(join(parent, 'sources'), 'fixture.first');
+    const secondSource = await makePluginSource(join(parent, 'sources'), 'fixture.second');
+    const appRoot = join(parent, 'app');
+    const firstRegistry = await PluginRegistry.open(appRoot);
+    const secondRegistry = await PluginRegistry.open(appRoot);
+
+    await Promise.all([
+      firstRegistry.install(firstSource, new Set()),
+      secondRegistry.install(secondSource, new Set()),
+    ]);
+
+    const reopened = await PluginRegistry.open(appRoot);
+    expect(reopened.listRecords().map(({ id }) => id)).toEqual(['fixture.first', 'fixture.second']);
+    await expect(access(join(appRoot, 'plugins', 'fixture.first'))).resolves.toBeUndefined();
+    await expect(access(join(appRoot, 'plugins', 'fixture.second'))).resolves.toBeUndefined();
+  });
+
+  it('returns one stable collision when the same identifier installs concurrently', async () => {
+    const parent = await makeTemporaryDirectory('concurrent-same');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    const firstRegistry = await PluginRegistry.open(appRoot);
+    const secondRegistry = await PluginRegistry.open(appRoot);
+
+    const outcomes = await Promise.allSettled([
+      firstRegistry.install(sourceRoot, new Set()),
+      secondRegistry.install(sourceRoot, new Set()),
+    ]);
+
+    expect(outcomes.filter(({ status }) => status === 'fulfilled')).toHaveLength(1);
+    const failure = outcomes.find(({ status }) => status === 'rejected');
+    expect(failure).toMatchObject({
+      status: 'rejected',
+      reason: { code: 'PLUGIN_ID_COLLISION' },
+    });
+    const reopened = await PluginRegistry.open(appRoot);
+    expect(reopened.listRecords().map(({ id }) => id)).toEqual(['fixture.node']);
+  });
+
+  it('returns a stable busy error when the cross-process lock stays held', async () => {
+    const parent = await makeTemporaryDirectory('registry-busy');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    const registry = await PluginRegistry.open(appRoot);
+    const lockPath = join(appRoot, '.plugin-registry.lock');
+    const lock = await open(lockPath, 'wx', 0o600);
+
+    try {
+      await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+        code: 'PLUGIN_REGISTRY_BUSY',
+      });
+    } finally {
+      await lock.close();
+      await rm(lockPath, { force: true });
+    }
   });
 
   it('loads registry records in identifier order', async () => {
@@ -257,6 +423,23 @@ describe('PluginRegistry removal', () => {
     });
     await expect(access(unrelated)).resolves.toBeUndefined();
   });
+
+  it.skipIf(process.platform !== 'win32')(
+    'accepts the exact registered child when the app root casing changes',
+    async () => {
+      const parent = await makeTemporaryDirectory('remove-case');
+      const sourceRoot = await makePluginSource(parent);
+      const appRoot = join(parent, 'app');
+      const registry = await PluginRegistry.open(appRoot);
+      await registry.install(sourceRoot, new Set());
+
+      const reopened = await PluginRegistry.open(appRoot.toUpperCase());
+      await reopened.remove('fixture.node');
+
+      await expect(access(join(appRoot, 'plugins', 'fixture.node'))).rejects.toThrow();
+      expect(reopened.listRecords()).toEqual([]);
+    },
+  );
 
   it('reports reinstall recovery when registry persistence fails after deletion', async () => {
     const parent = await makeTemporaryDirectory('remove-write-failure');

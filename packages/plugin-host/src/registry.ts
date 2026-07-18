@@ -12,12 +12,17 @@ import {
   stat,
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { parse, stringify } from 'yaml';
 
 import { pluginAppPaths, type PluginAppPaths } from './app-paths.js';
 import { PluginHostError } from './errors.js';
-import { loadPluginManifest, type LoadedPluginManifest } from './manifest-loader.js';
+import {
+  loadPluginManifest,
+  type LoadedPluginManifest,
+  type ManifestFileOpener,
+} from './manifest-loader.js';
 
 interface RegistryDocument {
   readonly version: 1;
@@ -40,13 +45,41 @@ export interface RegistryPersistence {
   write(target: string, contents: string): Promise<void>;
 }
 
+export interface PluginDirectoryCopier {
+  copy(source: string, destination: string): Promise<void>;
+}
+
+export interface PluginDirectoryRemover {
+  remove(path: string): Promise<void>;
+}
+
 export interface PluginRegistryOptions {
   readonly persistence?: RegistryPersistence;
+  readonly copier?: PluginDirectoryCopier;
+  readonly remover?: PluginDirectoryRemover;
+  readonly manifestOpener?: ManifestFileOpener;
 }
 
 const atomicRegistryPersistence: RegistryPersistence = {
   write: atomicWriteRegistry,
 };
+const safePluginDirectoryCopier: PluginDirectoryCopier = {
+  copy: async (source, destination) => {
+    await cp(source, destination, {
+      recursive: true,
+      dereference: false,
+      verbatimSymlinks: true,
+      errorOnExist: true,
+      force: false,
+    });
+  },
+};
+const pluginDirectoryRemover: PluginDirectoryRemover = {
+  remove: async (path) => rm(path, { recursive: true, force: true }),
+};
+const transactionTails = new Map<string, Promise<void>>();
+const lockAttempts = 40;
+const lockRetryMilliseconds = 25;
 
 function compareRecords(left: PluginInstallationRecord, right: PluginInstallationRecord): number {
   return left.id.localeCompare(right.id);
@@ -140,7 +173,10 @@ async function preflightSource(sourceDirectory: string): Promise<void> {
 
 function assertExactPluginChild(pluginsRoot: string, id: string, candidate: string): string {
   const expected = resolve(pluginsRoot, id);
-  if (resolve(candidate) !== expected || dirname(expected) !== resolve(pluginsRoot)) {
+  if (
+    pathComparisonKey(candidate) !== pathComparisonKey(expected) ||
+    pathComparisonKey(dirname(expected)) !== pathComparisonKey(pluginsRoot)
+  ) {
     throw new PluginHostError(
       'PLUGIN_PATH_UNSAFE',
       `Unsafe plugin path for ${id}.`,
@@ -159,6 +195,11 @@ async function pathExists(path: string): Promise<boolean> {
     if (isMissingFileError(error)) return false;
     throw error;
   }
+}
+
+function pathComparisonKey(path: string): string {
+  const absolute = resolve(path);
+  return process.platform === 'win32' ? absolute.toLowerCase() : absolute;
 }
 
 function isPluginRecord(value: unknown): value is PluginInstallationRecord {
@@ -245,6 +286,83 @@ async function atomicWriteRegistry(target: string, contents: string): Promise<vo
   }
 }
 
+async function loadRegistryRecords(target: string): Promise<PluginInstallationRecord[]> {
+  if (!(await pathExists(target))) return [];
+  const metadata = await lstat(target);
+  if (metadata.isSymbolicLink() || !metadata.isFile()) {
+    throw new PluginHostError(
+      'PLUGIN_PATH_UNSAFE',
+      'The plugin registry must be a regular file.',
+      target,
+      'Replace plugin-registry.yaml with a regular file.',
+    );
+  }
+  const document = parseRegistryDocument(await readFile(target, 'utf8'), target);
+  return [...document.plugins];
+}
+
+async function withInProcessTransaction<T>(key: string, action: () => Promise<T>): Promise<T> {
+  const previous = transactionTails.get(key) ?? Promise.resolve();
+  let releaseQueue!: () => void;
+  const current = new Promise<void>((resolveQueue) => {
+    releaseQueue = resolveQueue;
+  });
+  const tail = previous.then(() => current);
+  transactionTails.set(key, tail);
+  await previous;
+  try {
+    return await action();
+  } finally {
+    releaseQueue();
+    if (transactionTails.get(key) === tail) transactionTails.delete(key);
+  }
+}
+
+async function acquireRegistryLock(appRoot: string): Promise<() => Promise<void>> {
+  const lockPath = join(appRoot, '.plugin-registry.lock');
+  for (let attempt = 0; attempt < lockAttempts; attempt += 1) {
+    let handle: Awaited<ReturnType<typeof open>>;
+    try {
+      handle = await open(lockPath, 'wx', 0o600);
+    } catch (error) {
+      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
+      if (attempt + 1 < lockAttempts) await delay(lockRetryMilliseconds);
+      continue;
+    }
+
+    try {
+      const identity = await handle.stat({ bigint: true });
+      return async () => {
+        let releaseError: unknown;
+        try {
+          await handle.close();
+        } catch (error) {
+          releaseError = error;
+        }
+        try {
+          const current = await lstat(lockPath, { bigint: true });
+          if (current.dev === identity.dev && current.ino === identity.ino) {
+            await rm(lockPath, { force: true });
+          }
+        } catch (error) {
+          if (!isMissingFileError(error) && releaseError === undefined) releaseError = error;
+        }
+        if (releaseError !== undefined) throw releaseError;
+      };
+    } catch (error) {
+      await handle.close().catch(() => undefined);
+      await rm(lockPath, { force: true }).catch(() => undefined);
+      throw error;
+    }
+  }
+  throw new PluginHostError(
+    'PLUGIN_REGISTRY_BUSY',
+    'The plugin registry is busy.',
+    lockPath,
+    'Wait for the other plugin operation to finish and retry.',
+  );
+}
+
 async function assertSafePluginRoot(paths: PluginAppPaths): Promise<void> {
   const metadata = await lstat(paths.plugins);
   if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
@@ -270,17 +388,54 @@ async function assertSafePluginRoot(paths: PluginAppPaths): Promise<void> {
   }
 }
 
-async function removeIfSameDirectory(
+type RollbackOutcome =
+  | { readonly status: 'removed' }
+  | { readonly status: 'identity-changed' }
+  | { readonly status: 'failed'; readonly error: unknown };
+
+async function rollbackIfSameDirectory(
   path: string,
   expected: { readonly dev: bigint; readonly ino: bigint },
+  remover: PluginDirectoryRemover,
+): Promise<RollbackOutcome> {
+  let current: Awaited<ReturnType<typeof lstat>>;
+  try {
+    current = await lstat(path, { bigint: true });
+  } catch (error) {
+    if (isMissingFileError(error)) return { status: 'removed' };
+    return { status: 'failed', error };
+  }
+  if (current.dev !== expected.dev || current.ino !== expected.ino) {
+    return { status: 'identity-changed' };
+  }
+  try {
+    await remover.remove(path);
+    return { status: 'removed' };
+  } catch (error) {
+    return { status: 'failed', error };
+  }
+}
+
+function rollbackRecovery(outcome: RollbackOutcome, finalRoot: string): string {
+  switch (outcome.status) {
+    case 'removed':
+      return 'The copied plugin was rolled back; retry installation.';
+    case 'identity-changed':
+      return `The plugin directory was left in place because its identity changed; inspect ${finalRoot} before retrying.`;
+    case 'failed':
+      return `The copied plugin could not be removed; inspect ${finalRoot} before retrying.`;
+  }
+}
+
+async function cleanupStage(
+  stage: string,
+  remover: PluginDirectoryRemover,
+  preservePrimaryFailure: boolean,
 ): Promise<void> {
   try {
-    const current = await lstat(path, { bigint: true });
-    if (current.dev === expected.dev && current.ino === expected.ino) {
-      await rm(path, { recursive: true });
-    }
+    await remover.remove(stage);
   } catch (error) {
-    if (!isMissingFileError(error)) throw error;
+    if (!preservePrimaryFailure) throw error;
   }
 }
 
@@ -289,6 +444,9 @@ export class PluginRegistry {
     private readonly paths: PluginAppPaths,
     private records: PluginInstallationRecord[],
     private readonly persistence: RegistryPersistence,
+    private readonly copier: PluginDirectoryCopier,
+    private readonly remover: PluginDirectoryRemover,
+    private readonly manifestOpener: ManifestFileOpener | undefined,
   ) {}
 
   public static async open(
@@ -300,28 +458,15 @@ export class PluginRegistry {
     await mkdir(paths.plugins, { recursive: true });
     await assertSafePluginRoot(paths);
 
-    if (await pathExists(paths.registry)) {
-      const metadata = await lstat(paths.registry);
-      if (metadata.isSymbolicLink() || !metadata.isFile()) {
-        throw new PluginHostError(
-          'PLUGIN_PATH_UNSAFE',
-          'The plugin registry must be a regular file.',
-          paths.registry,
-          'Replace plugin-registry.yaml with a regular file.',
-        );
-      }
-      const document = parseRegistryDocument(
-        await readFile(paths.registry, 'utf8'),
-        paths.registry,
-      );
-      return new PluginRegistry(
-        paths,
-        [...document.plugins],
-        options.persistence ?? atomicRegistryPersistence,
-      );
-    }
-
-    return new PluginRegistry(paths, [], options.persistence ?? atomicRegistryPersistence);
+    const records = await loadRegistryRecords(paths.registry);
+    return new PluginRegistry(
+      paths,
+      records,
+      options.persistence ?? atomicRegistryPersistence,
+      options.copier ?? safePluginDirectoryCopier,
+      options.remover ?? pluginDirectoryRemover,
+      options.manifestOpener,
+    );
   }
 
   public listRecords(): readonly PluginInstallationRecord[] {
@@ -332,101 +477,123 @@ export class PluginRegistry {
     sourceDirectory: string,
     reservedIds: ReadonlySet<string>,
   ): Promise<InstalledPlugin> {
-    const source = await loadPluginManifest(sourceDirectory, 'installed');
-    const { id } = source.manifest;
-    if (reservedIds.has(id) || this.records.some((record) => record.id === id)) {
-      throw new PluginHostError(
-        'PLUGIN_ID_COLLISION',
-        `Plugin identifier ${id} is already in use.`,
-        id,
-        'Choose a plugin with a different identifier.',
-      );
-    }
-
-    const finalRoot = assertExactPluginChild(this.paths.plugins, id, join(this.paths.plugins, id));
-    if (await pathExists(finalRoot)) {
-      throw new PluginHostError(
-        'PLUGIN_ID_COLLISION',
-        `Plugin identifier ${id} already has a local directory.`,
-        finalRoot,
-        'Remove or rename the existing directory before retrying.',
-      );
-    }
-
     await preflightSource(sourceDirectory);
-    const stage = join(this.paths.plugins, `.install-${id}-${randomUUID()}`);
-    let finalIdentity: { readonly dev: bigint; readonly ino: bigint } | undefined;
-    try {
-      await cp(sourceDirectory, stage, {
-        recursive: true,
-        dereference: true,
-        errorOnExist: true,
-        force: false,
-      });
-      const staged = await loadPluginManifest(stage, 'installed');
-      if (staged.manifest.id !== id || staged.manifestDigest !== source.manifestDigest) {
+    const source = await loadPluginManifest(sourceDirectory, 'installed', {
+      opener: this.manifestOpener,
+    });
+    return this.transaction(async () => {
+      const { id } = source.manifest;
+      if (reservedIds.has(id) || this.records.some((record) => record.id === id)) {
         throw new PluginHostError(
-          'PLUGIN_STAGE_MISMATCH',
-          'The staged plugin does not match the validated source manifest.',
-          stage,
-          'Ensure the source is not changing during installation and retry.',
+          'PLUGIN_ID_COLLISION',
+          `Plugin identifier ${id} is already in use.`,
+          id,
+          'Choose a plugin with a different identifier.',
         );
       }
 
-      await rename(stage, finalRoot);
-      finalIdentity = await lstat(finalRoot, { bigint: true });
-      const record: PluginInstallationRecord = {
+      const finalRoot = assertExactPluginChild(
+        this.paths.plugins,
         id,
-        version: staged.manifest.version,
-        root: finalRoot,
-        manifestDigest: staged.manifestDigest,
-        installedAt: new Date().toISOString(),
-      };
-      const nextRecords = [...this.records, record].sort(compareRecords);
-      try {
-        await this.persist(nextRecords);
-      } catch (error) {
-        await removeIfSameDirectory(finalRoot, finalIdentity);
-        throw this.registryWriteError(
-          error,
-          'The copied plugin was rolled back; retry installation.',
+        join(this.paths.plugins, id),
+      );
+      if (await pathExists(finalRoot)) {
+        throw new PluginHostError(
+          'PLUGIN_ID_COLLISION',
+          `Plugin identifier ${id} already has a local directory.`,
+          finalRoot,
+          'Remove or rename the existing directory before retrying.',
         );
       }
-      this.records = nextRecords;
-      return { ...staged, root: finalRoot, record };
-    } finally {
-      await rm(stage, { recursive: true, force: true });
-    }
+
+      const stage = join(this.paths.plugins, `.install-${id}-${randomUUID()}`);
+      let finalIdentity: { readonly dev: bigint; readonly ino: bigint } | undefined;
+      let operationFailed = false;
+      try {
+        await this.copier.copy(sourceDirectory, stage);
+        await preflightSource(stage);
+        const staged = await loadPluginManifest(stage, 'installed', {
+          opener: this.manifestOpener,
+        });
+        if (staged.manifest.id !== id || staged.manifestDigest !== source.manifestDigest) {
+          throw new PluginHostError(
+            'PLUGIN_STAGE_MISMATCH',
+            'The staged plugin does not match the validated source manifest.',
+            stage,
+            'Ensure the source is not changing during installation and retry.',
+          );
+        }
+
+        await rename(stage, finalRoot);
+        finalIdentity = await lstat(finalRoot, { bigint: true });
+        const record: PluginInstallationRecord = {
+          id,
+          version: staged.manifest.version,
+          root: finalRoot,
+          manifestDigest: staged.manifestDigest,
+          installedAt: new Date().toISOString(),
+        };
+        const nextRecords = [...this.records, record].sort(compareRecords);
+        try {
+          await this.persist(nextRecords);
+        } catch (error) {
+          const rollback = await rollbackIfSameDirectory(finalRoot, finalIdentity, this.remover);
+          throw this.registryWriteError(error, rollbackRecovery(rollback, finalRoot));
+        }
+        this.records = nextRecords;
+        return { ...staged, root: finalRoot, record };
+      } catch (error) {
+        operationFailed = true;
+        throw error;
+      } finally {
+        await cleanupStage(stage, this.remover, operationFailed);
+      }
+    });
   }
 
   public async remove(id: string): Promise<void> {
-    const record = this.records.find((candidate) => candidate.id === id);
-    if (!record) {
-      throw new PluginHostError(
-        'PLUGIN_NOT_INSTALLED',
-        `Plugin ${id} is not installed.`,
-        id,
-        'List installed plugins and retry with an installed identifier.',
-      );
-    }
+    await this.transaction(async () => {
+      const record = this.records.find((candidate) => candidate.id === id);
+      if (!record) {
+        throw new PluginHostError(
+          'PLUGIN_NOT_INSTALLED',
+          `Plugin ${id} is not installed.`,
+          id,
+          'List installed plugins and retry with an installed identifier.',
+        );
+      }
 
-    const pluginRoot = assertExactPluginChild(this.paths.plugins, id, record.root);
-    await rm(pluginRoot, { recursive: true, force: true });
-    const nextRecords = this.records.filter((candidate) => candidate.id !== id);
-    try {
-      await this.persist(nextRecords);
-    } catch (error) {
-      throw this.registryWriteError(
-        error,
-        `Reinstall ${id} to repair the registry after the removed directory could not be restored.`,
-      );
-    }
-    this.records = nextRecords;
+      const pluginRoot = assertExactPluginChild(this.paths.plugins, id, record.root);
+      await this.remover.remove(pluginRoot);
+      const nextRecords = this.records.filter((candidate) => candidate.id !== id);
+      try {
+        await this.persist(nextRecords);
+      } catch (error) {
+        throw this.registryWriteError(
+          error,
+          `Reinstall ${id} to repair the registry after the removed directory could not be restored.`,
+        );
+      }
+      this.records = nextRecords;
+    });
   }
 
   private async persist(records: readonly PluginInstallationRecord[]): Promise<void> {
     const document: RegistryDocument = { version: 1, plugins: records };
     await this.persistence.write(this.paths.registry, stringify(document));
+  }
+
+  private async transaction<T>(action: () => Promise<T>): Promise<T> {
+    const key = pathComparisonKey(await realpath(this.paths.root));
+    return withInProcessTransaction(key, async () => {
+      const releaseLock = await acquireRegistryLock(this.paths.root);
+      try {
+        this.records = await loadRegistryRecords(this.paths.registry);
+        return await action();
+      } finally {
+        await releaseLock();
+      }
+    });
   }
 
   private registryWriteError(error: unknown, recovery: string): PluginHostError {
