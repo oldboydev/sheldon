@@ -36,9 +36,11 @@ npm install
 npm run verify
 ```
 
-Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, build, validações de domínio, política documental e `git diff --check`.
+Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, cobertura, build, validações de domínio, política documental e `git diff --check`.
 
 O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
+
+O `npm run coverage` mede todo o TypeScript em `apps/**/src` e `packages/**/src`, inclusive arquivos não alcançados pelos testes, com o provider V8 local do Vitest. O gate exige no mínimo 80% de statements, functions e lines e 70% de branches. Os relatórios text, JSON e HTML são gerados localmente em `coverage/`; `npm run verify` executa esse gate depois da suíte rápida de testes.
 
 Comandos individuais:
 
@@ -47,6 +49,7 @@ Comandos individuais:
 - `npm run typecheck`
 - `npm run lint:md`
 - `npm test`
+- `npm run coverage`
 - `npm run lint:domain`
 - `npm run lint:repo`
 

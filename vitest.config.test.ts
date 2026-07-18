@@ -14,4 +14,31 @@ describe('Vitest configuration', () => {
       ),
     });
   });
+
+  it('enforces the approved V8 coverage policy for workspace sources', async () => {
+    const { default: config } = await import('./vitest.config.js');
+
+    expect(config.test?.coverage).toMatchObject({
+      provider: 'v8',
+      include: ['apps/**/src/**/*.ts', 'packages/**/src/**/*.ts'],
+      reporter: ['text', 'json', 'html'],
+      reportsDirectory: './coverage',
+      thresholds: {
+        statements: 80,
+        functions: 80,
+        lines: 80,
+        branches: 70,
+      },
+    });
+    expect(config.test?.coverage?.exclude).toEqual(
+      expect.arrayContaining([
+        '**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
+        '**/*.d.ts',
+        '**/*config*.{js,mjs,cjs,ts,mts,cts}',
+        '**/dist/**',
+        '**/node_modules/**',
+        'coverage/**',
+      ]),
+    );
+  });
 });

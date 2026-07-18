@@ -17,4 +17,26 @@ export default defineConfig({
       '@sheldon/persistence': sourcePath('./packages/persistence/src/index.ts'),
     },
   },
+  test: {
+    coverage: {
+      provider: 'v8',
+      include: ['apps/**/src/**/*.ts', 'packages/**/src/**/*.ts'],
+      exclude: [
+        '**/*.{test,spec}.{js,mjs,cjs,ts,mts,cts,jsx,tsx}',
+        '**/*.d.ts',
+        '**/*config*.{js,mjs,cjs,ts,mts,cts}',
+        '**/dist/**',
+        '**/node_modules/**',
+        'coverage/**',
+      ],
+      reporter: ['text', 'json', 'html'],
+      reportsDirectory: './coverage',
+      thresholds: {
+        statements: 80,
+        functions: 80,
+        lines: 80,
+        branches: 70,
+      },
+    },
+  },
 });

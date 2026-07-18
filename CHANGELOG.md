@@ -27,3 +27,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Bundle executável da CLI com preservação explícita dos módulos nativos `node:*`.
 - Testes de aceitação do PRD 001, incluindo falha atômica injetada, descoberta por configuração e recuperação após remoção do SQLite.
 - Lint de repositório que exige `README.md` e `CHANGELOG.md` junto de mudanças de implementação.
+- Gate local de cobertura Vitest/V8 para `apps/**/src` e `packages/**/src`, com relatórios text, JSON e HTML e mínimos de 80% para statements, functions e lines e 70% para branches.
