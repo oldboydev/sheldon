@@ -10,6 +10,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 - Build dos workspaces e transformação TypeScript do Vitest migrados de esbuild para SWC.
 - Instalação local de plugins reforçada com validação autoritativa da árvore em staging, leitura estável do manifesto, serialização concorrente do registro e rollback com diagnóstico fiel.
+- Lock do registro de plugins reforçado com propriedade por token, recuperação de processos encerrados e liberação que nunca remove propriedade substituta nem mascara o erro primário.
 
 ### Added
 

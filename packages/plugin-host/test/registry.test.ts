@@ -1,6 +1,7 @@
 import {
   access,
   cp,
+  lstat,
   mkdir,
   mkdtemp,
   open,
@@ -23,6 +24,7 @@ import {
   type ManifestFileOpener,
   type PluginDirectoryCopier,
   type PluginDirectoryRemover,
+  type RegistryLockFileSystem,
   type RegistryPersistence,
 } from '../src/index.js';
 
@@ -70,6 +72,24 @@ const failingPersistence: RegistryPersistence = {
     throw new Error('simulated registry replacement failure');
   },
 };
+
+function lockFileSystem(overrides: Partial<RegistryLockFileSystem> = {}): RegistryLockFileSystem {
+  return {
+    createExclusive: async (path) => open(path, 'wx', 0o600),
+    read: async (path) => readFile(path, 'utf8'),
+    rename,
+    remove: async (path) => rm(path, { force: true }),
+    stat: async (path) => {
+      const metadata = await lstat(path, { bigint: true });
+      return {
+        mtimeMs: Number(metadata.mtimeMs),
+        dev: metadata.dev,
+        ino: metadata.ino,
+      };
+    },
+    ...overrides,
+  };
+}
 
 describe('plugin manifest loading', () => {
   it('loads the exact manifest bytes and returns their digest', async () => {
@@ -176,6 +196,37 @@ describe('PluginRegistry installation', () => {
     const appRoot = join(parent, 'app');
 
     const registry = await PluginRegistry.open(appRoot);
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_SOURCE_ESCAPE',
+    });
+    await expect(access(join(appRoot, 'plugins', 'fixture.node'))).rejects.toThrow();
+  });
+
+  it('rejects a source root that is itself a link', async () => {
+    const parent = await makeTemporaryDirectory('linked-source-root');
+    const sourceRoot = await makePluginSource(parent);
+    const linkedRoot = join(parent, 'linked-root');
+    await symlink(sourceRoot, linkedRoot, process.platform === 'win32' ? 'junction' : 'dir');
+    const appRoot = join(parent, 'app');
+    const registry = await PluginRegistry.open(appRoot);
+
+    await expect(registry.install(linkedRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_SOURCE_ESCAPE',
+    });
+    await expect(access(join(appRoot, 'plugins', 'fixture.node'))).rejects.toThrow();
+  });
+
+  it('rejects a staging root that the copier replaces with a link', async () => {
+    const parent = await makeTemporaryDirectory('linked-stage-root');
+    const sourceRoot = await makePluginSource(parent);
+    const copier: PluginDirectoryCopier = {
+      copy: async (source, destination) => {
+        await symlink(source, destination, process.platform === 'win32' ? 'junction' : 'dir');
+      },
+    };
+    const appRoot = join(parent, 'app');
+    const registry = await PluginRegistry.open(appRoot, { copier });
 
     await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
       code: 'PLUGIN_SOURCE_ESCAPE',
@@ -342,6 +393,122 @@ describe('PluginRegistry installation', () => {
       await lock.close();
       await rm(lockPath, { force: true });
     }
+  });
+
+  it('preserves a registry write error when lock release also fails', async () => {
+    const parent = await makeTemporaryDirectory('lock-release-primary');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    const lockPath = join(appRoot, '.plugin-registry.lock');
+    const fileSystem = lockFileSystem({
+      rename: async (source, destination) => {
+        if (source === lockPath) throw new Error('simulated lock release failure');
+        await rename(source, destination);
+      },
+    });
+    const registry = await PluginRegistry.open(appRoot, {
+      persistence: failingPersistence,
+      lock: { fileSystem },
+    });
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_REGISTRY_WRITE_FAILED',
+      recovery: expect.stringMatching(/lock release also failed/i),
+    });
+  });
+
+  it('maps lock release failure after success to a stable host error', async () => {
+    const parent = await makeTemporaryDirectory('lock-release-success');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    const lockPath = join(appRoot, '.plugin-registry.lock');
+    const fileSystem = lockFileSystem({
+      rename: async (source, destination) => {
+        if (source === lockPath) throw new Error('simulated lock release failure');
+        await rename(source, destination);
+      },
+    });
+    const registry = await PluginRegistry.open(appRoot, { lock: { fileSystem } });
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_REGISTRY_LOCK_RELEASE_FAILED',
+      recovery: expect.stringMatching(/inspect.*lock/i),
+    });
+    await expect(access(join(appRoot, 'plugins', 'fixture.node'))).resolves.toBeUndefined();
+  });
+
+  it('recovers a lock owned by a dead process before installing', async () => {
+    const parent = await makeTemporaryDirectory('stale-lock');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    await mkdir(appRoot);
+    const lockPath = join(appRoot, '.plugin-registry.lock');
+    await writeFile(
+      lockPath,
+      JSON.stringify({
+        token: 'dead-owner-token',
+        pid: 424_242,
+        createdAt: '2026-07-18T00:00:00.000Z',
+      }),
+      'utf8',
+    );
+    const registry = await PluginRegistry.open(appRoot, {
+      lock: { processAlive: async () => false },
+    });
+
+    await expect(registry.install(sourceRoot, new Set())).resolves.toMatchObject({
+      manifest: { id: 'fixture.node' },
+    });
+    await expect(access(lockPath)).rejects.toThrow();
+  });
+
+  it('recovers invalid lock metadata only after the stale threshold', async () => {
+    const parent = await makeTemporaryDirectory('invalid-stale-lock');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    await mkdir(appRoot);
+    const lockPath = join(appRoot, '.plugin-registry.lock');
+    await writeFile(lockPath, 'not-json', 'utf8');
+    const registry = await PluginRegistry.open(appRoot, {
+      lock: {
+        now: () => Date.now() + 60_000,
+        invalidLockStaleMilliseconds: 1_000,
+      },
+    });
+
+    await expect(registry.install(sourceRoot, new Set())).resolves.toMatchObject({
+      manifest: { id: 'fixture.node' },
+    });
+    await expect(access(lockPath)).rejects.toThrow();
+  });
+
+  it('never deletes replacement ownership introduced during release', async () => {
+    const parent = await makeTemporaryDirectory('lock-owner-replacement');
+    const sourceRoot = await makePluginSource(parent);
+    const appRoot = join(parent, 'app');
+    const lockPath = join(appRoot, '.plugin-registry.lock');
+    const replacement = {
+      token: 'replacement-owner-token',
+      pid: process.pid,
+      createdAt: '2026-07-18T00:00:00.000Z',
+    };
+    let replaced = false;
+    const fileSystem = lockFileSystem({
+      rename: async (source, destination) => {
+        if (source === lockPath && !replaced) {
+          replaced = true;
+          await rename(source, `${source}.original-owner`);
+          await writeFile(source, JSON.stringify(replacement), 'utf8');
+        }
+        await rename(source, destination);
+      },
+    });
+    const registry = await PluginRegistry.open(appRoot, { lock: { fileSystem } });
+
+    await expect(registry.install(sourceRoot, new Set())).rejects.toMatchObject({
+      code: 'PLUGIN_REGISTRY_LOCK_RELEASE_FAILED',
+    });
+    await expect(readFile(lockPath, 'utf8')).resolves.toBe(JSON.stringify(replacement));
   });
 
   it('loads registry records in identifier order', async () => {

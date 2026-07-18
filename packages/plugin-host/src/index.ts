@@ -15,3 +15,4 @@ export {
   type PluginRegistryOptions,
   type RegistryPersistence,
 } from './registry.js';
+export { type RegistryLockFileSystem, type RegistryLockOptions } from './registry-lock.js';

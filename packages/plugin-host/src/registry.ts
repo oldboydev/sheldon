@@ -12,7 +12,6 @@ import {
   stat,
 } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import { parse, stringify } from 'yaml';
 
@@ -23,6 +22,7 @@ import {
   type LoadedPluginManifest,
   type ManifestFileOpener,
 } from './manifest-loader.js';
+import { acquireRegistryLock, type RegistryLockOptions } from './registry-lock.js';
 
 interface RegistryDocument {
   readonly version: 1;
@@ -58,6 +58,7 @@ export interface PluginRegistryOptions {
   readonly copier?: PluginDirectoryCopier;
   readonly remover?: PluginDirectoryRemover;
   readonly manifestOpener?: ManifestFileOpener;
+  readonly lock?: RegistryLockOptions;
 }
 
 const atomicRegistryPersistence: RegistryPersistence = {
@@ -78,8 +79,6 @@ const pluginDirectoryRemover: PluginDirectoryRemover = {
   remove: async (path) => rm(path, { recursive: true, force: true }),
 };
 const transactionTails = new Map<string, Promise<void>>();
-const lockAttempts = 40;
-const lockRetryMilliseconds = 25;
 
 function compareRecords(left: PluginInstallationRecord, right: PluginInstallationRecord): number {
   return left.id.localeCompare(right.id);
@@ -104,15 +103,22 @@ function sourceError(code: string, message: string, target: string): PluginHostE
 }
 
 async function preflightSource(sourceDirectory: string): Promise<void> {
-  const canonicalSource = await realpath(sourceDirectory);
-  const rootMetadata = await stat(canonicalSource);
-  if (!rootMetadata.isDirectory()) {
+  const lexicalRoot = await lstat(sourceDirectory);
+  if (lexicalRoot.isSymbolicLink()) {
+    throw sourceError(
+      'PLUGIN_SOURCE_ESCAPE',
+      'The plugin source root must not be a link or junction.',
+      sourceDirectory,
+    );
+  }
+  if (!lexicalRoot.isDirectory()) {
     throw sourceError(
       'PLUGIN_SOURCE_INVALID',
       'The plugin source is not a directory.',
       sourceDirectory,
     );
   }
+  const canonicalSource = await realpath(sourceDirectory);
 
   const activeDirectories = new Set<string>();
 
@@ -318,51 +324,6 @@ async function withInProcessTransaction<T>(key: string, action: () => Promise<T>
   }
 }
 
-async function acquireRegistryLock(appRoot: string): Promise<() => Promise<void>> {
-  const lockPath = join(appRoot, '.plugin-registry.lock');
-  for (let attempt = 0; attempt < lockAttempts; attempt += 1) {
-    let handle: Awaited<ReturnType<typeof open>>;
-    try {
-      handle = await open(lockPath, 'wx', 0o600);
-    } catch (error) {
-      if (!(error instanceof Error && 'code' in error && error.code === 'EEXIST')) throw error;
-      if (attempt + 1 < lockAttempts) await delay(lockRetryMilliseconds);
-      continue;
-    }
-
-    try {
-      const identity = await handle.stat({ bigint: true });
-      return async () => {
-        let releaseError: unknown;
-        try {
-          await handle.close();
-        } catch (error) {
-          releaseError = error;
-        }
-        try {
-          const current = await lstat(lockPath, { bigint: true });
-          if (current.dev === identity.dev && current.ino === identity.ino) {
-            await rm(lockPath, { force: true });
-          }
-        } catch (error) {
-          if (!isMissingFileError(error) && releaseError === undefined) releaseError = error;
-        }
-        if (releaseError !== undefined) throw releaseError;
-      };
-    } catch (error) {
-      await handle.close().catch(() => undefined);
-      await rm(lockPath, { force: true }).catch(() => undefined);
-      throw error;
-    }
-  }
-  throw new PluginHostError(
-    'PLUGIN_REGISTRY_BUSY',
-    'The plugin registry is busy.',
-    lockPath,
-    'Wait for the other plugin operation to finish and retry.',
-  );
-}
-
 async function assertSafePluginRoot(paths: PluginAppPaths): Promise<void> {
   const metadata = await lstat(paths.plugins);
   if (metadata.isSymbolicLink() || !metadata.isDirectory()) {
@@ -439,6 +400,38 @@ async function cleanupStage(
   }
 }
 
+function preservePrimaryWithLockRelease(
+  primary: unknown,
+  releaseError: unknown,
+  lockPath: string,
+): unknown {
+  if (primary instanceof Error) {
+    Object.defineProperty(primary, 'lockReleaseError', {
+      value: releaseError,
+      configurable: true,
+    });
+  }
+  if (primary instanceof PluginHostError) {
+    Object.defineProperty(primary, 'recovery', {
+      value: `${primary.recovery} Lock release also failed; inspect ${lockPath} before retrying.`,
+      enumerable: true,
+      configurable: true,
+    });
+  }
+  return primary;
+}
+
+function stableLockReleaseError(error: unknown, lockPath: string): PluginHostError {
+  if (error instanceof PluginHostError) return error;
+  return new PluginHostError(
+    'PLUGIN_REGISTRY_LOCK_RELEASE_FAILED',
+    'The plugin registry lock could not be released.',
+    lockPath,
+    `Inspect the lock at ${lockPath} before retrying.`,
+    { cause: error },
+  );
+}
+
 export class PluginRegistry {
   private constructor(
     private readonly paths: PluginAppPaths,
@@ -447,6 +440,7 @@ export class PluginRegistry {
     private readonly copier: PluginDirectoryCopier,
     private readonly remover: PluginDirectoryRemover,
     private readonly manifestOpener: ManifestFileOpener | undefined,
+    private readonly lockOptions: RegistryLockOptions,
   ) {}
 
   public static async open(
@@ -466,6 +460,7 @@ export class PluginRegistry {
       options.copier ?? safePluginDirectoryCopier,
       options.remover ?? pluginDirectoryRemover,
       options.manifestOpener,
+      options.lock ?? {},
     );
   }
 
@@ -586,13 +581,34 @@ export class PluginRegistry {
   private async transaction<T>(action: () => Promise<T>): Promise<T> {
     const key = pathComparisonKey(await realpath(this.paths.root));
     return withInProcessTransaction(key, async () => {
-      const releaseLock = await acquireRegistryLock(this.paths.root);
+      const lock = await acquireRegistryLock(this.paths.root, this.lockOptions);
+      let outcome:
+        | { readonly status: 'success'; readonly value: T }
+        | {
+            readonly status: 'failure';
+            readonly error: unknown;
+          };
       try {
         this.records = await loadRegistryRecords(this.paths.registry);
-        return await action();
-      } finally {
-        await releaseLock();
+        outcome = { status: 'success', value: await action() };
+      } catch (error) {
+        outcome = { status: 'failure', error };
       }
+
+      let releaseError: unknown;
+      try {
+        await lock.release();
+      } catch (error) {
+        releaseError = stableLockReleaseError(error, lock.path);
+      }
+
+      if (outcome.status === 'failure') {
+        throw releaseError === undefined
+          ? outcome.error
+          : preservePrimaryWithLockRelease(outcome.error, releaseError, lock.path);
+      }
+      if (releaseError !== undefined) throw releaseError;
+      return outcome.value;
     });
   }
 
