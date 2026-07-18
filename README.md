@@ -46,6 +46,10 @@ Plugins locais são instalados exclusivamente a partir de um diretório local. S
 
 A instalação apenas copia arquivos: não executa código ou scripts de pacote, não instala dependências, não faz downloads e não acessa a rede. Instalações e remoções concorrentes são serializadas por processo e por um lock exclusivo no diretório da aplicação para impedir perda de registros. O lock registra token de propriedade, PID e horário, preserva locks de processos ativos e recupera com segurança locks abandonados por processos encerrados. A remoção aceita somente um identificador registrado e apaga apenas o filho exato correspondente dentro do diretório de plugins, respeitando a comparação de caminhos sem distinção entre maiúsculas e minúsculas no Windows.
 
+Cada operação `describe`, `probe` ou `healthcheck` inicia um processo novo com `shell: false`, diretório de trabalho na raiz do plugin e um ambiente sanitizado. Somente `PATH`, `PATHEXT`, `SystemRoot`, `WINDIR` e variáveis de locale são encaminhadas; `TEMP` e `TMP` apontam para um diretório exclusivo da operação. Entradas e ambiente não são copiados para o histórico operacional.
+
+Por padrão, `describe` e `probe` têm limite de 10 segundos, `healthcheck` de 30 segundos e `ingest` de 15 minutos. Uma linha JSONL pode ter até 1 MiB e o stdout de protocolo, até 8 MiB. Logs continuam separados no stderr, cujo histórico preserva somente a cauda mais recente de 256 KiB. Esses processos reduzem interferência entre operações, mas não constituem um sandbox do sistema operacional: um plugin local ainda executa com os acessos concedidos ao usuário atual.
+
 Um plugin TypeScript define as quatro operações primárias e o cancelamento cooperativo, depois entrega o controle ao runner:
 
 ```ts
