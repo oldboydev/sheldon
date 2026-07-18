@@ -6,7 +6,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
-Já estão implementados o workspace verificável, o domínio de entidades e o serviço de vault. A base atual cria a estrutura canônica, grava YAML atomicamente, impede colisões e preserva identidade e conteúdo em renomeações e arquivamentos.
+Já estão implementados o workspace verificável, o domínio de entidades, o serviço de vault e a trilha operacional em SQLite. A base atual cria a estrutura canônica, grava YAML atomicamente, impede colisões, preserva identidade e conteúdo e mantém o banco reconstruível separado do conhecimento.
 
 ## Decisões principais
 

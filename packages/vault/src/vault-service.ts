@@ -28,7 +28,20 @@ interface VaultManifest {
   readonly created_at: string;
 }
 
-export type VaultServiceDependencies = EntityMetadataDependencies;
+export interface OperationEvent {
+  readonly action: string;
+  readonly entityId: string;
+  readonly at: string;
+  readonly details?: Readonly<Record<string, unknown>>;
+}
+
+export interface OperationRecorder {
+  recordOperation(event: OperationEvent): void;
+}
+
+export type VaultServiceDependencies = EntityMetadataDependencies & {
+  readonly operations?: OperationRecorder;
+};
 
 export class VaultService {
   public readonly root: string;
@@ -128,6 +141,10 @@ export class VaultService {
         ['raw', 'wiki', 'outputs', 'history'].map((name) => mkdir(join(directory, name))),
       );
       await this.writeMetadata(metadata);
+      this.recordOperation('entity.created', metadata, {
+        kind: metadata.kind,
+        slug: metadata.slug,
+      });
       return metadata;
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
@@ -184,6 +201,11 @@ export class VaultService {
 
     if (destination === current) {
       await this.writeMetadata(renamed);
+      this.recordOperation('entity.renamed', renamed, {
+        kind: renamed.kind,
+        previousSlug: currentSlug,
+        slug: renamed.slug,
+      });
       return renamed;
     }
 
@@ -201,6 +223,11 @@ export class VaultService {
       );
     }
 
+    this.recordOperation('entity.renamed', renamed, {
+      kind: renamed.kind,
+      previousSlug: currentSlug,
+      slug: renamed.slug,
+    });
     return renamed;
   }
 
@@ -210,6 +237,10 @@ export class VaultService {
 
     const archived = archiveEntityMetadata(existing, this.now());
     await this.writeMetadata(archived);
+    this.recordOperation('entity.archived', archived, {
+      kind: archived.kind,
+      slug: archived.slug,
+    });
     return archived;
   }
 
@@ -223,6 +254,19 @@ export class VaultService {
   ): Promise<void> {
     const path = entityMetadataPath(this.root, metadata.kind, pathSlug);
     await atomicWriteFile(path, stringify(metadata));
+  }
+
+  private recordOperation(
+    action: string,
+    metadata: VaultEntityMetadata,
+    details: Readonly<Record<string, unknown>>,
+  ): void {
+    this.dependencies.operations?.recordOperation({
+      action,
+      entityId: metadata.id,
+      at: metadata.updated_at,
+      details,
+    });
   }
 }
 

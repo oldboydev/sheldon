@@ -8,4 +8,9 @@ export {
   vaultPaths,
   type VaultPaths,
 } from './layout.js';
-export { VaultService, type VaultServiceDependencies } from './vault-service.js';
+export {
+  VaultService,
+  type OperationEvent,
+  type OperationRecorder,
+  type VaultServiceDependencies,
+} from './vault-service.js';

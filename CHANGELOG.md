@@ -18,3 +18,4 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Baseline em Node.js 24 LTS usando o SQLite nativo do runtime para evitar dependências binárias externas.
 - Contratos de tópicos e projetos com identidade estável, slugs normalizados, renomeação e arquivamento.
 - Serviço de vault com descoberta explícita, layout canônico, metadados YAML, escrita atômica e proteção contra colisões.
+- Trilha operacional reconstruível em `node:sqlite` para criação, renomeação e arquivamento de entidades.

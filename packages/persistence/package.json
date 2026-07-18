@@ -2,5 +2,11 @@
   "name": "@sheldon/persistence",
   "version": "0.0.0",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "@sheldon/vault": "*"
+  }
 }
