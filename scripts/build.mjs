@@ -1,29 +1,40 @@
-import { rm } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, relative } from 'node:path';
 
-import { build } from 'esbuild';
+import { transformFile } from '@swc/core';
 
-const outputDirectory = 'apps/cli/dist';
-await rm(outputDirectory, { recursive: true, force: true });
+const targets = [
+  ['packages/core/src', 'packages/core/dist'],
+  ['packages/vault/src', 'packages/vault/dist'],
+  ['packages/persistence/src', 'packages/persistence/dist'],
+  ['apps/cli/src', 'apps/cli/dist'],
+];
 
-await build({
-  entryPoints: ['apps/cli/src/sheldon.ts'],
-  outfile: `${outputDirectory}/sheldon.js`,
-  bundle: true,
-  format: 'esm',
-  platform: 'node',
-  target: 'node24',
-  external: ['commander', 'yaml'],
-  legalComments: 'none',
-  logLevel: 'info',
-  plugins: [
-    {
-      name: 'preserve-node-protocol',
-      setup(builder) {
-        builder.onResolve({ filter: /^node:/ }, (args) => ({
-          path: args.path,
-          external: true,
-        }));
-      },
-    },
-  ],
-});
+async function sourceFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  const nested = await Promise.all(
+    entries.map(async (entry) => {
+      const path = join(directory, entry.name);
+      if (entry.isDirectory()) return sourceFiles(path);
+      return entry.isFile() && path.endsWith('.ts') ? [path] : [];
+    }),
+  );
+  return nested.flat();
+}
+
+async function compile(sourceDirectory, outputDirectory) {
+  await rm(outputDirectory, { recursive: true, force: true });
+  for (const file of await sourceFiles(sourceDirectory)) {
+    const output = join(outputDirectory, relative(sourceDirectory, file)).replace(/\.ts$/, '.js');
+    await mkdir(dirname(output), { recursive: true });
+    const { code } = await transformFile(file, {
+      filename: file,
+      jsc: { parser: { syntax: 'typescript' }, target: 'es2023' },
+      module: { type: 'es6' },
+      sourceMaps: false,
+    });
+    await writeFile(output, code, 'utf8');
+  }
+}
+
+await Promise.all(targets.map(([source, output]) => compile(source, output)));

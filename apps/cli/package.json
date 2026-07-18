@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/main.ts"
+    ".": "./dist/main.js"
   },
   "bin": {
     "sheldon": "./dist/sheldon.js"
