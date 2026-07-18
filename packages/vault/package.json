@@ -1,0 +1,10 @@
+{
+  "name": "@sheldon/vault",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sheldon/core": "*",
+    "yaml": "^2.8.1"
+  }
+}

@@ -6,7 +6,7 @@
 
 **Architecture:** An npm-workspaces monorepo separates domain rules, atomic vault I/O, SQLite operational state, and the CLI adapter. Markdown/YAML files are durable truth; SQLite is expendable operational state. The CLI composes packages and never accesses the network.
 
-**Tech Stack:** Node.js 22 LTS+, TypeScript 5, npm workspaces, Commander, `yaml`, `better-sqlite3`, Vitest, ESLint, Prettier, markdownlint-cli2, Commitlint and Husky.
+**Tech Stack:** Node.js 24 LTS+, TypeScript 5, npm workspaces, Commander, `yaml`, built-in `node:sqlite`, Vitest, ESLint, Prettier, markdownlint-cli2, Commitlint and Husky.
 
 ## Global Constraints
 
@@ -23,7 +23,7 @@
 
 ## Proposed file structure
 
-~~~text
+```text
 apps/cli/
   src/main.ts                 Commander entry point and exit-code mapping
   src/commands/*.ts           Thin command adapters
@@ -42,7 +42,7 @@ packages/persistence/
   test/*.test.ts
 scripts/
   verify-domain.mjs           Vault fixture/domain validation
-~~~
+```
 
 ## Task 1: Establish the workspace and quality gates
 
@@ -63,13 +63,13 @@ scripts/
 
 Create `scripts/verify-domain.mjs`:
 
-~~~js
+```js
 import { existsSync } from 'node:fs';
 
 if (!existsSync('test-fixtures/valid-vault/system/vault.yaml')) {
   throw new Error('Required vault fixture is missing.');
 }
-~~~
+```
 
 - [ ] **Step 2: Verify RED**
 
@@ -81,19 +81,19 @@ Expected: exit 1 with `Required vault fixture is missing.`
 
 Create `test-fixtures/valid-vault/system/vault.yaml`:
 
-~~~yaml
+```yaml
 format: sheldon-vault/v1
 version: 1
 created_at: 2026-07-18T00:00:00.000Z
-~~~
+```
 
 Replace the smoke check with a validator that reads every `test-fixtures/*/system/vault.yaml`, requires `format: sheldon-vault/v1`, and emits its failing path. Configure the root `package.json` exactly with these command contracts:
 
-~~~json
+```json
 {
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=24" },
   "scripts": {
     "lint": "eslint .",
     "format:check": "prettier --check .",
@@ -104,7 +104,7 @@ Replace the smoke check with a validator that reads every `test-fixtures/*/syste
     "verify": "npm run format:check && npm run lint && npm run typecheck && npm run lint:md && npm run test && npm run lint:domain && git diff --check"
   }
 }
-~~~
+```
 
 Use `* text=auto eol=lf` in `.gitattributes`. Ignore `node_modules/`, `coverage/`, `*.db`, `*.db-shm` and `*.db-wal`. Configure the commit hook to run `npx --no -- commitlint --edit "$1"`.
 
@@ -114,9 +114,9 @@ Run: `node scripts/verify-domain.mjs`
 
 Expected: exit 0.
 
-Run: `npm install commander yaml better-sqlite3`
+Run: `npm install commander yaml`
 
-Run: `npm install -D typescript vitest eslint @eslint/js typescript-eslint prettier eslint-config-prettier markdownlint-cli2 @commitlint/cli @commitlint/config-conventional husky @types/node @types/better-sqlite3`
+Run: `npm install -D typescript vitest eslint @eslint/js typescript-eslint prettier eslint-config-prettier markdownlint-cli2 @commitlint/cli @commitlint/config-conventional husky @types/node globals`
 
 Run: `npm run lint && npm run typecheck && npm run lint:md`
 
@@ -145,22 +145,20 @@ Run: `git commit -m "build: scaffold TypeScript workspace"`
 
 - [ ] **Step 1: Write failing slug tests**
 
-~~~ts
+```ts
 import { describe, expect, it } from 'vitest';
 import { slugify } from '../src/slug.js';
 
 describe('slugify', () => {
   it('normalizes accents while preserving the source title elsewhere', () => {
-    expect(slugify('Arquitetura de Agentes: São Paulo')).toBe(
-      'arquitetura-de-agentes-sao-paulo'
-    );
+    expect(slugify('Arquitetura de Agentes: São Paulo')).toBe('arquitetura-de-agentes-sao-paulo');
   });
 
   it('rejects titles with no slug-safe characters', () => {
     expect(() => slugify('  !!!  ')).toThrow('cannot produce a slug');
   });
 });
-~~~
+```
 
 - [ ] **Step 2: Verify RED**
 
@@ -170,7 +168,7 @@ Expected: FAIL because `slugify` is missing.
 
 - [ ] **Step 3: Implement minimum core behavior**
 
-~~~ts
+```ts
 export function slugify(title: string): string {
   const slug = title
     .normalize('NFKD')
@@ -182,7 +180,7 @@ export function slugify(title: string): string {
   if (!slug) throw new Error('Title cannot produce a slug.');
   return slug;
 }
-~~~
+```
 
 Define metadata with immutable `id`, `title`, optional `description`, `slug`, `kind`, `status`, `created_at`, `updated_at` and optional `archived_at`. Use `crypto.randomUUID()` and ISO-8601 UTC timestamps.
 
@@ -215,7 +213,7 @@ Run: `git commit -m "feat(core): add vault entity contracts"`
 
 - [ ] **Step 1: Write the failing atomic-write test**
 
-~~~ts
+```ts
 it('keeps the previous file when rename preparation fails', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'sheldon-'));
   const target = join(directory, 'metadata.yaml');
@@ -225,13 +223,13 @@ it('keeps the previous file when rename preparation fails', async () => {
     atomicWriteFile(target, 'new', {
       beforeRename: () => {
         throw new Error('stop');
-      }
-    })
+      },
+    }),
   ).rejects.toThrow('stop');
 
   await expect(readFile(target, 'utf8')).resolves.toBe('old');
 });
-~~~
+```
 
 - [ ] **Step 2: Verify RED**
 
@@ -247,13 +245,14 @@ Implement `atomicWriteFile(target, content, hooks?)` with a unique same-director
 
 - [ ] **Step 4: Write lifecycle tests**
 
-~~~ts
+```ts
 it('does not overwrite an entity whose normalized slug exists', async () => {
   const vault = await makeTemporaryVault();
   await vault.createEntity({ kind: 'topic', title: 'São Paulo' });
 
-  await expect(vault.createEntity({ kind: 'topic', title: 'Sao Paulo' }))
-    .rejects.toThrow('topics/sao-paulo already exists');
+  await expect(vault.createEntity({ kind: 'topic', title: 'Sao Paulo' })).rejects.toThrow(
+    'topics/sao-paulo already exists',
+  );
 });
 
 it('renames an entity without changing its id', async () => {
@@ -264,7 +263,7 @@ it('renames an entity without changing its id', async () => {
   expect(renamed.id).toBe(created.id);
   expect(renamed.slug).toBe('new-name');
 });
-~~~
+```
 
 - [ ] **Step 5: Implement lifecycle and verify GREEN**
 
@@ -295,21 +294,21 @@ Run: `git commit -m "feat(vault): add atomic entity lifecycle"`
 
 - [ ] **Step 1: Write the failing operational-state test**
 
-~~~ts
+```ts
 it('records an operation outside knowledge files', () => {
   const db = OperationsDatabase.open(':memory:');
 
   db.recordOperation({
     action: 'entity.created',
     entityId: 'entity-1',
-    at: '2026-07-18T00:00:00.000Z'
+    at: '2026-07-18T00:00:00.000Z',
   });
 
   expect(db.listOperations()).toEqual([
-    expect.objectContaining({ action: 'entity.created', entityId: 'entity-1' })
+    expect.objectContaining({ action: 'entity.created', entityId: 'entity-1' }),
   ]);
 });
-~~~
+```
 
 - [ ] **Step 2: Verify RED**
 
@@ -319,7 +318,7 @@ Expected: FAIL because `OperationsDatabase` is missing.
 
 - [ ] **Step 3: Implement and test recovery**
 
-Use `better-sqlite3` with parameterized statements. Create an `operations` table with `id`, `action`, nullable `entity_id`, `at` and `details_json`. `getRebuildStatus()` states that operational SQLite is removable and reconstructed from vault files.
+Use the built-in `DatabaseSync` from `node:sqlite` with parameterized statements. Create an `operations` table with `id`, `action`, nullable `entity_id`, `at` and `details_json`. `getRebuildStatus()` states that operational SQLite is removable and reconstructed from vault files.
 
 Add an integration test: create a topic, assert `entity.created`, delete `system/operations.db`, reopen and read the topic metadata successfully.
 
@@ -350,17 +349,17 @@ Run: `git commit -m "feat(persistence): record vault operations locally"`
 
 - [ ] **Step 1: Write failing CLI integration test**
 
-~~~ts
+```ts
 it('initializes an explicit vault and recognizes it in a later invocation', async () => {
   const vaultPath = await mkdtemp(join(tmpdir(), 'sheldon-cli-'));
 
   await expect(runCli(['init', vaultPath])).resolves.toMatchObject({ exitCode: 0 });
   await expect(runCli(['doctor', '--vault', vaultPath])).resolves.toMatchObject({
     exitCode: 0,
-    stdout: expect.stringContaining('Vault: healthy')
+    stdout: expect.stringContaining('Vault: healthy'),
   });
 });
-~~~
+```
 
 - [ ] **Step 2: Verify RED**
 
@@ -372,11 +371,11 @@ Expected: FAIL because `runCli` is missing.
 
 Use Commander and an injected `CliDependencies` object so `runCli(args, dependencies)` is testable without a shell. Render every domain error as:
 
-~~~text
+```text
 Error: <cause>
 Target: <path>
 Recovery: <action>
-~~~
+```
 
 `init` is idempotent for an existing valid vault and fails cleanly for a conflicting non-vault directory. Without `[path]`, it proposes `%USERPROFILE%\\Documents\\Sheldon`, prints the full target, and requires an interactive confirmation or `--yes`. `doctor` checks Node.js, root layout, SQLite existence/rebuild status and `codex`/`claude` availability. Missing agent CLIs are warnings, not failures in PRD 001.
 
@@ -411,7 +410,7 @@ Run: `git commit -m "feat(cli): add local vault commands"`
 
 - [ ] **Step 1: Write the failing atomic-failure acceptance test**
 
-~~~ts
+```ts
 it('keeps old metadata after a simulated rename failure', async () => {
   const vault = await makeTemporaryVault({ failRename: true });
   await vault.createEntity({ kind: 'topic', title: 'Atomicity' });
@@ -419,10 +418,10 @@ it('keeps old metadata after a simulated rename failure', async () => {
   await expect(vault.renameEntity('topic', 'atomicity', 'Renamed')).rejects.toThrow();
 
   expect(await vault.inspectEntity('topic', 'atomicity')).toMatchObject({
-    title: 'Atomicity'
+    title: 'Atomicity',
   });
 });
-~~~
+```
 
 - [ ] **Step 2: Verify RED**
 
@@ -452,15 +451,15 @@ Run: `git commit -m "test: verify vault foundation acceptance"`
 
 ## Coverage audit
 
-| PRD requirement | Planned task |
-| --- | --- |
-| Init, explicit/config discovery and layout | 3 and 5 |
-| Metadata, slugs, rename and archive | 2 and 3 |
-| SQLite state and reconstruction | 4 and 5 |
-| Atomic failure safety | 3 and 6 |
-| Local doctor diagnostics | 5 |
-| Lint, test and commit standards | 1 and 6 |
-| README and changelog maintenance | 1, 5 and 6 |
+| PRD requirement                            | Planned task |
+| ------------------------------------------ | ------------ |
+| Init, explicit/config discovery and layout | 3 and 5      |
+| Metadata, slugs, rename and archive        | 2 and 3      |
+| SQLite state and reconstruction            | 4 and 5      |
+| Atomic failure safety                      | 3 and 6      |
+| Local doctor diagnostics                   | 5            |
+| Lint, test and commit standards            | 1 and 6      |
+| README and changelog maintenance           | 1, 5 and 6   |
 
 ## Plan self-review
 

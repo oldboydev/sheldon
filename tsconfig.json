@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "paths": {
+      "@sheldon/core": ["./packages/core/src/index.ts"],
+      "@sheldon/vault": ["./packages/vault/src/index.ts"],
+      "@sheldon/persistence": ["./packages/persistence/src/index.ts"],
+      "@sheldon/cli": ["./apps/cli/src/main.ts"]
+    },
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["apps/**/*.ts", "packages/**/*.ts", "types/**/*.d.ts"]
+}

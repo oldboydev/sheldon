@@ -1,0 +1,11 @@
+{
+  "name": "@sheldon/cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@sheldon/core": "*",
+    "@sheldon/persistence": "*",
+    "@sheldon/vault": "*"
+  }
+}

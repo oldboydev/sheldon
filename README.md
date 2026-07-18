@@ -4,7 +4,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 ## Estado
 
-O projeto está na fase de planejamento. A arquitetura, o roadmap e dez PRDs foram aprovados; a implementação ainda não começou.
+O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
 ## Decisões principais
 
@@ -24,6 +24,26 @@ O projeto está na fase de planejamento. A arquitetura, o roadmap e dez PRDs for
 - [Roadmap](docs/roadmap.md)
 - [Pesquisa comparativa](docs/research/landscape.md)
 - [Plano de implementação da fundação](docs/superpowers/plans/2026-07-18-vault-foundation.md)
+
+## Desenvolvimento
+
+Pré-requisitos: Node.js 24 LTS ou superior e npm 11 ou superior.
+
+```powershell
+npm install
+npm run verify
+```
+
+Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, validações de domínio e `git diff --check`.
+
+Comandos individuais:
+
+- `npm run format:check`
+- `npm run lint`
+- `npm run typecheck`
+- `npm run lint:md`
+- `npm test`
+- `npm run lint:domain`
 
 ## Padrões do repositório
 
