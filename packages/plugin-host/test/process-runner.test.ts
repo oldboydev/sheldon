@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 import { PluginStateDatabase } from '@sheldon/persistence';
 import type { JsonValue, PluginManifest } from '@sheldon/plugin-sdk';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   DEFAULT_PLUGIN_LIMITS,
@@ -54,6 +54,7 @@ function limits(overrides: Partial<Omit<PluginLimits, 'timeouts'>> = {}): Plugin
 }
 
 afterEach(async () => {
+  vi.restoreAllMocks();
   while (databases.length > 0) databases.pop()?.close();
   await Promise.all(
     temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
@@ -129,8 +130,37 @@ describe('PluginProcessRunner', () => {
 
     await expect(
       runner.probe(await pluginFor('error-echo'), { secret: 'request-secret-value' }),
-    ).rejects.toMatchObject({ code: 'PLUGIN_FIXTURE_ERROR' });
+    ).rejects.toMatchObject({ code: 'PLUGIN_OPERATION_FAILED' });
     expect(JSON.stringify(state.listRuns())).not.toContain('request-secret-value');
+  });
+
+  it.each(['request-secret-code', `PLUGIN_${'X'.repeat(128 * 1_024)}`])(
+    'maps a plugin-controlled error code to a bounded host code',
+    async (pluginErrorCode) => {
+      const state = stateDatabase();
+      const runner = new PluginProcessRunner({ state });
+
+      await expect(
+        runner.probe(await pluginFor('error-echo'), {
+          secret: 'safe-message',
+          errorCode: pluginErrorCode,
+        }),
+      ).rejects.toMatchObject({ code: 'PLUGIN_OPERATION_FAILED' });
+      expect(state.listRuns().at(-1)).toMatchObject({
+        errorCode: 'PLUGIN_OPERATION_FAILED',
+      });
+      expect(JSON.stringify(state.listRuns())).not.toContain(pluginErrorCode);
+    },
+  );
+
+  it('records a numeric process exit after a framing violation when available', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state });
+
+    await expect(runner.describe(await pluginFor('malformed'))).rejects.toMatchObject({
+      code: 'PLUGIN_PROTOCOL_INVALID_JSON',
+    });
+    expect(state.listRuns().at(-1)).toMatchObject({ exitCode: 0 });
   });
 
   it('treats equivalent capability and permission ordering as the same identity', async () => {
@@ -147,5 +177,36 @@ describe('PluginProcessRunner', () => {
 
     expect(tail.text()).toBe('😀z');
     expect(Buffer.byteLength(tail.text(), 'utf8')).toBe(5);
+  });
+
+  it('replaces invalid internal stderr bytes without discarding the valid suffix', () => {
+    const tail = new StderrTail(3);
+    tail.consume(Buffer.from([0x61, 0xff, 0x62]));
+
+    expect(tail.text()).toBe('a�b');
+  });
+
+  it('drops an incomplete UTF-8 continuation sequence at the retained boundary', () => {
+    const tail = new StderrTail(2);
+    tail.consume(Buffer.from([0x61, 0x80]));
+
+    expect(tail.text()).toBe('a');
+  });
+
+  it('decodes a large bounded stderr payload once', () => {
+    const bytes = Buffer.concat([
+      Buffer.alloc(4_096, 0x61),
+      Buffer.from([0xff]),
+      Buffer.alloc(4_096, 0x62),
+    ]);
+    const tail = new StderrTail(bytes.length);
+    tail.consume(bytes);
+    const decode = vi.spyOn(TextDecoder.prototype, 'decode');
+
+    const text = tail.text();
+
+    expect(text).toContain('�');
+    expect(text).toHaveLength(bytes.length);
+    expect(decode).toHaveBeenCalledTimes(1);
   });
 });

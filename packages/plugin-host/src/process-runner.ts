@@ -61,6 +61,7 @@ interface TerminalRead {
 const forwardedEnvironmentKeys = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR'] as const;
 const recordedErrorMessage =
   'Plugin operation failed. Inspect the stable error code and retained stderr.';
+const protocolFailureExitGraceMilliseconds = 50;
 
 export class PluginProcessRunner {
   private readonly state: PluginStateDatabase;
@@ -158,8 +159,8 @@ export class PluginProcessRunner {
 
         terminal = await this.readTerminal(child, requestId);
       } catch (error) {
-        child.kill();
-        await exit;
+        const failedExit = await settleFailedProcess(child, exit);
+        if (failedExit.code !== null) exitCode = failedExit.code;
         throw error;
       } finally {
         child.stdin.end();
@@ -180,8 +181,15 @@ export class PluginProcessRunner {
       if (terminal.response.status === 'success' && processExit.code !== 0) {
         throw this.processExitedError(plugin, processExit);
       }
-      if (terminal.response.status !== 'success') {
-        throw this.error(plugin, terminal.response.error.code, terminal.response.error.message);
+      if (terminal.response.status === 'error') {
+        throw this.error(
+          plugin,
+          'PLUGIN_OPERATION_FAILED',
+          'The plugin reported an operation failure.',
+        );
+      }
+      if (terminal.response.status === 'cancelled') {
+        throw this.error(plugin, 'PLUGIN_CANCELLED', 'The plugin reported cancellation.');
       }
 
       let result: T;
@@ -452,6 +460,22 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<ProcessExit
     });
     child.once('close', (code, signal) => resolve({ code, signal, error: startError }));
   });
+}
+
+async function settleFailedProcess(
+  child: ChildProcessWithoutNullStreams,
+  exit: Promise<ProcessExit>,
+): Promise<ProcessExit> {
+  let cancelTimer = (): void => undefined;
+  const graceElapsed = new Promise<undefined>((resolve) => {
+    const timer = setTimeout(resolve, protocolFailureExitGraceMilliseconds);
+    cancelTimer = () => clearTimeout(timer);
+  });
+  const naturalExit = await Promise.race([exit, graceElapsed]);
+  cancelTimer();
+  if (naturalExit !== undefined) return naturalExit;
+  child.kill();
+  return exit;
 }
 
 function isInvalidJson(error: unknown): boolean {

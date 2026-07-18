@@ -81,7 +81,7 @@ if (mode === 'malformed') {
           requestId: request.requestId,
           status: 'error',
           error: {
-            code: 'PLUGIN_FIXTURE_ERROR',
+            code: request.payload.input.errorCode ?? 'PLUGIN_FIXTURE_ERROR',
             message: `Fixture rejected ${request.payload.input.secret}`,
           },
         }
