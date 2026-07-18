@@ -12,5 +12,6 @@ export {
   VaultService,
   type OperationEvent,
   type OperationRecorder,
+  type VaultFileSystem,
   type VaultServiceDependencies,
 } from './vault-service.js';

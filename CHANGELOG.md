@@ -21,3 +21,5 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Trilha operacional reconstruível em `node:sqlite` para criação, renomeação e arquivamento de entidades.
 - CLI local para inicialização, diagnóstico e ciclo de vida de tópicos e projetos, com configuração separada em `%APPDATA%`.
 - Bundle executável da CLI com preservação explícita dos módulos nativos `node:*`.
+- Testes de aceitação do PRD 001, incluindo falha atômica injetada, descoberta por configuração e recuperação após remoção do SQLite.
+- Lint de repositório que exige `README.md` e `CHANGELOG.md` junto de mudanças de implementação.

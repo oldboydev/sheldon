@@ -44,9 +44,10 @@ Antes de concluir uma mudança, execute todos os gates aplicáveis:
 5. testes unitários e de contrato afetados;
 6. testes end-to-end quando o fluxo público mudar;
 7. `git diff --check`;
-8. lints de domínio aplicáveis: vault, wiki, plugin e OKF.
+8. lints de domínio aplicáveis: vault, wiki, plugin e OKF;
+9. `npm run lint:repo`, que exige README e changelog em mudanças de implementação.
 
-O scaffold da implementação definirá comandos únicos de workspace, como `npm run lint`, `npm run typecheck`, `npm test` e `npm run verify`. Até lá, documentos devem passar pela verificação de whitespace e pela revisão de links, headings e placeholders.
+O workspace oferece `npm run lint`, `npm run typecheck`, `npm test` e `npm run verify`. O gate agregado também executa build, Markdown, validação de domínio, política documental e whitespace.
 
 ## Definição de pronto
 

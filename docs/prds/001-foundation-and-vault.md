@@ -81,3 +81,13 @@ Nenhuma. Este PRD inaugura o projeto.
 - Inicialização e diagnóstico concluídos sem acesso à rede.
 - Zero perda de conteúdo nos testes de falha atômica.
 - Todos os cenários de identidade e colisão cobertos por testes.
+
+## Evidências de implementação
+
+- `packages/core/test`: identidade, normalização de slugs, renomeação e arquivamento.
+- `packages/vault/test`: layout, descoberta, colisões, leitura sem mutação e escrita atômica.
+- `packages/persistence/test`: auditoria SQLite e reconstrução a partir dos arquivos do vault.
+- `apps/cli/test/cli.test.ts`: inicialização, configuração, comandos e diagnóstico local.
+- `apps/cli/test/acceptance.test.ts`: falha de rename atômico, descoberta configurada sem rede, remoção do SQLite e conflito de inicialização.
+- `scripts/change-policy.test.ts`: exigência automática de README e changelog em mudanças de implementação.
+- `npm run verify`: formatação, lint, typecheck, Markdown, 31 testes, build, domínio, política documental e whitespace.

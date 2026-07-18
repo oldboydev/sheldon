@@ -39,8 +39,19 @@ export interface OperationRecorder {
   recordOperation(event: OperationEvent): void;
 }
 
+export interface VaultFileSystem {
+  writeFileAtomically(target: string, content: string): Promise<void>;
+  renameDirectory(source: string, destination: string): Promise<void>;
+}
+
 export type VaultServiceDependencies = EntityMetadataDependencies & {
   readonly operations?: OperationRecorder;
+  readonly fileSystem?: VaultFileSystem;
+};
+
+const nodeVaultFileSystem: VaultFileSystem = {
+  writeFileAtomically: atomicWriteFile,
+  renameDirectory: rename,
 };
 
 export class VaultService {
@@ -87,7 +98,10 @@ export class VaultService {
       version: 1,
       created_at: timestamp,
     };
-    await atomicWriteFile(paths.manifest, stringify(manifest));
+    await (dependencies.fileSystem ?? nodeVaultFileSystem).writeFileAtomically(
+      paths.manifest,
+      stringify(manifest),
+    );
 
     return new VaultService(paths.root, dependencies);
   }
@@ -141,15 +155,16 @@ export class VaultService {
         ['raw', 'wiki', 'outputs', 'history'].map((name) => mkdir(join(directory, name))),
       );
       await this.writeMetadata(metadata);
-      this.recordOperation('entity.created', metadata, {
-        kind: metadata.kind,
-        slug: metadata.slug,
-      });
-      return metadata;
     } catch (error) {
       await rm(directory, { recursive: true, force: true });
       throw error;
     }
+
+    this.recordOperation('entity.created', metadata, {
+      kind: metadata.kind,
+      slug: metadata.slug,
+    });
+    return metadata;
   }
 
   public async listEntities(kind: EntityKind): Promise<VaultEntityMetadata[]> {
@@ -211,7 +226,10 @@ export class VaultService {
 
     await this.writeMetadata(renamed, currentSlug);
     try {
-      await rename(current, destination);
+      await (this.dependencies.fileSystem ?? nodeVaultFileSystem).renameDirectory(
+        current,
+        destination,
+      );
     } catch (error) {
       await this.writeMetadata(existing, currentSlug);
       throw new VaultError(
@@ -253,7 +271,10 @@ export class VaultService {
     pathSlug = metadata.slug,
   ): Promise<void> {
     const path = entityMetadataPath(this.root, metadata.kind, pathSlug);
-    await atomicWriteFile(path, stringify(metadata));
+    await (this.dependencies.fileSystem ?? nodeVaultFileSystem).writeFileAtomically(
+      path,
+      stringify(metadata),
+    );
   }
 
   private recordOperation(

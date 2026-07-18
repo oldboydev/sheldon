@@ -130,4 +130,15 @@ describe('runCli', () => {
     expect(diagnosed.stderr).toContain('Operational SQLite is unreadable');
     await expect(readFile(databasePath, 'utf8')).resolves.toBe('not a sqlite database');
   });
+
+  it('renders command syntax errors with cause, target and recovery', async () => {
+    const { dependencies } = await makeEnvironment();
+
+    const result = await runCli(['topic', 'create'], dependencies);
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain("Error: missing required argument 'title'");
+    expect(result.stderr).toContain('Target: command syntax');
+    expect(result.stderr).toContain('Recovery: run sheldon help <command> and retry.');
+  });
 });

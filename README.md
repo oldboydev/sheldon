@@ -6,7 +6,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
-Já estão implementados o workspace verificável, o domínio de entidades, o serviço de vault, a trilha operacional em SQLite e a primeira CLI local. A base atual cria a estrutura canônica, grava YAML atomicamente, impede colisões, preserva identidade e conteúdo e mantém o banco reconstruível separado do conhecimento.
+O marco M0 está implementado: workspace verificável, domínio de entidades, serviço de vault, trilha operacional em SQLite e primeira CLI local. A base cria a estrutura canônica, grava YAML atomicamente, impede colisões, preserva identidade e conteúdo e mantém o banco reconstruível separado do conhecimento.
 
 ## Decisões principais
 
@@ -36,7 +36,7 @@ npm install
 npm run verify
 ```
 
-Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, validações de domínio e `git diff --check`.
+Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, build, validações de domínio, política documental e `git diff --check`.
 
 Comandos individuais:
 
@@ -46,6 +46,7 @@ Comandos individuais:
 - `npm run lint:md`
 - `npm test`
 - `npm run lint:domain`
+- `npm run lint:repo`
 
 ## Uso da CLI
 

@@ -45,11 +45,7 @@ export async function runCli(
     write: (message) => stdout.push(`${message}\n`),
   };
   const program = createProgram(context);
-  program.exitOverride();
-  program.configureOutput({
-    writeOut: (message) => stdout.push(message),
-    writeErr: (message) => stderr.push(message),
-  });
+  configureCommander(program, stdout, stderr);
 
   try {
     await program.parseAsync([...args], { from: 'user' });
@@ -62,6 +58,13 @@ export async function runCli(
       return { exitCode: 1, stdout: stdout.join(''), stderr: stderr.join('') };
     }
     if (error instanceof CommanderError) {
+      if (error.exitCode !== 0) {
+        stderr.splice(0);
+        const message = error.message.replace(/^error:\s*/i, '');
+        stderr.push(
+          `Error: ${message}\nTarget: command syntax\nRecovery: run sheldon help <command> and retry.\n`,
+        );
+      }
       return { exitCode: error.exitCode, stdout: stdout.join(''), stderr: stderr.join('') };
     }
     const message = error instanceof Error ? error.message : String(error);
@@ -70,6 +73,15 @@ export async function runCli(
     );
     return { exitCode: 1, stdout: stdout.join(''), stderr: stderr.join('') };
   }
+}
+
+function configureCommander(command: Command, stdout: string[], stderr: string[]): void {
+  command.exitOverride();
+  command.configureOutput({
+    writeOut: (message) => stdout.push(message),
+    writeErr: (message) => stderr.push(message),
+  });
+  for (const child of command.commands) configureCommander(child, stdout, stderr);
 }
 
 function createProgram(context: CommandContext): Command {

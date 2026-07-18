@@ -10,6 +10,8 @@ O roadmap entrega fatias verificáveis. Cada marco termina com software demonstr
 
 **PRD:** 001
 
+**Status:** concluído em 18 de julho de 2026.
+
 Entrega: CLI inicial, vault central, tópicos, projetos, configuração e SQLite operacional.
 
 Saída: criar um vault, reiniciar o processo e reencontrar o mesmo estado sem depender da web.

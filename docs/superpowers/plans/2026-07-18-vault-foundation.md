@@ -28,7 +28,7 @@
 - [x] Task 3 — Vault layout and atomic lifecycle
 - [x] Task 4 — SQLite operational state
 - [x] Task 5 — CLI, configuration and doctor
-- [ ] Task 6 — Acceptance audit
+- [x] Task 6 — Acceptance audit
 
 ## Proposed file structure
 

@@ -78,6 +78,7 @@ async function withWritableVault<T>(
   operation: (vault: VaultService) => Promise<T>,
 ): Promise<T> {
   const root = await resolveVaultPath(context, explicitPath);
+  await VaultService.discover(root);
   const database = OperationsDatabase.open(vaultPaths(root).operationsDatabase);
   try {
     const vault = await VaultService.discover(root, { operations: database });

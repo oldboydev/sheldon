@@ -103,4 +103,26 @@ describe('VaultService', () => {
     expect(entities.map((entity) => entity.slug)).toEqual(['read-only']);
     await expect(readFile(metadataPath, 'utf8')).resolves.toBe(before);
   });
+
+  it('preserves durable knowledge when the operational audit fails', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-vault-'));
+    temporaryDirectories.push(root);
+    await VaultService.init(root);
+    const vault = await VaultService.discover(root, {
+      operations: {
+        recordOperation: () => {
+          throw new Error('audit unavailable');
+        },
+      },
+    });
+
+    await expect(
+      vault.createEntity({ kind: 'topic', title: 'Conhecimento Preservado' }),
+    ).rejects.toThrow('audit unavailable');
+
+    const recovered = await VaultService.discover(root);
+    await expect(
+      recovered.inspectEntity('topic', 'conhecimento-preservado'),
+    ).resolves.toMatchObject({ title: 'Conhecimento Preservado' });
+  });
 });
