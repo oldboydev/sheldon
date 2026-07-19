@@ -6,6 +6,9 @@
   "exports": {
     ".": "./dist/index.js"
   },
+  "scripts": {
+    "build:native:win32": "node native/windows-job/build.mjs"
+  },
   "dependencies": {
     "@sheldon/persistence": "*",
     "@sheldon/plugin-sdk": "*",

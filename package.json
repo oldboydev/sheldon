@@ -16,6 +16,7 @@
   "scripts": {
     "prepare": "husky",
     "build": "node scripts/build.mjs",
+    "build:native:win32": "npm run build:native:win32 --workspace @sheldon/plugin-host",
     "sheldon": "node apps/cli/dist/sheldon.js",
     "lint": "eslint .",
     "format": "prettier --write .",

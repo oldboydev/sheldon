@@ -1,7 +1,11 @@
+import { execFile } from 'node:child_process';
 import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, relative } from 'node:path';
+import { promisify } from 'node:util';
 
 import { transformFile } from '@swc/core';
+
+const execFileAsync = promisify(execFile);
 
 const targets = [
   ['packages/core/src', 'packages/core/dist'],
@@ -37,6 +41,13 @@ async function compile(sourceDirectory, outputDirectory) {
     });
     await writeFile(output, code, 'utf8');
   }
+}
+
+if (process.platform === 'win32') {
+  const npmCli =
+    process.env.npm_execpath ??
+    join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
+  await execFileAsync(process.execPath, [npmCli, 'run', 'build:native:win32']);
 }
 
 await Promise.all(targets.map(([source, output]) => compile(source, output)));

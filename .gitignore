@@ -5,4 +5,7 @@ coverage/
 *.db-shm
 *.db-wal
 dist/
+native/**/build/
+packages/plugin-host/native/windows-job/build/
+*.node
 *.tsbuildinfo
