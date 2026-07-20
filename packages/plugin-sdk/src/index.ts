@@ -21,6 +21,17 @@ export {
 } from './validation.js';
 export { JsonlReader, writeJsonl } from './jsonl.js';
 export {
+  ContractClient,
+  type ContractCommand,
+  type ContractClientOptions,
+} from './contract-client.js';
+export {
+  runPluginContract,
+  type PluginContractCheck,
+  type PluginContractReport,
+  type RunPluginContractOptions,
+} from './contract.js';
+export {
   definePlugin,
   runPlugin,
   type PluginExecutionContext,

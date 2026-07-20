@@ -533,6 +533,10 @@ export class PluginProcessRunner {
           );
         }
         primary = response;
+        // A terminal response completes the primary operation. Closing the request stream here
+        // lets plugins that wait for EOF terminate, while this reader continues to reject late
+        // protocol output before stdout closes.
+        child.stdin.end();
       } else if (response.requestId === cancelRequestId()) {
         if (cancel !== undefined) {
           throw this.error(

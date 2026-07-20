@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture.node-sdk",
+  "name": "Node SDK fixture",
+  "version": "1.0.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": { "executable": "node", "arguments": ["plugin.mjs"] },
+  "capabilities": ["fixture"],
+  "priority": 10,
+  "platforms": ["win32"],
+  "permissions": { "network": false, "cookies": false },
+  "dependencies": []
+}

@@ -6,7 +6,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
-O marco M0 está implementado: workspace verificável, domínio de entidades, serviço de vault, trilha operacional em SQLite e primeira CLI local. A base cria a estrutura canônica, grava YAML atomicamente, impede colisões, preserva identidade e conteúdo e mantém o banco reconstruível separado do conhecimento.
+Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins locais sem misturar o estado operacional ao conhecimento.
 
 ## Decisões principais
 
@@ -26,6 +26,8 @@ O marco M0 está implementado: workspace verificável, domínio de entidades, se
 - [Roadmap](docs/roadmap.md)
 - [Pesquisa comparativa](docs/research/landscape.md)
 - [Plano de implementação da fundação](docs/superpowers/plans/2026-07-18-vault-foundation.md)
+- [Design da plataforma de plugins](docs/superpowers/specs/2026-07-18-plugin-platform-design.md)
+- [Plano de implementação da plataforma de plugins](docs/superpowers/plans/2026-07-18-plugin-platform.md)
 
 ## Desenvolvimento
 
@@ -40,6 +42,8 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 
+`npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell; `npm run verify` já o inclui antes do lint de domínio.
+
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
 Plugins locais são instalados exclusivamente a partir de um diretório local. Sheldon valida o manifesto e todos os links, copia os links sem segui-los para uma área privada de staging, valida novamente a árvore copiada e confirma que a identidade dessa raiz não mudou durante a publicação em `%APPDATA%\Sheldon\plugins\<id>`, antes de persistir o registro YAML atômico. Identificadores já usados por plugins oficiais ou instalados são rejeitados, sem opção de sobrescrita no M1.
@@ -51,6 +55,8 @@ Cada operação `describe`, `probe` ou `healthcheck` inicia um processo novo com
 O contrato de limites do host publica 10 segundos para `describe` e `probe`, 30 segundos para `healthcheck` e 15 minutos para `ingest`, destinados ao controlador de ciclo de vida. Os limites já aplicados pelo runner restringem cada linha JSONL a 1 MiB e o stdout de protocolo a 8 MiB. Logs continuam separados no stderr, cujo histórico preserva somente a cauda mais recente de 256 KiB. Esses processos reduzem interferência entre operações, mas não constituem um sandbox do sistema operacional: um plugin local ainda executa com os acessos concedidos ao usuário atual.
 
 Em `ingest`, o plugin devolve somente descritores temporários de artefatos. Antes de entregar a lease ao consumidor, o host valida que cada caminho permanece no diretório temporário canônico, aponta para um arquivo regular, tem tamanho e SHA-256 declarados corretos e respeita os limites agregados. A lease termina quando o consumidor conclui, inclusive se houver erro, e seus arquivos são removidos. Em cancelamento, o host pede cancelamento cooperativo e aguarda a resposta terminal por um período curto; se o processo não encerrar, força o término. No Windows, cada plugin nasce sob um supervisor privado que entra em um Job Object com `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` antes de iniciar o comando do plugin. Encerrar o supervisor fecha o Job Object e elimina toda a árvore, inclusive descendentes que conservaram pipes depois que o processo direto do plugin saiu. A ausência ou incompatibilidade do addon interrompe o lançamento com `PLUGIN_SUPERVISOR_UNAVAILABLE`, sem fallback mais fraco. Isso é controle de ciclo de vida, não sandbox: plugins locais continuam com os acessos do usuário atual.
+
+A descoberta de plugins mantém o inventário diagnosticável: cada entrada fica como `ready`, `invalid`, `incompatible` ou `collision`, inclusive quando o manifesto não pode ser lido. O último diagnóstico de saúde é `healthy`, `unhealthy` ou `unchecked`; ele só é reutilizado quando identificador, versão e digest do manifesto coincidem exatamente. A seleção filtra a capacidade solicitada, faz probes em ordem estável e escolhe maior confiança, depois prioridade. Empates exatos não são escolhidos implicitamente: retornam os candidatos ordenados por identificador. O doctor executa somente `healthcheck` para entradas prontas, persiste o resultado e suas remediações; para entradas inválidas, incompatíveis ou em colisão devolve o diagnóstico e a remediação sem executar código do plugin.
 
 Um plugin TypeScript define as quatro operações primárias e o cancelamento cooperativo, depois entrega o controle ao runner:
 
@@ -83,6 +89,7 @@ Comandos individuais:
 - `npm run lint:md`
 - `npm test`
 - `npm run coverage`
+- `npm run verify:plugin-contract`
 - `npm run lint:domain`
 - `npm run lint:repo`
 
@@ -124,6 +131,30 @@ vault/
 `doctor` não modifica o vault. Se `operations.db` estiver ausente ou corrompido, ele explica como reconstruir o estado operacional sem remover os arquivos de conhecimento.
 
 `plugin-state.db` guarda o último estado de saúde reconstruível de cada plugin e os 10.000 resumos de execução sanitizados mais recentes; não é fonte de verdade para o conhecimento do vault.
+
+## Plugins
+
+Os dados da plataforma vivem em `%APPDATA%\Sheldon` e não no vault de conhecimento:
+
+```text
+%APPDATA%\Sheldon\
+  plugins\                 # cópias locais instaladas, uma raiz por identificador
+  plugin-registry.yaml      # registro atômico de instalação
+  plugin-state.db           # saúde e resumos de execução reconstruíveis
+```
+
+Compile antes de usar os comandos. Os cinco subcomandos são:
+
+```powershell
+npm run build
+npm run sheldon -- plugin install C:\plugins\meu-plugin
+npm run sheldon -- plugin list
+npm run sheldon -- plugin doctor meu.plugin
+npm run sheldon -- plugin test C:\plugins\meu-plugin
+npm run sheldon -- plugin remove meu.plugin
+```
+
+`install` aceita somente uma pasta local e nunca executa scripts, instala dependências, baixa conteúdo ou acessa a rede. `list` mostra cada plugin descoberto como `ready`, `invalid`, `incompatible` ou `collision`. `doctor` só executa `healthcheck` para entradas `ready` e apresenta `healthy`, `unhealthy` ou `unchecked`; a última saúde é reutilizada apenas quando identificador, versão e digest do manifesto ainda coincidem, portanto pode aparecer como estado conhecido anterior até a próxima verificação. `test` roda o contrato reutilizável contra uma raiz de plugin, e `remove` só remove uma instalação local registrada — plugins oficiais não podem ser removidos por esse comando.
 
 ## Padrões do repositório
 

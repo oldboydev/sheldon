@@ -44,10 +44,8 @@ async function compile(sourceDirectory, outputDirectory) {
 }
 
 if (process.platform === 'win32') {
-  const npmCli =
-    process.env.npm_execpath ??
-    join(dirname(process.execPath), 'node_modules', 'npm', 'bin', 'npm-cli.js');
-  await execFileAsync(process.execPath, [npmCli, 'run', 'build:native:win32']);
+  const nativeBuild = join('packages', 'plugin-host', 'native', 'windows-job', 'build.mjs');
+  await execFileAsync(process.execPath, [nativeBuild]);
 }
 
 await Promise.all(targets.map(([source, output]) => compile(source, output)));

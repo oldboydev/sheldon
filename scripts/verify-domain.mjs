@@ -8,9 +8,17 @@ for (const fixture of fixtures) {
   if (!fixture.isDirectory()) continue;
 
   const manifestPath = join(fixturesRoot, fixture.name, 'system', 'vault.yaml');
-  const manifest = await readFile(manifestPath, 'utf8');
+  let manifest;
+  try {
+    manifest = await readFile(manifestPath, 'utf8');
+  } catch (error) {
+    if (error && typeof error === 'object' && error.code === 'ENOENT') continue;
+    throw error;
+  }
 
   if (!/^format:\s+sheldon-vault\/v1$/m.test(manifest)) {
     throw new Error(`${manifestPath}: expected format sheldon-vault/v1.`);
   }
 }
+
+await import('./verify-plugin-manifests.mjs');

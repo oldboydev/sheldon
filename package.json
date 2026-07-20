@@ -24,10 +24,11 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#.superpowers\"",
     "lint:domain": "node scripts/verify-domain.mjs",
+    "verify:plugin-contract": "node scripts/verify-plugin-contract.mjs",
     "lint:repo": "node scripts/verify-change-policy.mjs",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run lint:md && npm run test && npm run coverage && npm run build && npm run lint:domain && npm run lint:repo && git diff --check"
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run lint:md && npm run test && npm run coverage && npm run build && npm run verify:plugin-contract && npm run lint:domain && npm run lint:repo && git diff --check"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.1",

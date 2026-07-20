@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "fixture.powershell",
+  "name": "PowerShell fixture",
+  "version": "1.0.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": {
+    "executable": "powershell.exe",
+    "arguments": ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "plugin.ps1"]
+  },
+  "capabilities": ["fixture"],
+  "priority": 10,
+  "platforms": ["win32"],
+  "permissions": { "network": false, "cookies": false },
+  "dependencies": []
+}

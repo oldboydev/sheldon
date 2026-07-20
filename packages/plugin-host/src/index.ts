@@ -34,3 +34,23 @@ export {
 } from './process-launcher.js';
 export { terminateProcessTree } from './process-tree.js';
 export { StderrTail } from './stderr-tail.js';
+export {
+  PluginDiscovery,
+  type DiscoveryState,
+  type LastHealthState,
+  type PluginDiscoveryOptions,
+  type PluginInventoryEntry,
+} from './discovery.js';
+export {
+  PluginSelector,
+  type PluginAmbiguity,
+  type PluginProbeRunner,
+  type PluginSelection,
+  type PluginSelectorOptions,
+} from './selector.js';
+export {
+  PluginDoctor,
+  type PluginDoctorOptions,
+  type PluginDoctorResult,
+  type PluginHealthRunner,
+} from './doctor.js';

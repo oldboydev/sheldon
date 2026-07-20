@@ -3,6 +3,7 @@ import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 
 import type { EntityKind } from '@sheldon/core';
+import { PluginHostError } from '@sheldon/plugin-host';
 import { VaultError } from '@sheldon/vault';
 import { Command, CommanderError, Option } from 'commander';
 
@@ -16,6 +17,13 @@ import {
   type VaultOption,
 } from './commands/entities.js';
 import { executeInit } from './commands/init.js';
+import {
+  doctorPlugin,
+  installPlugin,
+  listPlugins,
+  removePlugin,
+  testPlugin,
+} from './commands/plugins.js';
 import type { CommandContext } from './runtime.js';
 
 export interface CliDependencies {
@@ -23,6 +31,7 @@ export interface CliDependencies {
   readonly homeDirectory?: string;
   readonly confirm?: (message: string) => Promise<boolean>;
   readonly commandAvailable?: (command: string) => Promise<boolean>;
+  readonly officialPluginRoots?: readonly string[];
 }
 
 export interface CliResult {
@@ -40,6 +49,7 @@ export async function runCli(
   const context: CommandContext = {
     environment: dependencies.environment ?? process.env,
     homeDirectory: dependencies.homeDirectory ?? homedir(),
+    officialPluginRoots: dependencies.officialPluginRoots ?? [],
     confirm: dependencies.confirm ?? defaultConfirm,
     commandAvailable: dependencies.commandAvailable ?? defaultCommandAvailable,
     write: (message) => stdout.push(`${message}\n`),
@@ -51,6 +61,12 @@ export async function runCli(
     await program.parseAsync([...args], { from: 'user' });
     return { exitCode: 0, stdout: stdout.join(''), stderr: stderr.join('') };
   } catch (error) {
+    if (error instanceof PluginHostError) {
+      stderr.push(
+        `Error: ${error.message}\nTarget: ${error.target}\nRecovery: ${error.recovery}\n`,
+      );
+      return { exitCode: 1, stdout: stdout.join(''), stderr: stderr.join('') };
+    }
     if (error instanceof VaultError) {
       stderr.push(
         `Error: ${error.message}\nTarget: ${error.target}\nRecovery: ${error.recovery}\n`,
@@ -101,6 +117,14 @@ function createProgram(context: CommandContext): Command {
 
   addEntityCommands(program, 'topic', context);
   addEntityCommands(program, 'project', context);
+  const plugin = program.command('plugin');
+  plugin
+    .command('install <directory>')
+    .action((directory: string) => installPlugin(directory, context));
+  plugin.command('remove <id>').action((id: string) => removePlugin(id, context));
+  plugin.command('list').action(() => listPlugins(context));
+  plugin.command('doctor <id>').action((id: string) => doctorPlugin(id, context));
+  plugin.command('test <directory>').action((directory: string) => testPlugin(directory, context));
   return program;
 }
 

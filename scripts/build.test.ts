@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 const execFileAsync = promisify(execFile);
 
 describe('SWC build', () => {
-  it('declares and runs the Windows-native build before plugin-host compilation', async () => {
+  it('runs the Windows-native build directly before plugin-host compilation', async () => {
     const rootPackage = JSON.parse(await readFile('package.json', 'utf8'));
     const pluginHostPackage = JSON.parse(
       await readFile('packages/plugin-host/package.json', 'utf8'),
@@ -21,8 +21,13 @@ describe('SWC build', () => {
       'node native/windows-job/build.mjs',
     );
     expect(buildSource).toContain("process.platform === 'win32'");
+    expect(buildSource).toContain(
+      "join('packages', 'plugin-host', 'native', 'windows-job', 'build.mjs')",
+    );
 
-    const nativeBuild = buildSource.indexOf("'build:native:win32'");
+    const nativeBuild = buildSource.indexOf(
+      "join('packages', 'plugin-host', 'native', 'windows-job'",
+    );
     const sourceCompilation = buildSource.indexOf(
       'await Promise.all(targets.map(([source, output]) => compile(source, output)))',
     );

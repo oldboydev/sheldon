@@ -24,6 +24,8 @@
 ## Planos de implementação
 
 - [Fundação e vault central](superpowers/plans/2026-07-18-vault-foundation.md)
+- [Design da plataforma de plugins](superpowers/specs/2026-07-18-plugin-platform-design.md)
+- [Plataforma de plugins](superpowers/plans/2026-07-18-plugin-platform.md)
 
 ## Pesquisa
 
@@ -31,7 +33,7 @@
 
 ## Estado
 
-Os documentos descrevem o design aprovado e a decomposição do produto. O plano task-by-task do PRD 001 já está disponível; os demais serão derivados de seus PRDs antes da implementação.
+Os documentos descrevem o design aprovado e a decomposição do produto. Os planos task-by-task dos PRDs 001 e 002 estão disponíveis; os demais serão derivados de seus PRDs antes da implementação.
 
 ## Padrões de manutenção
 

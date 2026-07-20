@@ -12,6 +12,8 @@
   "dependencies": {
     "@sheldon/core": "*",
     "@sheldon/persistence": "*",
+    "@sheldon/plugin-host": "*",
+    "@sheldon/plugin-sdk": "*",
     "@sheldon/vault": "*",
     "commander": "^15.0.0",
     "yaml": "^2.9.0"

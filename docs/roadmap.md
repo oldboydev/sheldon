@@ -22,9 +22,13 @@ O marco também estabelece Conventional Commits, `CHANGELOG.md`, READMEs e os co
 
 **PRD:** 002
 
+**Status:** concluído em 18 de julho de 2026.
+
 Entrega: descoberta, protocolo JSONL, execução isolada, healthcheck, timeout, cancelamento e testes de contrato.
 
 Saída: executar um plugin de fixture em Node e outro processo externo com comportamento equivalente.
+
+Evidência: o SDK Node e o fixture PowerShell passam pelo mesmo contrato pós-build; a suíte de aceitação cobre protocolo inválido, stderr, cancelamento e, no Windows, término da árvore do plugin.
 
 ### M2 — Primeira memória funcional
 

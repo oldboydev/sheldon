@@ -69,14 +69,16 @@ export class PluginStateDatabase {
       ) STRICT;
 
       CREATE TABLE IF NOT EXISTS plugin_health (
-        plugin_id TEXT PRIMARY KEY,
+        plugin_id TEXT NOT NULL,
         version TEXT NOT NULL,
         manifest_digest TEXT NOT NULL,
         checked_at TEXT NOT NULL,
         healthy INTEGER NOT NULL CHECK (healthy IN (0, 1)),
-        checks_json TEXT NOT NULL
+        checks_json TEXT NOT NULL,
+        PRIMARY KEY (plugin_id, version, manifest_digest)
       ) STRICT;
     `);
+    this.migrateLegacyHealthTable();
   }
 
   public static open(path: string, options: PluginStateDatabaseOptions): PluginStateDatabase {
@@ -150,9 +152,7 @@ export class PluginStateDatabase {
         `INSERT INTO plugin_health (
           plugin_id, version, manifest_digest, checked_at, healthy, checks_json
         ) VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(plugin_id) DO UPDATE SET
-          version = excluded.version,
-          manifest_digest = excluded.manifest_digest,
+        ON CONFLICT(plugin_id, version, manifest_digest) DO UPDATE SET
           checked_at = excluded.checked_at,
           healthy = excluded.healthy,
           checks_json = excluded.checks_json`,
@@ -194,6 +194,37 @@ export class PluginStateDatabase {
 
   public close(): void {
     this.database.close();
+  }
+
+  private migrateLegacyHealthTable(): void {
+    const primaryKeyColumns = this.database
+      .prepare('PRAGMA table_info(plugin_health)')
+      .all()
+      .filter((column) => Number(column.pk) > 0)
+      .sort((left, right) => Number(left.pk) - Number(right.pk))
+      .map((column) => String(column.name));
+    if (primaryKeyColumns.join(',') === 'plugin_id,version,manifest_digest') return;
+
+    this.database.exec(`
+      BEGIN;
+      ALTER TABLE plugin_health RENAME TO plugin_health_legacy;
+      CREATE TABLE plugin_health (
+        plugin_id TEXT NOT NULL,
+        version TEXT NOT NULL,
+        manifest_digest TEXT NOT NULL,
+        checked_at TEXT NOT NULL,
+        healthy INTEGER NOT NULL CHECK (healthy IN (0, 1)),
+        checks_json TEXT NOT NULL,
+        PRIMARY KEY (plugin_id, version, manifest_digest)
+      ) STRICT;
+      INSERT INTO plugin_health (
+        plugin_id, version, manifest_digest, checked_at, healthy, checks_json
+      ) SELECT
+        plugin_id, version, manifest_digest, checked_at, healthy, checks_json
+      FROM plugin_health_legacy;
+      DROP TABLE plugin_health_legacy;
+      COMMIT;
+    `);
   }
 }
 

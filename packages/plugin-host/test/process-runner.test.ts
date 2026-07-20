@@ -19,6 +19,9 @@ const fixturePath = fileURLToPath(new URL('./fixtures/protocol-fixture.mjs', imp
 const unavailableSupervisorPath = fileURLToPath(
   new URL('./fixtures/unavailable-supervisor-fixture.mjs', import.meta.url),
 );
+const rawFixtureRoot = fileURLToPath(
+  new URL('../../plugin-sdk/test/fixtures/raw/', import.meta.url),
+);
 const supervisorPath = fileURLToPath(new URL('../dist/windows-supervisor.js', import.meta.url));
 const processLauncher = { supervisorPath } as const;
 const temporaryRoots: string[] = [];
@@ -48,6 +51,28 @@ async function pluginFor(mode = 'success'): Promise<RunnablePlugin> {
   return { root, manifest: manifest(mode), manifestDigest: 'a'.repeat(64) };
 }
 
+function rawPlugin(): RunnablePlugin {
+  return {
+    root: rawFixtureRoot,
+    manifest: {
+      schemaVersion: 1,
+      id: 'fixture.raw',
+      name: 'Raw JSONL fixture',
+      version: '1.0.0',
+      protocolVersion: '1',
+      license: 'MIT',
+      command: { executable: 'node', arguments: ['plugin.mjs'] },
+      capabilities: ['fixture'],
+      priority: 10,
+      platforms: [process.platform],
+      permissions: { network: false, cookies: false },
+      dependencies: [],
+      origin: 'installed',
+    },
+    manifestDigest: 'b'.repeat(64),
+  };
+}
+
 function stateDatabase(): PluginStateDatabase {
   const state = PluginStateDatabase.open(':memory:', { runRetention: 10 });
   databases.push(state);
@@ -67,6 +92,14 @@ afterEach(async () => {
 });
 
 describe('PluginProcessRunner', () => {
+  it('finishes after a terminal response when a plugin keeps stdin open', async () => {
+    const runner = new PluginProcessRunner({ state: stateDatabase(), processLauncher });
+
+    await expect(runner.healthcheck(rawPlugin())).resolves.toMatchObject({
+      result: { checks: [expect.objectContaining({ id: 'raw-health' })] },
+    });
+  });
+
   it.runIf(process.platform === 'win32')(
     'propagates an unavailable Windows supervisor before protocol exchange',
     async () => {

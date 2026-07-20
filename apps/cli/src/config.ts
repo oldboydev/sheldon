@@ -10,11 +10,16 @@ interface SheldonConfig {
   readonly vault: string;
 }
 
+export function appDataRoot(
+  context: Pick<CommandContext, 'environment' | 'homeDirectory'>,
+): string {
+  return context.environment.APPDATA
+    ? join(context.environment.APPDATA, 'Sheldon')
+    : join(context.homeDirectory, '.config', 'sheldon');
+}
+
 export function configPath(context: Pick<CommandContext, 'environment' | 'homeDirectory'>): string {
-  const appData = context.environment.APPDATA;
-  return appData
-    ? join(appData, 'Sheldon', 'config.yaml')
-    : join(context.homeDirectory, '.config', 'sheldon', 'config.yaml');
+  return join(appDataRoot(context), 'config.yaml');
 }
 
 export function defaultVaultPath(context: Pick<CommandContext, 'homeDirectory'>): string {

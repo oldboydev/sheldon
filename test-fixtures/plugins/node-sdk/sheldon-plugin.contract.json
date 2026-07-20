@@ -1,0 +1,6 @@
+{
+  "supportedProbe": { "input": { "kind": "fixture" }, "minimumConfidence": 80 },
+  "unsupportedProbe": { "input": { "kind": "unknown" } },
+  "ingest": { "input": { "kind": "fixture" }, "options": {}, "expectedRoles": ["normalized"] },
+  "cancel": { "input": { "kind": "fixture", "wait": true }, "options": {} }
+}
