@@ -3,11 +3,14 @@ import { homedir } from 'node:os';
 import { createInterface } from 'node:readline/promises';
 
 import type { EntityKind } from '@sheldon/core';
+import type { CommandExecutor } from '@sheldon/agent-runtime';
 import { PluginHostError } from '@sheldon/plugin-host';
-import { VaultError } from '@sheldon/vault';
+import { entityDirectory, VaultError } from '@sheldon/vault';
 import { Command, CommanderError, Option } from 'commander';
 
 import { executeDoctor } from './commands/doctor.js';
+import { resolveVaultPath } from './config.js';
+import { doctorAgents, type AgentHealthProbe, type AgentName } from './commands/agents.js';
 import {
   archiveEntity,
   createEntity,
@@ -17,6 +20,14 @@ import {
   type VaultOption,
 } from './commands/entities.js';
 import { executeInit } from './commands/init.js';
+import {
+  approveProposal,
+  compileMemory,
+  ingestFile,
+  lintWiki,
+  previewProposal,
+} from './commands/memory.js';
+import { assertProposalNotRejected, rejectProposal, retryCompile } from './commands/workflow.js';
 import {
   doctorPlugin,
   installPlugin,
@@ -32,6 +43,8 @@ export interface CliDependencies {
   readonly confirm?: (message: string) => Promise<boolean>;
   readonly commandAvailable?: (command: string) => Promise<boolean>;
   readonly officialPluginRoots?: readonly string[];
+  readonly agentExecutor?: CommandExecutor;
+  readonly agentHealthProbe?: AgentHealthProbe;
 }
 
 export interface CliResult {
@@ -54,7 +67,7 @@ export async function runCli(
     commandAvailable: dependencies.commandAvailable ?? defaultCommandAvailable,
     write: (message) => stdout.push(`${message}\n`),
   };
-  const program = createProgram(context);
+  const program = createProgram(context, dependencies);
   configureCommander(program, stdout, stderr);
 
   try {
@@ -100,7 +113,7 @@ function configureCommander(command: Command, stdout: string[], stderr: string[]
   for (const child of command.commands) configureCommander(child, stdout, stderr);
 }
 
-function createProgram(context: CommandContext): Command {
+function createProgram(context: CommandContext, dependencies: CliDependencies): Command {
   const program = new Command('sheldon').description('Local-first personal knowledge vault.');
 
   program
@@ -117,6 +130,14 @@ function createProgram(context: CommandContext): Command {
 
   addEntityCommands(program, 'topic', context);
   addEntityCommands(program, 'project', context);
+  addMemoryCommands(program, context, dependencies);
+  const agent = program.command('agent');
+  agent.command('doctor [agent]').action((name: string | undefined) => {
+    if (name !== undefined && name !== 'codex' && name !== 'claude') {
+      throw new Error('Agent must be codex or claude.');
+    }
+    return doctorAgents(name as AgentName | undefined, context, dependencies.agentHealthProbe);
+  });
   const plugin = program.command('plugin');
   plugin
     .command('install <directory>')
@@ -126,6 +147,118 @@ function createProgram(context: CommandContext): Command {
   plugin.command('doctor <id>').action((id: string) => doctorPlugin(id, context));
   plugin.command('test <directory>').action((directory: string) => testPlugin(directory, context));
   return program;
+}
+
+function addMemoryCommands(
+  program: Command,
+  context: CommandContext,
+  dependencies: CliDependencies,
+): void {
+  const ingest = program.command('ingest');
+  ingest
+    .command('file <kind> <slug> <file>')
+    .option('--vault <path>', 'explicit vault path')
+    .action((kind: EntityKind, slug: string, file: string, options: VaultOption) =>
+      ingestFile(kind, slug, file, options, context),
+    );
+
+  program
+    .command('compile <kind> <slug> <proposal-id>')
+    .requiredOption('--agent <agent>', 'codex or claude')
+    .requiredOption('--prompt <text>', 'task prompt')
+    .requiredOption('--raw <path...>', 'raw source paths relative to the entity')
+    .option('--vault <path>', 'explicit vault path')
+    .action(
+      (
+        kind: EntityKind,
+        slug: string,
+        proposalId: string,
+        options: VaultOption & { agent: string; prompt: string; raw: string[] },
+      ) => {
+        if (options.agent !== 'codex' && options.agent !== 'claude')
+          throw new Error('Agent must be codex or claude.');
+        return compileMemory(
+          kind,
+          slug,
+          proposalId,
+          { ...options, agent: options.agent },
+          context,
+          dependencies,
+        );
+      },
+    );
+
+  program
+    .command('compile-retry <kind> <slug> <proposal-id>')
+    .requiredOption('--from <proposal-id>', 'prior proposal id')
+    .requiredOption('--agent <agent>', 'codex or claude')
+    .requiredOption('--prompt <text>', 'task prompt')
+    .requiredOption('--raw <path...>', 'raw source paths relative to the entity')
+    .option('--vault <path>', 'explicit vault path')
+    .action(
+      (
+        kind: EntityKind,
+        slug: string,
+        proposalId: string,
+        options: VaultOption & { agent: string; from: string; prompt: string; raw: string[] },
+      ) => {
+        if (options.agent !== 'codex' && options.agent !== 'claude') {
+          throw new Error('Agent must be codex or claude.');
+        }
+        return retryCompile(
+          kind,
+          slug,
+          proposalId,
+          options.from,
+          { ...options, agent: options.agent },
+          context,
+          dependencies,
+        );
+      },
+    );
+
+  const review = program.command('review');
+  review
+    .command('preview <kind> <slug> <proposal-id>')
+    .option('--vault <path>', 'explicit vault path')
+    .action((kind: EntityKind, slug: string, proposalId: string, options: VaultOption) =>
+      previewProposal(kind, slug, proposalId, options, context),
+    );
+  review
+    .command('approve <kind> <slug> <proposal-id> <paths...>')
+    .option('--vault <path>', 'explicit vault path')
+    .action(
+      async (
+        kind: EntityKind,
+        slug: string,
+        proposalId: string,
+        paths: string[],
+        options: VaultOption,
+      ) => {
+        const root = await resolveVaultPath(context, options.vault);
+        const entity = entityDirectory(root, kind, slug);
+        await assertProposalNotRejected(entity, proposalId);
+        return approveProposal(kind, slug, proposalId, paths, options, context);
+      },
+    );
+  review
+    .command('reject <kind> <slug> <proposal-id>')
+    .requiredOption('--reason <text>', 'reason for rejecting the proposal')
+    .option('--vault <path>', 'explicit vault path')
+    .action(
+      (
+        kind: EntityKind,
+        slug: string,
+        proposalId: string,
+        options: VaultOption & { reason: string },
+      ) => rejectProposal(kind, slug, proposalId, options.reason, options, context),
+    );
+  review
+    .command('lint <kind> <slug>')
+    .option('--vault <path>', 'explicit vault path')
+    .action((kind: EntityKind, slug: string, options: VaultOption) =>
+      lintWiki(kind, slug, options, context),
+    );
 }
 
 function addEntityCommands(program: Command, kind: EntityKind, context: CommandContext): void {

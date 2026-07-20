@@ -8,6 +8,8 @@ O planejamento do produto está aprovado e a implementação do marco M0 começo
 
 Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins locais sem misturar o estado operacional ao conhecimento.
 
+O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
+
 ## Decisões principais
 
 - Core em TypeScript sobre Node.js LTS.
@@ -131,6 +133,43 @@ vault/
 `doctor` não modifica o vault. Se `operations.db` estiver ausente ou corrompido, ele explica como reconstruir o estado operacional sem remover os arquivos de conhecimento.
 
 `plugin-state.db` guarda o último estado de saúde reconstruível de cada plugin e os 10.000 resumos de execução sanitizados mais recentes; não é fonte de verdade para o conhecimento do vault.
+
+## Primeira memória (M2)
+
+O fluxo inicial do M2 trabalha com um arquivo local de um tópico ou projeto já existente. A ingestão grava um raw imutável em `raw/<source-id>/`, com `manifest.yaml`, o original preservado e `content.md` normalizado. A resposta JSON do comando informa o `sourceId` e o caminho de `content.md`; use-os no passo de compilação.
+
+```powershell
+npm run build
+npm run sheldon -- ingest file topic agentes-locais C:\inbox\nota.md --vault C:\knowledge\sheldon
+```
+
+Compile a fonte com um agente por execução. O exemplo usa Codex; substitua `codex` por `claude` para executar a mesma proposta com Claude Code. Ambos devem estar instalados, autenticados e disponíveis no `PATH`.
+
+```powershell
+npm run sheldon -- compile topic agentes-locais nota-inicial `
+  --agent codex `
+  --prompt "Integre a fonte à wiki com citações de raw." `
+  --raw raw/<source-id>/content.md `
+  --vault C:\knowledge\sheldon
+```
+
+`compile` salva a proposta e seus metadados em `outputs/proposals/<proposal-id>/`; ele não altera a wiki aprovada. Antes de promover conteúdo, liste a prévia e escolha cada arquivo individualmente. A aprovação aceita somente os caminhos exibidos pela proposta, sob `wiki/`.
+
+```powershell
+npm run sheldon -- review preview topic agentes-locais nota-inicial --vault C:\knowledge\sheldon
+npm run sheldon -- review approve topic agentes-locais nota-inicial wiki/nota-inicial.md --vault C:\knowledge\sheldon
+```
+
+Arquivos não passados a `review approve` permanecem fora da wiki. Propostas que tentam mudar `raw/` ou `system/`, que não citam um raw existente ou que saem de `wiki/` são rejeitadas. O preview inclui diff, fontes, afirmações, contradições e confiança; `review lint` valida links, órfãos, fontes e schema da wiki.
+
+```powershell
+npm run sheldon -- agent doctor codex
+npm run sheldon -- review lint topic agentes-locais --vault C:\knowledge\sheldon
+npm run sheldon -- review reject topic agentes-locais nota-inicial --reason "Fonte insuficiente" --vault C:\knowledge\sheldon
+npm run sheldon -- compile-retry topic agentes-locais nota-revisada --from nota-inicial --agent claude --prompt "Revise a proposta" --raw raw/<source-id>/content.md --vault C:\knowledge\sheldon
+```
+
+`agent doctor` verifica presença, versão e sessão utilizável sem expor credenciais. Rejeições e novas tentativas ficam vinculadas aos artefatos da proposta em `outputs/proposals/`.
 
 ## Plugins
 

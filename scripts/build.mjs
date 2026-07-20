@@ -13,6 +13,9 @@ const targets = [
   ['packages/persistence/src', 'packages/persistence/dist'],
   ['packages/plugin-sdk/src', 'packages/plugin-sdk/dist'],
   ['packages/plugin-host/src', 'packages/plugin-host/dist'],
+  ['packages/ingestion/src', 'packages/ingestion/dist'],
+  ['packages/agent-runtime/src', 'packages/agent-runtime/dist'],
+  ['packages/review/src', 'packages/review/dist'],
   ['apps/cli/src', 'apps/cli/dist'],
 ];
 

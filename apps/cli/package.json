@@ -11,9 +11,12 @@
   },
   "dependencies": {
     "@sheldon/core": "*",
+    "@sheldon/agent-runtime": "*",
+    "@sheldon/ingestion": "*",
     "@sheldon/persistence": "*",
     "@sheldon/plugin-host": "*",
     "@sheldon/plugin-sdk": "*",
+    "@sheldon/review": "*",
     "@sheldon/vault": "*",
     "commander": "^15.0.0",
     "yaml": "^2.9.0"

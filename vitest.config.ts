@@ -17,6 +17,9 @@ export default defineConfig({
       '@sheldon/persistence': sourcePath('./packages/persistence/src/index.ts'),
       '@sheldon/plugin-sdk': sourcePath('./packages/plugin-sdk/src/index.ts'),
       '@sheldon/plugin-host': sourcePath('./packages/plugin-host/src/index.ts'),
+      '@sheldon/ingestion': sourcePath('./packages/ingestion/src/index.ts'),
+      '@sheldon/agent-runtime': sourcePath('./packages/agent-runtime/src/index.ts'),
+      '@sheldon/review': sourcePath('./packages/review/src/index.ts'),
     },
   },
   test: {

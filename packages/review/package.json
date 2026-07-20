@@ -1,0 +1,14 @@
+{
+  "name": "@sheldon/review",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@sheldon/core": "*",
+    "@sheldon/vault": "*",
+    "yaml": "^2.8.1"
+  }
+}
