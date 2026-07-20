@@ -24,7 +24,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run --passWithNoTests",
     "coverage": "vitest run --coverage --passWithNoTests",
-    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#.superpowers\"",
+    "lint:md": "markdownlint-cli2 \"**/*.md\" \"#node_modules\" \"#.superpowers\" \"#.worktrees\"",
     "lint:domain": "node scripts/verify-domain.mjs",
     "verify:plugin-contract": "node scripts/verify-plugin-contract.mjs",
     "lint:repo": "node scripts/verify-change-policy.mjs",

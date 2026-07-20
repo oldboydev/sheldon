@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- Verificações locais agora ignoram worktrees e arquivos de scratch aninhados, evitando suites duplicadas e lint de dependências de outra cópia do repositório.
 - Ingestão de plugins agora valida caminhos, tipo, tamanho, SHA-256 e limites agregados de artefatos temporários antes de conceder a lease ao consumidor; timeout e cancelamento cooperativo removem a lease e, no Windows, encerram o supervisor dono do Job Object quando necessário.
 - Build dos workspaces e transformação TypeScript do Vitest migrados de esbuild para SWC.
 - Instalação local de plugins reforçada com validação autoritativa da árvore em staging, leitura estável do manifesto, serialização concorrente do registro e rollback com diagnóstico fiel.

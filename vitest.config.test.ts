@@ -19,6 +19,9 @@ describe('Vitest configuration', () => {
     const { default: config } = await import('./vitest.config.js');
 
     expect(config.test?.globalSetup).toEqual(['./vitest.global-setup.ts']);
+    expect(config.test?.exclude).toEqual(
+      expect.arrayContaining(['**/node_modules/**', '**/.git/**', '**/.worktrees/**']),
+    );
   });
 
   it('enforces the approved V8 coverage policy for workspace sources', async () => {

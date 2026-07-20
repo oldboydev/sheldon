@@ -20,6 +20,7 @@ export default defineConfig({
     },
   },
   test: {
+    exclude: ['**/node_modules/**', '**/.git/**', '**/.worktrees/**'],
     globalSetup: ['./vitest.global-setup.ts'],
     coverage: {
       provider: 'v8',
