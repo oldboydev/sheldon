@@ -16,6 +16,7 @@
       "@sheldon/ingestion": ["./packages/ingestion/src/index.ts"],
       "@sheldon/agent-runtime": ["./packages/agent-runtime/src/index.ts"],
       "@sheldon/review": ["./packages/review/src/index.ts"],
+      "@sheldon/plugin-file": ["./packages/plugins/official/sheldon.file/src/index.ts"],
       "@sheldon/cli": ["./apps/cli/src/main.ts"]
     },
     "types": ["node", "vitest/globals"]

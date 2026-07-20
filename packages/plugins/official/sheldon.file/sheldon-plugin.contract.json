@@ -1,0 +1,6 @@
+{
+  "supportedProbe": { "input": { "filePath": "fixture.md" }, "minimumConfidence": 100 },
+  "unsupportedProbe": { "input": { "filePath": "missing.md" } },
+  "ingest": { "input": { "filePath": "fixture.md" }, "options": {}, "expectedRoles": [] },
+  "cancel": { "input": { "filePath": "fixture.md" }, "options": {} }
+}
