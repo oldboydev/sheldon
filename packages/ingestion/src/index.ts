@@ -11,6 +11,7 @@ export {
 export {
   PluginFileIngestionError,
   publishPluginFileIngestion,
+  type LegacyM2PluginFileManifest,
   type PluginFileArtifactManifest,
   type PluginFileIngestionErrorCode,
   type PluginFileIngestionResult,

@@ -7,6 +7,7 @@ import {
   readdir,
   rename,
   rm,
+  stat,
   writeFile,
 } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -61,12 +62,33 @@ export interface PluginFileManifest {
   readonly previous_source_id?: string;
 }
 
-export interface PluginFileIngestionResult {
+/** Identity-only manifest shape written by the original M2 local-file ingestion path. */
+export interface LegacyM2PluginFileManifest {
+  readonly source_id: string;
+  readonly canonical_uri?: string;
+  readonly content_sha256: string;
+  readonly options_sha256: string;
+  readonly captured_at?: string;
+  readonly previous_source_id?: string;
+  readonly [key: string]: unknown;
+}
+
+interface PluginFileIngestionResultBase {
   readonly sourceId: string;
   readonly rawPath: string;
   readonly deduplicated: boolean;
-  readonly manifest: PluginFileManifest;
 }
+
+export type PluginFileIngestionResult =
+  | (PluginFileIngestionResultBase & {
+      readonly manifestFormat: 'plugin-v1';
+      readonly manifest: PluginFileManifest;
+    })
+  | (PluginFileIngestionResultBase & {
+      readonly deduplicated: true;
+      readonly manifestFormat: 'legacy-m2';
+      readonly manifest: LegacyM2PluginFileManifest;
+    });
 
 export interface PluginFileIngestorDependencies {
   readonly now?: () => Date;
@@ -104,14 +126,32 @@ export async function publishPluginFileIngestion(
   const options = input.options ?? {};
   const optionsJson = stableJson(options);
   const optionsSha256 = sha256(optionsJson);
-  const sourceId = sha256(`${original.sha256}\n${optionsSha256}`);
+  const originalSourcePath = resolve(lease.temporaryDirectory, original.path);
+  const originalBytes = await readFile(originalSourcePath);
+  const contentSha256 = sha256(originalBytes);
+  const sourceId = sourceIdentity(originalBytes, optionsJson);
+  const legacySourceId = sha256(`${contentSha256}\n${optionsSha256}`);
   const rawRoot = resolve(input.rawDirectory);
   const rawPath = join(rawRoot, sourceId);
   await mkdir(rawRoot, { recursive: true });
 
   const existing = await readManifestAt(rawPath, 'source');
   if (existing !== undefined) {
-    return deduplicatedResult(rawPath, sourceId, existing, original.sha256, optionsSha256);
+    return deduplicatedResult(rawPath, sourceId, existing, contentSha256, optionsSha256);
+  }
+
+  if (legacySourceId !== sourceId) {
+    const legacyRawPath = join(rawRoot, legacySourceId);
+    const legacy = await readManifestAt(legacyRawPath, 'source');
+    if (legacy !== undefined) {
+      return deduplicatedResult(
+        legacyRawPath,
+        legacySourceId,
+        legacy,
+        contentSha256,
+        optionsSha256,
+      );
+    }
   }
 
   const history = await readHistory(rawRoot);
@@ -121,14 +161,18 @@ export async function publishPluginFileIngestion(
     source_id: sourceId,
     canonical_uri: metadata.canonicalUri,
     original_name: basename(input.filePath),
-    content_sha256: original.sha256,
+    content_sha256: contentSha256,
     options_sha256: optionsSha256,
     captured_at: (dependencies.now ?? (() => new Date()))().toISOString(),
     plugin: input.plugin.id,
     plugin_version: input.plugin.version,
     extractor: metadata.extractor,
     options,
-    original: artifactManifest(original, originalPath),
+    original: {
+      ...artifactManifest(original, originalPath),
+      bytes: originalBytes.byteLength,
+      sha256: contentSha256,
+    },
     content: { ...artifactManifest(normalized, 'content.md'), path: 'content.md' },
     assets: assetCopies.map(({ artifact, relativePath }) =>
       artifactManifest(artifact, `assets/${portablePath(relativePath)}`),
@@ -146,7 +190,7 @@ export async function publishPluginFileIngestion(
   try {
     await mkdir(join(stagingPath, 'assets'));
     await Promise.all([
-      copyFile(resolve(lease.temporaryDirectory, original.path), join(stagingPath, originalPath)),
+      writeFile(join(stagingPath, originalPath), originalBytes),
       copyFile(resolve(lease.temporaryDirectory, normalized.path), join(stagingPath, 'content.md')),
       ...assetCopies.map(({ sourcePath, relativePath }) =>
         copyAsset(sourcePath, join(stagingPath, 'assets', relativePath)),
@@ -157,14 +201,14 @@ export async function publishPluginFileIngestion(
   } catch (error) {
     const winner = await readManifestAt(rawPath, 'source');
     if (winner !== undefined) {
-      return deduplicatedResult(rawPath, sourceId, winner, original.sha256, optionsSha256);
+      return deduplicatedResult(rawPath, sourceId, winner, contentSha256, optionsSha256);
     }
     throw error;
   } finally {
     await rm(stagingPath, { recursive: true, force: true });
   }
 
-  return { sourceId, rawPath, deduplicated: false, manifest };
+  return { sourceId, rawPath, deduplicated: false, manifestFormat: 'plugin-v1', manifest };
 }
 
 function requiredArtifact(
@@ -276,6 +320,10 @@ function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function sourceIdentity(originalBytes: Uint8Array, optionsJson: string): string {
+  return createHash('sha256').update(originalBytes).update('\n').update(optionsJson).digest('hex');
+}
+
 function stableJson(value: IngestionOption): string {
   if (value === null || typeof value === 'boolean' || typeof value === 'string') {
     return JSON.stringify(value);
@@ -303,12 +351,9 @@ function stableJson(value: IngestionOption): string {
   );
 }
 
-interface HistoricalManifest {
-  readonly source_id: string;
-  readonly canonical_uri?: string;
-  readonly content_sha256: string;
-  readonly options_sha256: string;
-  readonly captured_at?: string;
+interface HistoricalManifest extends LegacyM2PluginFileManifest {
+  readonly canonical_uri: string;
+  readonly captured_at: string;
 }
 
 async function readHistory(rawRoot: string): Promise<readonly HistoricalManifest[]> {
@@ -317,19 +362,21 @@ async function readHistory(rawRoot: string): Promise<readonly HistoricalManifest
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.sheldon-ingestion-')) continue;
     const manifest = await readManifestAt(join(rawRoot, entry.name), 'history');
-    if (manifest === undefined) {
-      throw new PluginFileIngestionError(
-        'PLUGIN_FILE_HISTORY_INVALID',
-        `Historical raw ${entry.name} has no manifest.yaml.`,
-      );
+    if (
+      manifest === undefined ||
+      manifest.source_id !== entry.name ||
+      typeof manifest.canonical_uri !== 'string' ||
+      manifest.canonical_uri.length === 0 ||
+      typeof manifest.captured_at !== 'string' ||
+      !isIsoTimestamp(manifest.captured_at)
+    ) {
+      continue;
     }
-    if (manifest.source_id !== entry.name) {
-      throw new PluginFileIngestionError(
-        'PLUGIN_FILE_HISTORY_INVALID',
-        `Historical raw ${entry.name} does not match its manifest source identity.`,
-      );
-    }
-    manifests.push(manifest);
+    manifests.push({
+      ...manifest,
+      canonical_uri: manifest.canonical_uri,
+      captured_at: manifest.captured_at,
+    });
   }
   return manifests;
 }
@@ -337,49 +384,59 @@ async function readHistory(rawRoot: string): Promise<readonly HistoricalManifest
 async function readManifestAt(
   rawPath: string,
   purpose: 'history' | 'source',
-): Promise<HistoricalManifest | undefined> {
+): Promise<LegacyM2PluginFileManifest | undefined> {
+  if (purpose === 'source') {
+    try {
+      const rawStat = await stat(rawPath);
+      if (!rawStat.isDirectory()) throw sourceConflict(rawPath);
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return undefined;
+      if (error instanceof PluginFileIngestionError) throw error;
+      throw error;
+    }
+  }
+
   let content: string;
   try {
     content = await readFile(join(rawPath, 'manifest.yaml'), 'utf8');
   } catch (error) {
-    if (isNodeError(error, 'ENOENT')) return undefined;
+    if (isNodeError(error, 'ENOENT') || isNodeError(error, 'ENOTDIR')) {
+      if (purpose === 'history') return undefined;
+      throw sourceConflict(rawPath);
+    }
     throw error;
   }
   try {
-    return parseHistoricalManifest(content, rawPath, purpose);
+    return parseHistoricalManifest(content, rawPath);
   } catch (error) {
-    if (error instanceof PluginFileIngestionError) throw error;
-    throw new PluginFileIngestionError(
-      purpose === 'source' ? 'PLUGIN_FILE_SOURCE_CONFLICT' : 'PLUGIN_FILE_HISTORY_INVALID',
-      `Raw manifest at ${rawPath} is malformed.`,
-    );
+    if (purpose === 'history') return undefined;
+    if (error instanceof PluginFileIngestionError) throw sourceConflict(rawPath);
+    throw sourceConflict(rawPath);
   }
 }
 
-function parseHistoricalManifest(
-  content: string,
-  rawPath: string,
-  purpose: 'history' | 'source',
-): HistoricalManifest {
+function parseHistoricalManifest(content: string, rawPath: string): LegacyM2PluginFileManifest {
   const candidate = parse(content) as unknown;
   if (
-    typeof candidate !== 'object' ||
-    candidate === null ||
-    !('source_id' in candidate) ||
-    typeof candidate.source_id !== 'string' ||
-    !('content_sha256' in candidate) ||
-    typeof candidate.content_sha256 !== 'string' ||
-    !('options_sha256' in candidate) ||
-    typeof candidate.options_sha256 !== 'string' ||
+    !isRecord(candidate) ||
+    !isSha256(candidate.source_id) ||
+    !isSha256(candidate.content_sha256) ||
+    !isSha256(candidate.options_sha256) ||
     ('canonical_uri' in candidate && typeof candidate.canonical_uri !== 'string') ||
-    ('captured_at' in candidate && typeof candidate.captured_at !== 'string')
+    ('captured_at' in candidate && typeof candidate.captured_at !== 'string') ||
+    ('previous_source_id' in candidate && !isSha256(candidate.previous_source_id))
   ) {
     throw new PluginFileIngestionError(
-      purpose === 'source' ? 'PLUGIN_FILE_SOURCE_CONFLICT' : 'PLUGIN_FILE_HISTORY_INVALID',
+      'PLUGIN_FILE_HISTORY_INVALID',
       `Raw manifest at ${rawPath} has no valid source identity.`,
     );
   }
-  return candidate as HistoricalManifest;
+  return {
+    ...candidate,
+    source_id: candidate.source_id,
+    content_sha256: candidate.content_sha256,
+    options_sha256: candidate.options_sha256,
+  };
 }
 
 function latestPrevious(
@@ -399,13 +456,13 @@ function latestPrevious(
 }
 
 function historyOrder(manifest: HistoricalManifest): string {
-  return `${manifest.captured_at ?? ''}\n${manifest.source_id}`;
+  return `${manifest.captured_at}\n${manifest.source_id}`;
 }
 
 function deduplicatedResult(
   rawPath: string,
   sourceId: string,
-  manifest: HistoricalManifest,
+  manifest: LegacyM2PluginFileManifest,
   contentSha256: string,
   optionsSha256: string,
 ): PluginFileIngestionResult {
@@ -419,12 +476,106 @@ function deduplicatedResult(
       `Existing raw at ${rawPath} does not match the deterministic source identity.`,
     );
   }
-  return {
-    sourceId,
-    rawPath,
-    deduplicated: true,
-    manifest: manifest as PluginFileManifest,
-  };
+  if (isPluginFileManifest(manifest)) {
+    return {
+      sourceId,
+      rawPath,
+      deduplicated: true,
+      manifestFormat: 'plugin-v1',
+      manifest,
+    };
+  }
+  return { sourceId, rawPath, deduplicated: true, manifestFormat: 'legacy-m2', manifest };
+}
+
+function sourceConflict(rawPath: string): PluginFileIngestionError {
+  return new PluginFileIngestionError(
+    'PLUGIN_FILE_SOURCE_CONFLICT',
+    `Existing raw at ${rawPath} does not contain a compatible deterministic source.`,
+  );
+}
+
+function isPluginFileManifest(value: unknown): value is PluginFileManifest {
+  return (
+    isRecord(value) &&
+    isSha256(value.source_id) &&
+    isSha256(value.content_sha256) &&
+    isSha256(value.options_sha256) &&
+    typeof value.canonical_uri === 'string' &&
+    typeof value.original_name === 'string' &&
+    typeof value.captured_at === 'string' &&
+    isIsoTimestamp(value.captured_at) &&
+    typeof value.plugin === 'string' &&
+    typeof value.plugin_version === 'string' &&
+    typeof value.extractor === 'string' &&
+    isIngestionOptions(value.options) &&
+    isArtifactManifest(value.original) &&
+    isContentArtifactManifest(value.content) &&
+    Array.isArray(value.assets) &&
+    value.assets.every(isArtifactManifest) &&
+    isExtractionManifest(value.extraction)
+  );
+}
+
+function isArtifactManifest(value: unknown): value is PluginFileArtifactManifest {
+  return (
+    isRecord(value) &&
+    typeof value.path === 'string' &&
+    typeof value.bytes === 'number' &&
+    Number.isSafeInteger(value.bytes) &&
+    value.bytes >= 0 &&
+    typeof value.media_type === 'string' &&
+    isSha256(value.sha256)
+  );
+}
+
+function isContentArtifactManifest(
+  value: unknown,
+): value is PluginFileArtifactManifest & { readonly path: 'content.md' } {
+  return isArtifactManifest(value) && value.path === 'content.md';
+}
+
+function isExtractionManifest(value: unknown): value is PluginFileManifest['extraction'] {
+  return (
+    isRecord(value) &&
+    (value.status === 'complete' || value.status === 'gap') &&
+    typeof value.format === 'string' &&
+    Array.isArray(value.warnings) &&
+    value.warnings.every((warning) => typeof warning === 'string') &&
+    (value.language === undefined || typeof value.language === 'string')
+  );
+}
+
+function isIngestionOptions(value: unknown): value is Readonly<Record<string, IngestionOption>> {
+  return isRecord(value) && Object.values(value).every(isIngestionOption);
+}
+
+function isIngestionOption(value: unknown): value is IngestionOption {
+  if (
+    value === null ||
+    typeof value === 'boolean' ||
+    typeof value === 'string' ||
+    (typeof value === 'number' && Number.isFinite(value))
+  ) {
+    return true;
+  }
+  if (Array.isArray(value)) return value.every(isIngestionOption);
+  return isIngestionOptions(value);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/u.test(value);
+}
+
+function isIsoTimestamp(value: string): boolean {
+  return (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/u.test(value) &&
+    Number.isFinite(Date.parse(value))
+  );
 }
 
 function isNodeError(error: unknown, code: string): error is NodeJS.ErrnoException {
