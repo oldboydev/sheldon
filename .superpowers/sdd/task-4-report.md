@@ -202,3 +202,116 @@ The reviewer identified a narrow POSIX race where an empty target directory crea
 preflight check might be replaced by `rename`. No new cross-platform no-replace primitive was added
 without an existing precise mechanism, per controller direction. This remains an explicit concern
 for controller review.
+
+## Final publication-claim design (2026-07-20)
+
+The controller subsequently made the POSIX race a blocking Task 4 requirement. Node exposes no
+no-replace flag for directory `rename`, so publication uses the repository's existing cross-platform
+exclusive-claim pattern instead of platform-specific native code:
+
+1. Build the complete raw in the staging directory.
+2. Acquire a per-source sidecar claim with `open(path, 'wx')`; equal publishers wait briefly for the
+   owner, then recheck the completed raw and deduplicate.
+3. Recheck the deterministic target while holding the claim.
+4. Claim `raw/<sourceId>` itself with non-recursive `mkdir`, which fails atomically if any file or
+   directory already occupies the path on Windows and POSIX.
+5. Move staged entries into the owned directory, moving `manifest.yaml` last as the commit marker.
+6. Remove an owned partial target on failure and always release the sidecar claim.
+
+The controlled regression uses a `beforePublish` dependency, following the existing
+`AtomicWriteOptions.beforeRename` repository pattern, to create an empty target after preflight and
+before the exact target claim. The same test runs on Windows and POSIX without depending on each
+platform's `rename` replacement semantics.
+
+### Implementation plan
+
+- [ ] Add the controlled empty-target race test and verify RED against plain `rename`.
+- [ ] Add the exclusive per-source claim and bounded equal-publisher wait.
+- [ ] Replace final directory rename with exact target `mkdir` plus manifest-last staged moves.
+- [ ] Verify the race test and existing four-way equal-publication deduplication.
+- [ ] Run focused ingestion tests, typecheck, formatting/lint checks, append evidence, and commit.
+
+## Blocking publication-race resolution (2026-07-20)
+
+This section supersedes the earlier bounded-wait design and closes the controller's POSIX
+empty-directory replacement blocker.
+
+### Final behavior
+
+- Publication acquires a per-source sidecar claim with Node's exclusive `open(..., 'wx')` before
+  any deterministic-target lookup. A late equal publisher therefore waits instead of reading a
+  manifest-less partial target.
+- Claims carry a random owner token, PID, and creation timestamp. The owner keeps its file handle
+  open and renews the claim inode's mtime once per second. A claim is active only while both the PID
+  is alive and the heartbeat is fresh, preventing PID reuse from blocking a source forever.
+- Stale reclamation quarantines the claim and compares both immutable owner content and the observed
+  heartbeat generation. A renewal between observation and rename restores the claim and retries;
+  an old unchanged claim is removed. The publisher also asserts its canonical owner token before
+  creating the raw target and immediately before committing the manifest.
+- `raw/<sourceId>` is claimed with exact, non-recursive `mkdir`. Any file or directory that appears
+  in the publication window is preserved and reported as `PLUGIN_FILE_SOURCE_CONFLICT` on Windows
+  and POSIX.
+- Staged entries move into the owned directory sequentially, and `manifest.yaml` moves last as the
+  commit marker. Failures remove only the directory created by this publisher. Active claimed raws
+  are skipped during history scans; abandoned claims are recovered before completed history is
+  linked.
+- Non-file occupants at the sidecar claim path are normalized to
+  `PLUGIN_FILE_SOURCE_CONFLICT` instead of leaking a platform filesystem error.
+
+### Controlled RED/GREEN evidence
+
+- Empty-target race RED: the original plain directory `rename` resolved successfully after the
+  controlled hook created the deterministic target. GREEN: exact `mkdir` rejects with
+  `PLUGIN_FILE_SOURCE_CONFLICT`, leaves the empty target untouched, and cleans staging/claim files.
+- Late equal publisher RED: the test could not reach a pre-manifest hook because the initial fix had
+  no manifest-commit seam. GREEN: the second publisher waits through a publication longer than the
+  former one-second retry window, observes heartbeat renewal, and deduplicates the committed raw.
+- Stale lifecycle coverage proves recovery with no target, recovery when a PID has been reused,
+  preservation of an abandoned partial target, and inclusion of completed history after its stale
+  claim is reclaimed.
+- Generation-race coverage pauses reclamation after stale observation, renews the heartbeat, and
+  proves publication cannot advance until the renewed owner claim is released.
+- A claim-path-directory regression proves the error remains typed on this Windows workspace and
+  uses the same Node-native path on POSIX.
+
+### Review disposition
+
+Two adversarial review passes drove the lifecycle refinements. The first found partial-target
+visibility, a fixed-timeout false conflict, and unrecoverable stale claims. The second found PID
+reuse, a test cleanup deadlock, a non-file claim-path error, and a heartbeat-generation race. All
+reported cases now have focused regressions; the final narrow review is recorded with the commit
+handoff.
+
+### Completed checklist
+
+- [x] Add the controlled empty-target race test and verify RED against plain `rename`.
+- [x] Add an exclusive per-source claim with owner lifecycle, heartbeat, and stale recovery.
+- [x] Replace final directory rename with exact target `mkdir` plus manifest-last staged moves.
+- [x] Verify the empty-target race, slow late-equal publication, and four-way equal deduplication.
+- [x] Verify stale-owner, PID-reuse, heartbeat-generation, history, and claim-path occupancy cases.
+- [x] Run focused/full tests, typecheck, formatting/lint checks, append evidence, and commit.
+
+### Reclaim-gate refinement and final verification
+
+The heartbeat-generation review exposed a second-waiter gap while a stale claim was temporarily
+quarantined. Reclamation now holds its own per-source exclusive gate. Every claimant checks this
+gate before and after creating its claim, while the reclaimer revalidates the expected generation
+under the gate. The gate uses the same open-handle heartbeat and ownership assertions as the source
+claim, so it cannot expire during a slow reclamation critical section. The controlled regression
+holds reclamation beyond an injected stale threshold with a second waiter, then renews the original
+claim between observation and quarantine; neither waiter advances until that claim is released.
+
+Final commands and results:
+
+```text
+npm test -- --run packages/ingestion/test/local-file-ingestor.test.ts packages/ingestion/test/plugin-file-ingestor.test.ts
+npm test
+npm run typecheck
+npx eslint packages/ingestion/src/plugin-file-ingestor.ts packages/ingestion/test/plugin-file-ingestor.test.ts
+npx prettier --check packages/ingestion/src/plugin-file-ingestor.ts packages/ingestion/test/plugin-file-ingestor.test.ts
+git diff --check -- packages/ingestion .superpowers/sdd/task-4-report.md
+```
+
+- Focused ingestion verification: 2 files, 29 tests passed.
+- Full repository verification: 37 files, 264 tests passed.
+- TypeScript, focused ESLint, Prettier, and scoped whitespace checks exited 0.

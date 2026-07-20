@@ -1,8 +1,9 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import {
   copyFile,
   mkdir,
   mkdtemp,
+  open,
   readFile,
   readdir,
   rename,
@@ -11,6 +12,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import type { IngestLease } from '@sheldon/plugin-host';
 import type { SourceArtifact } from '@sheldon/plugin-sdk';
@@ -92,6 +94,12 @@ export type PluginFileIngestionResult =
 
 export interface PluginFileIngestorDependencies {
   readonly now?: () => Date;
+  readonly beforePublish?: (rawPath: string) => void | Promise<void>;
+  readonly beforeManifestPublish?: (rawPath: string) => void | Promise<void>;
+  readonly beforeClaimReclaim?: (claimPath: string) => void | Promise<void>;
+  readonly processAlive?: (pid: number) => boolean;
+  readonly sourceClaimHeartbeatMilliseconds?: number;
+  readonly sourceClaimStaleMilliseconds?: number;
 }
 
 export type PluginFileIngestionErrorCode =
@@ -109,6 +117,27 @@ export class PluginFileIngestionError extends Error {
     super(message);
     this.name = 'PluginFileIngestionError';
   }
+}
+
+const sourceClaimRetryMilliseconds = 25;
+const defaultSourceClaimHeartbeatMilliseconds = 1_000;
+const defaultSourceClaimStaleMilliseconds = 30_000;
+
+function claimHeartbeatMilliseconds(dependencies: PluginFileIngestorDependencies): number {
+  const requested = dependencies.sourceClaimHeartbeatMilliseconds;
+  return typeof requested === 'number' && Number.isFinite(requested) && requested > 0
+    ? requested
+    : defaultSourceClaimHeartbeatMilliseconds;
+}
+
+function claimStaleMilliseconds(dependencies: PluginFileIngestorDependencies): number {
+  const heartbeatMilliseconds = claimHeartbeatMilliseconds(dependencies);
+  const requested = dependencies.sourceClaimStaleMilliseconds;
+  const configured =
+    typeof requested === 'number' && Number.isFinite(requested) && requested > 0
+      ? requested
+      : defaultSourceClaimStaleMilliseconds;
+  return Math.max(configured, heartbeatMilliseconds * 2);
 }
 
 /** Publishes host-validated plugin artifacts below an immutable raw source identity. */
@@ -134,81 +163,112 @@ export async function publishPluginFileIngestion(
   const rawRoot = resolve(input.rawDirectory);
   const rawPath = join(rawRoot, sourceId);
   await mkdir(rawRoot, { recursive: true });
-
-  const existing = await readSourceManifestAt(rawPath);
-  if (existing !== undefined) {
-    return deduplicatedResult(rawPath, sourceId, existing, contentSha256, optionsSha256);
-  }
-
-  if (legacySourceId !== sourceId) {
-    const legacyRawPath = join(rawRoot, legacySourceId);
-    const legacy = await readSourceManifestAt(legacyRawPath);
-    if (legacy !== undefined) {
-      return deduplicatedResult(
-        legacyRawPath,
-        legacySourceId,
-        legacy,
-        contentSha256,
-        optionsSha256,
-      );
-    }
-  }
-
-  const history = await readHistory(rawRoot, metadata.canonicalUri, optionsSha256);
-  const previous = latestPrevious(history, metadata.canonicalUri, optionsSha256, sourceId);
-  const originalPath = originalFileName(original.path);
-  const manifest: PluginFileManifest = {
-    source_id: sourceId,
-    canonical_uri: metadata.canonicalUri,
-    original_name: basename(input.filePath),
-    content_sha256: contentSha256,
-    options_sha256: optionsSha256,
-    captured_at: (dependencies.now ?? (() => new Date()))().toISOString(),
-    plugin: input.plugin.id,
-    plugin_version: input.plugin.version,
-    extractor: metadata.extractor,
-    options,
-    original: {
-      ...artifactManifest(original, originalPath),
-      bytes: originalBytes.byteLength,
-      sha256: contentSha256,
-    },
-    content: { ...artifactManifest(normalized, 'content.md'), path: 'content.md' },
-    assets: assetCopies.map(({ artifact, relativePath }) =>
-      artifactManifest(artifact, `assets/${portablePath(relativePath)}`),
-    ),
-    extraction: {
-      status: metadata.status,
-      format: metadata.format,
-      warnings: metadata.warnings,
-      ...(metadata.language === undefined ? {} : { language: metadata.language }),
-    },
-    ...(previous === undefined ? {} : { previous_source_id: previous.source_id }),
-  };
-
-  const stagingPath = await mkdtemp(join(rawRoot, '.sheldon-ingestion-'));
+  const sourceClaim = await acquireSourceClaim(rawRoot, sourceId, rawPath, dependencies);
   try {
-    await mkdir(join(stagingPath, 'assets'));
-    await Promise.all([
-      writeFile(join(stagingPath, originalPath), originalBytes),
-      copyFile(resolve(lease.temporaryDirectory, normalized.path), join(stagingPath, 'content.md')),
-      ...assetCopies.map(({ sourcePath, relativePath }) =>
-        copyAsset(sourcePath, join(stagingPath, 'assets', relativePath)),
-      ),
-    ]);
-    await writeFile(join(stagingPath, 'manifest.yaml'), stringify(manifest), 'utf8');
-    await rename(stagingPath, rawPath);
-  } catch (error) {
-    const winner = await readSourceManifestAt(rawPath);
-    if (winner !== undefined) {
-      return deduplicatedResult(rawPath, sourceId, winner, contentSha256, optionsSha256);
+    const existing = await readSourceManifestAt(rawPath);
+    if (existing !== undefined) {
+      return deduplicatedResult(rawPath, sourceId, existing, contentSha256, optionsSha256);
     }
-    throw error;
-  } finally {
-    await rm(stagingPath, { recursive: true, force: true });
-  }
 
-  return { sourceId, rawPath, deduplicated: false, manifestFormat: 'plugin-v1', manifest };
+    if (legacySourceId !== sourceId) {
+      const legacyRawPath = join(rawRoot, legacySourceId);
+      const legacy = await readSourceManifestAt(legacyRawPath);
+      if (legacy !== undefined) {
+        return deduplicatedResult(
+          legacyRawPath,
+          legacySourceId,
+          legacy,
+          contentSha256,
+          optionsSha256,
+        );
+      }
+    }
+
+    const history = await readHistory(
+      rawRoot,
+      metadata.canonicalUri,
+      optionsSha256,
+      dependencies.processAlive ?? defaultProcessAlive,
+      claimHeartbeatMilliseconds(dependencies),
+      claimStaleMilliseconds(dependencies),
+    );
+    const previous = latestPrevious(history, metadata.canonicalUri, optionsSha256, sourceId);
+    const originalPath = originalFileName(original.path);
+    const manifest: PluginFileManifest = {
+      source_id: sourceId,
+      canonical_uri: metadata.canonicalUri,
+      original_name: basename(input.filePath),
+      content_sha256: contentSha256,
+      options_sha256: optionsSha256,
+      captured_at: (dependencies.now ?? (() => new Date()))().toISOString(),
+      plugin: input.plugin.id,
+      plugin_version: input.plugin.version,
+      extractor: metadata.extractor,
+      options,
+      original: {
+        ...artifactManifest(original, originalPath),
+        bytes: originalBytes.byteLength,
+        sha256: contentSha256,
+      },
+      content: { ...artifactManifest(normalized, 'content.md'), path: 'content.md' },
+      assets: assetCopies.map(({ artifact, relativePath }) =>
+        artifactManifest(artifact, `assets/${portablePath(relativePath)}`),
+      ),
+      extraction: {
+        status: metadata.status,
+        format: metadata.format,
+        warnings: metadata.warnings,
+        ...(metadata.language === undefined ? {} : { language: metadata.language }),
+      },
+      ...(previous === undefined ? {} : { previous_source_id: previous.source_id }),
+    };
+
+    const stagingPath = await mkdtemp(join(rawRoot, '.sheldon-ingestion-'));
+    try {
+      await mkdir(join(stagingPath, 'assets'));
+      await Promise.all([
+        writeFile(join(stagingPath, originalPath), originalBytes),
+        copyFile(
+          resolve(lease.temporaryDirectory, normalized.path),
+          join(stagingPath, 'content.md'),
+        ),
+        ...assetCopies.map(({ sourcePath, relativePath }) =>
+          copyAsset(sourcePath, join(stagingPath, 'assets', relativePath)),
+        ),
+      ]);
+      await writeFile(join(stagingPath, 'manifest.yaml'), stringify(manifest), 'utf8');
+
+      await dependencies.beforePublish?.(rawPath);
+      await sourceClaim.assertOwned();
+      try {
+        await mkdir(rawPath);
+      } catch (error) {
+        if (isNodeError(error, 'EEXIST')) {
+          const occupied = await readSourceManifestAt(rawPath);
+          if (occupied !== undefined) {
+            return deduplicatedResult(rawPath, sourceId, occupied, contentSha256, optionsSha256);
+          }
+          throw sourceConflict(rawPath);
+        }
+        throw error;
+      }
+
+      try {
+        await moveStagedRaw(stagingPath, rawPath, async (committingRawPath) => {
+          await dependencies.beforeManifestPublish?.(committingRawPath);
+          await sourceClaim.assertOwned();
+        });
+      } catch (error) {
+        await rm(rawPath, { recursive: true, force: true });
+        throw error;
+      }
+      return { sourceId, rawPath, deduplicated: false, manifestFormat: 'plugin-v1', manifest };
+    } finally {
+      await rm(stagingPath, { recursive: true, force: true });
+    }
+  } finally {
+    await sourceClaim.release();
+  }
 }
 
 function requiredArtifact(
@@ -316,6 +376,428 @@ async function copyAsset(sourcePath: string, destination: string): Promise<void>
   await copyFile(sourcePath, destination);
 }
 
+async function moveStagedRaw(
+  stagingPath: string,
+  rawPath: string,
+  beforeManifestPublish?: (rawPath: string) => void | Promise<void>,
+): Promise<void> {
+  const entries = await readdir(stagingPath);
+  for (const entry of entries) {
+    if (entry !== 'manifest.yaml') {
+      await rename(join(stagingPath, entry), join(rawPath, entry));
+    }
+  }
+  await beforeManifestPublish?.(rawPath);
+  await rename(join(stagingPath, 'manifest.yaml'), join(rawPath, 'manifest.yaml'));
+}
+
+interface SourceClaimOwner {
+  readonly token: string;
+  readonly pid: number;
+  readonly created_at: string;
+}
+
+interface SourceClaim {
+  readonly assertOwned: () => Promise<void>;
+  readonly release: () => Promise<void>;
+}
+
+interface ObservedSourceClaim {
+  readonly content: string;
+  readonly modifiedAt: number;
+  readonly owner?: SourceClaimOwner;
+}
+
+async function acquireSourceClaim(
+  rawRoot: string,
+  sourceId: string,
+  rawPath: string,
+  dependencies: PluginFileIngestorDependencies,
+): Promise<SourceClaim> {
+  const claimPath = sourceClaimPath(rawRoot, sourceId);
+  const owner: SourceClaimOwner = {
+    token: randomUUID(),
+    pid: process.pid,
+    created_at: new Date().toISOString(),
+  };
+  const ownerContent = `${JSON.stringify(owner)}\n`;
+  const processAlive = dependencies.processAlive ?? defaultProcessAlive;
+  const heartbeatMilliseconds = claimHeartbeatMilliseconds(dependencies);
+  const staleMilliseconds = claimStaleMilliseconds(dependencies);
+
+  while (true) {
+    if (await sourceReclaimGateBlocks(claimPath, rawPath, processAlive, staleMilliseconds)) {
+      await delay(sourceClaimRetryMilliseconds);
+      continue;
+    }
+    let claim: Awaited<ReturnType<typeof open>>;
+    try {
+      claim = await open(claimPath, 'wx', 0o600);
+    } catch (error) {
+      if (!isNodeError(error, 'EEXIST')) throw error;
+      const observed = await observeSourceClaim(claimPath, rawPath);
+      if (observed === undefined) continue;
+      if (sourceClaimIsActive(observed, processAlive, staleMilliseconds)) {
+        await delay(sourceClaimRetryMilliseconds);
+        continue;
+      }
+
+      const reclaimed = await reclaimSourceClaim(
+        claimPath,
+        rawPath,
+        observed,
+        processAlive,
+        heartbeatMilliseconds,
+        staleMilliseconds,
+        dependencies.beforeClaimReclaim,
+      );
+      if (!reclaimed) await delay(sourceClaimRetryMilliseconds);
+      continue;
+    }
+
+    try {
+      await claim.writeFile(ownerContent, 'utf8');
+      await claim.sync();
+    } catch (error) {
+      await claim.close();
+      await rm(claimPath, { force: true });
+      throw error;
+    }
+    if (await sourceReclaimGateBlocks(claimPath, rawPath, processAlive, staleMilliseconds)) {
+      await claim.close();
+      await releaseSourceClaim(claimPath, rawPath, owner.token);
+      await delay(sourceClaimRetryMilliseconds);
+      continue;
+    }
+    const heartbeat = startSourceClaimHeartbeat(
+      claimPath,
+      rawPath,
+      owner.token,
+      claim,
+      heartbeatMilliseconds,
+    );
+    return {
+      assertOwned: heartbeat.assertOwned,
+      release: async () => {
+        let heartbeatError: unknown;
+        try {
+          await heartbeat.stop();
+        } catch (error) {
+          heartbeatError = error;
+        }
+        try {
+          await claim.close();
+        } catch (error) {
+          heartbeatError ??= error;
+        }
+        try {
+          await releaseSourceClaim(claimPath, rawPath, owner.token);
+        } catch (error) {
+          heartbeatError ??= error;
+        }
+        if (heartbeatError !== undefined) throw heartbeatError;
+      },
+    };
+  }
+}
+
+function sourceClaimIsActive(
+  observed: ObservedSourceClaim,
+  processAlive: (pid: number) => boolean,
+  staleMilliseconds: number,
+): boolean {
+  return (
+    (observed.owner !== undefined &&
+      processAlive(observed.owner.pid) &&
+      Date.now() - observed.modifiedAt < staleMilliseconds) ||
+    (observed.owner === undefined && Date.now() - observed.modifiedAt < staleMilliseconds)
+  );
+}
+
+async function observeSourceClaim(
+  claimPath: string,
+  rawPath: string,
+): Promise<ObservedSourceClaim | undefined> {
+  try {
+    const claimStat = await stat(claimPath);
+    if (!claimStat.isFile()) throw sourceConflict(rawPath);
+    const content = await readFile(claimPath, 'utf8');
+    const owner = parseSourceClaimOwner(content);
+    return {
+      content,
+      modifiedAt: claimStat.mtimeMs,
+      ...(owner === undefined ? {} : { owner }),
+    };
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return undefined;
+    throw error;
+  }
+}
+
+function startSourceClaimHeartbeat(
+  claimPath: string,
+  rawPath: string,
+  token: string,
+  claim: Awaited<ReturnType<typeof open>>,
+  heartbeatMilliseconds: number,
+): { readonly assertOwned: () => Promise<void>; readonly stop: () => Promise<void> } {
+  let heartbeatTask = Promise.resolve();
+  let heartbeatError: unknown;
+  const interval = setInterval(() => {
+    heartbeatTask = heartbeatTask.then(async () => {
+      if (heartbeatError !== undefined) return;
+      try {
+        const heartbeatAt = new Date();
+        await claim.utimes(heartbeatAt, heartbeatAt);
+      } catch (error) {
+        heartbeatError = error;
+        clearInterval(interval);
+      }
+    });
+  }, heartbeatMilliseconds);
+  interval.unref();
+
+  return {
+    assertOwned: async () => {
+      await heartbeatTask;
+      if (heartbeatError !== undefined) throw heartbeatError;
+      const observed = await observeSourceClaim(claimPath, rawPath);
+      if (observed?.owner?.token !== token) throw sourceConflict(rawPath);
+    },
+    stop: async () => {
+      clearInterval(interval);
+      await heartbeatTask;
+      if (heartbeatError !== undefined) throw heartbeatError;
+    },
+  };
+}
+
+function parseSourceClaimOwner(content: string): SourceClaimOwner | undefined {
+  let candidate: unknown;
+  try {
+    candidate = JSON.parse(content) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (
+    !isRecord(candidate) ||
+    typeof candidate.token !== 'string' ||
+    candidate.token.length === 0 ||
+    typeof candidate.pid !== 'number' ||
+    !Number.isSafeInteger(candidate.pid) ||
+    candidate.pid <= 0 ||
+    typeof candidate.created_at !== 'string' ||
+    !isIsoTimestamp(candidate.created_at)
+  ) {
+    return undefined;
+  }
+  return { token: candidate.token, pid: candidate.pid, created_at: candidate.created_at };
+}
+
+async function reclaimSourceClaim(
+  claimPath: string,
+  rawPath: string,
+  observed: ObservedSourceClaim,
+  processAlive: (pid: number) => boolean,
+  heartbeatMilliseconds: number,
+  staleMilliseconds: number,
+  beforeReclaim?: (claimPath: string) => void | Promise<void>,
+): Promise<boolean> {
+  const reclaimGate = await tryAcquireSourceReclaimGate(
+    claimPath,
+    rawPath,
+    processAlive,
+    heartbeatMilliseconds,
+    staleMilliseconds,
+  );
+  if (reclaimGate === undefined) return false;
+  const quarantinePath = `${claimPath}.${randomUUID()}.stale`;
+  try {
+    const current = await observeSourceClaim(claimPath, rawPath);
+    if (
+      current === undefined ||
+      current.content !== observed.content ||
+      current.modifiedAt !== observed.modifiedAt
+    ) {
+      return false;
+    }
+    await beforeReclaim?.(claimPath);
+    await reclaimGate.assertOwned();
+    try {
+      await rename(claimPath, quarantinePath);
+    } catch (error) {
+      if (isNodeError(error, 'ENOENT')) return false;
+      throw error;
+    }
+
+    let quarantinedContent: string;
+    let quarantinedModifiedAt: number;
+    try {
+      [quarantinedContent, quarantinedModifiedAt] = await Promise.all([
+        readFile(quarantinePath, 'utf8'),
+        stat(quarantinePath).then((claimStat) => claimStat.mtimeMs),
+      ]);
+    } catch (error) {
+      await reclaimGate.assertOwned();
+      await restoreSourceClaim(quarantinePath, claimPath, rawPath);
+      throw error;
+    }
+    if (quarantinedContent !== observed.content || quarantinedModifiedAt !== observed.modifiedAt) {
+      await reclaimGate.assertOwned();
+      await restoreSourceClaim(quarantinePath, claimPath, rawPath);
+      return false;
+    }
+    await reclaimGate.assertOwned();
+    await rm(quarantinePath, { force: true });
+    return true;
+  } finally {
+    await reclaimGate.release();
+  }
+}
+
+async function restoreSourceClaim(
+  quarantinePath: string,
+  claimPath: string,
+  rawPath: string,
+): Promise<void> {
+  while (true) {
+    try {
+      await rename(quarantinePath, claimPath);
+      return;
+    } catch (error) {
+      if (!isNodeError(error, 'EEXIST')) throw error;
+      const occupyingClaim = await observeSourceClaim(claimPath, rawPath);
+      if (occupyingClaim === undefined) continue;
+      await delay(sourceClaimRetryMilliseconds);
+    }
+  }
+}
+
+async function tryAcquireSourceReclaimGate(
+  claimPath: string,
+  rawPath: string,
+  processAlive: (pid: number) => boolean,
+  heartbeatMilliseconds: number,
+  staleMilliseconds: number,
+): Promise<SourceClaim | undefined> {
+  if (await sourceReclaimGateBlocks(claimPath, rawPath, processAlive, staleMilliseconds)) {
+    return undefined;
+  }
+  const gatePath = sourceReclaimGatePath(claimPath);
+  const owner: SourceClaimOwner = {
+    token: randomUUID(),
+    pid: process.pid,
+    created_at: new Date().toISOString(),
+  };
+  let gate: Awaited<ReturnType<typeof open>>;
+  try {
+    gate = await open(gatePath, 'wx', 0o600);
+  } catch (error) {
+    if (isNodeError(error, 'EEXIST')) return undefined;
+    throw error;
+  }
+  try {
+    await gate.writeFile(`${JSON.stringify(owner)}\n`, 'utf8');
+    await gate.sync();
+  } catch (error) {
+    await gate.close();
+    await rm(gatePath, { force: true });
+    throw error;
+  }
+  const heartbeat = startSourceClaimHeartbeat(
+    gatePath,
+    rawPath,
+    owner.token,
+    gate,
+    heartbeatMilliseconds,
+  );
+  return {
+    assertOwned: heartbeat.assertOwned,
+    release: async () => {
+      let heartbeatError: unknown;
+      try {
+        await heartbeat.stop();
+      } catch (error) {
+        heartbeatError = error;
+      }
+      try {
+        await gate.close();
+      } catch (error) {
+        heartbeatError ??= error;
+      }
+      try {
+        await releaseSourceClaim(gatePath, rawPath, owner.token);
+      } catch (error) {
+        heartbeatError ??= error;
+      }
+      if (heartbeatError !== undefined) throw heartbeatError;
+    },
+  };
+}
+
+async function sourceReclaimGateBlocks(
+  claimPath: string,
+  rawPath: string,
+  processAlive: (pid: number) => boolean,
+  staleMilliseconds: number,
+): Promise<boolean> {
+  const gatePath = sourceReclaimGatePath(claimPath);
+  const observed = await observeSourceClaim(gatePath, rawPath);
+  if (observed === undefined) return false;
+  if (sourceClaimIsActive(observed, processAlive, staleMilliseconds)) return true;
+
+  const quarantinePath = `${gatePath}.${randomUUID()}.stale`;
+  try {
+    await rename(gatePath, quarantinePath);
+  } catch (error) {
+    if (isNodeError(error, 'ENOENT')) return false;
+    throw error;
+  }
+  const quarantined = await observeSourceClaim(quarantinePath, rawPath);
+  if (
+    quarantined === undefined ||
+    quarantined.content !== observed.content ||
+    quarantined.modifiedAt !== observed.modifiedAt
+  ) {
+    if (quarantined !== undefined) {
+      await restoreSourceClaim(quarantinePath, gatePath, rawPath);
+    }
+    return true;
+  }
+  await rm(quarantinePath, { force: true });
+  return false;
+}
+
+async function releaseSourceClaim(
+  claimPath: string,
+  rawPath: string,
+  token: string,
+): Promise<void> {
+  const observed = await observeSourceClaim(claimPath, rawPath);
+  if (observed === undefined) return;
+  if (observed.owner?.token !== token) return;
+  await rm(claimPath, { force: true });
+}
+
+function defaultProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    if (isNodeError(error, 'ESRCH')) return false;
+    if (isNodeError(error, 'EPERM')) return true;
+    throw error;
+  }
+}
+
+function sourceClaimPath(rawRoot: string, sourceId: string): string {
+  return join(rawRoot, `.sheldon-ingestion-${sourceId}.claim`);
+}
+
+function sourceReclaimGatePath(claimPath: string): string {
+  return `${claimPath}.reclaim`;
+}
+
 function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -360,12 +842,29 @@ async function readHistory(
   rawRoot: string,
   canonicalUri: string,
   optionsSha256: string,
+  processAlive: (pid: number) => boolean,
+  heartbeatMilliseconds: number,
+  staleMilliseconds: number,
 ): Promise<readonly HistoricalManifest[]> {
   const entries = await readdir(rawRoot, { withFileTypes: true });
   const manifests: HistoricalManifest[] = [];
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith('.sheldon-ingestion-')) continue;
     const rawPath = join(rawRoot, entry.name);
+    const claimPath = sourceClaimPath(rawRoot, entry.name);
+    const observedClaim = await observeSourceClaim(claimPath, rawPath);
+    if (observedClaim !== undefined) {
+      if (sourceClaimIsActive(observedClaim, processAlive, staleMilliseconds)) continue;
+      const reclaimed = await reclaimSourceClaim(
+        claimPath,
+        rawPath,
+        observedClaim,
+        processAlive,
+        heartbeatMilliseconds,
+        staleMilliseconds,
+      );
+      if (!reclaimed) continue;
+    }
     const manifest = await readHistoryManifestAt(rawPath, canonicalUri, optionsSha256);
     if (manifest === undefined) continue;
     if (
