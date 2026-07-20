@@ -104,6 +104,44 @@ describe('official file plugin scaffold', () => {
     );
   });
 
+  it('uses protocol-valid IDs for unusual source extensions and asset names', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sheldon-file-plugin-'));
+    temporaryDirectories.push(directory);
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-file-output-'));
+    temporaryDirectories.push(temporaryDirectory);
+    const filePath = join(directory, 'evidence._');
+    await writeFile(filePath, 'source', 'utf8');
+    const plugin = createOfficialFilePlugin({
+      extractFile: async () => ({
+        format: 'markdown',
+        content: '# Evidence\n',
+        status: 'complete',
+        warnings: [],
+        assets: [
+          { name: 'asset._', mediaType: 'application/octet-stream', bytes: Uint8Array.of(1) },
+        ],
+      }),
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { filePath, canonicalUri: 'file:///evidence._' },
+        options: {},
+        temporaryDirectory,
+      },
+      context,
+    );
+
+    expect(artifacts.map((artifact) => artifact.id)).toEqual([
+      'original.original',
+      'normalized.content-md',
+      'asset.assets-0-asset',
+    ]);
+    expect(artifacts.every((artifact) => /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/u.test(artifact.id))).toBe(
+      true,
+    );
+  });
+
   it('reports unavailable optional OCR without an install action', async () => {
     const plugin = createOfficialFilePlugin({ commandAvailable: async () => false });
 

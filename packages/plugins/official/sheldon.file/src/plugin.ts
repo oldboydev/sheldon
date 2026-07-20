@@ -246,7 +246,11 @@ async function writeArtifact(
 }
 
 function artifactId(role: SourceArtifact['role'], path: string): string {
-  return `${role}.${path.replace(/[^a-zA-Z0-9]+/gu, '-').toLowerCase()}`;
+  const pathSegments = path
+    .toLowerCase()
+    .split(/[^a-z0-9]+/u)
+    .filter(Boolean);
+  return pathSegments.length === 0 ? role : `${role}.${pathSegments.join('-')}`;
 }
 
 function safeAssetName(name: string): string {

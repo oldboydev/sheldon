@@ -44,7 +44,7 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 
-`npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell; `npm run verify` já o inclui antes do lint de domínio.
+`npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell, além do plugin oficial `sheldon.file`; `npm run verify` já o inclui antes do lint de domínio.
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
