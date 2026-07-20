@@ -164,9 +164,7 @@ class BoundedArchive {
   static async open(bytes: Uint8Array): Promise<BoundedArchive> {
     const declaredEntries = declaredZipEntryCount(bytes);
     if (declaredEntries > MAX_ARCHIVE_ENTRIES) {
-      throw new Error(
-        `Archive entry limit exceeded: ${declaredEntries} > ${MAX_ARCHIVE_ENTRIES}.`,
-      );
+      throw new Error(`Archive entry limit exceeded: ${declaredEntries} > ${MAX_ARCHIVE_ENTRIES}.`);
     }
     const zip = await JSZip.loadAsync(bytes, { createFolders: false });
     const entries = Object.values(zip.files).filter((entry) => !entry.dir);
