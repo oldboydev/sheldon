@@ -26,7 +26,7 @@ export function normalizeMarkdown(markdown: string): string {
 
 export function titledMarkdown(fileName: string, body: string): string {
   const normalizedBody = normalizeMarkdown(body);
-  return normalizeMarkdown(`# ${fileName}\n\n${normalizedBody}`);
+  return normalizeMarkdown(`${markdownHeading(1, fileName)}\n\n${normalizedBody}`);
 }
 
 export function structuredToMarkdown(value: unknown): string {
@@ -48,6 +48,10 @@ export function markdownTable(rows: readonly (readonly unknown[])[]): string {
   ].join('\n');
 }
 
+export function markdownHeading(level: number, value: string): string {
+  return `${'#'.repeat(Math.min(level, 6))} ${escapeMarkdownInline(value.replace(/\r?\n/gu, ' '))}`;
+}
+
 function renderValue(value: unknown, level: number): string {
   if (Array.isArray(value)) {
     if (value.every(isScalar)) {
@@ -55,7 +59,8 @@ function renderValue(value: unknown, level: number): string {
     }
     return value
       .map(
-        (item, index) => `${heading(level, String(index + 1))}\n\n${renderValue(item, level + 1)}`,
+        (item, index) =>
+          `${markdownHeading(level, String(index + 1))}\n\n${renderValue(item, level + 1)}`,
       )
       .join('\n\n');
   }
@@ -63,15 +68,11 @@ function renderValue(value: unknown, level: number): string {
   if (isRecord(value)) {
     return Object.keys(value)
       .sort((left, right) => left.localeCompare(right, 'en'))
-      .map((key) => `${heading(level, key)}\n\n${renderValue(value[key], level + 1)}`)
+      .map((key) => `${markdownHeading(level, key)}\n\n${renderValue(value[key], level + 1)}`)
       .join('\n\n');
   }
 
   return formatScalar(value);
-}
-
-function heading(level: number, value: string): string {
-  return `${'#'.repeat(Math.min(level, 6))} ${value}`;
 }
 
 function escapeTableCell(value: unknown): string {
@@ -83,9 +84,15 @@ function escapeTableCell(value: unknown): string {
 
 function formatScalar(value: unknown): string {
   if (value === null) return 'null';
-  if (typeof value === 'string') return value;
+  if (typeof value === 'string') {
+    return value.replace(/\r\n?/gu, '\n').split('\n').map(escapeMarkdownInline).join('<br>');
+  }
   if (typeof value === 'number' || typeof value === 'boolean') return String(value);
   return JSON.stringify(value) ?? '';
+}
+
+function escapeMarkdownInline(value: string): string {
+  return value.replace(/\\/gu, '\\\\').replace(/([`*_[\]<>#])/gu, '\\$1');
 }
 
 function isScalar(value: unknown): boolean {
