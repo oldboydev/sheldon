@@ -1,3 +1,6 @@
+import { createHash } from 'node:crypto';
+import { rm, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
 
 const mode = process.argv[2] ?? 'success';
@@ -5,7 +8,6 @@ const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
 const request = await new Promise((resolve) =>
   input.once('line', (line) => resolve(JSON.parse(line))),
 );
-input.close();
 
 const description = {
   id: 'fixture.node',
@@ -29,13 +31,35 @@ const success = (result, requestId = request.requestId) => ({
 
 const write = (value) => process.stdout.write(`${JSON.stringify(value)}\n`);
 
-if (mode === 'malformed') {
+if (mode === 'cooperative-cancel') {
+  const partialPath = join(request.payload.temporaryDirectory, 'partial.md');
+  await writeFile(partialPath, 'partial');
+  const cancel = await new Promise((resolve) =>
+    input.once('line', (line) => resolve(JSON.parse(line))),
+  );
+  await rm(partialPath, { force: true });
+  write(success({}, cancel.requestId));
+  write({
+    protocolVersion: request.protocolVersion,
+    requestId: request.requestId,
+    status: 'cancelled',
+    error: { code: 'PLUGIN_CANCELLED', message: 'Fixture cancelled.' },
+  });
+  input.close();
+} else if (mode === 'hang') {
+  input.close();
+  setInterval(() => {}, 1_000);
+} else if (mode === 'malformed') {
+  input.close();
   process.stdout.write('not-json\n');
 } else if (mode === 'oversized-line') {
+  input.close();
   process.stdout.write(`${'x'.repeat(2_048)}\n`);
 } else if (mode === 'nonzero') {
+  input.close();
   process.exitCode = 9;
 } else {
+  input.close();
   let result;
   switch (request.operation) {
     case 'describe':
@@ -70,6 +94,21 @@ if (mode === 'malformed') {
       process.stderr.write('fixture log\n');
       result = { checks: [] };
       break;
+    case 'ingest': {
+      const artifactContent = '# Fixture\n';
+      await writeFile(join(request.payload.temporaryDirectory, 'content.md'), artifactContent);
+      result = [
+        {
+          id: 'content',
+          role: 'normalized',
+          path: 'content.md',
+          mediaType: 'text/markdown',
+          bytes: mode === 'invalid-artifact' ? 1 : Buffer.byteLength(artifactContent),
+          sha256: createHash('sha256').update(artifactContent).digest('hex'),
+        },
+      ];
+      break;
+    }
     default:
       throw new Error(`Unsupported fixture operation: ${request.operation}`);
   }

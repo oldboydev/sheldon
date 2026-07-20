@@ -38,7 +38,7 @@ npm run verify
 
 Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, cobertura, build, validações de domínio, política documental e `git diff --check`.
 
-O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
+O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
@@ -49,6 +49,8 @@ A instalação apenas copia arquivos: não executa código ou scripts de pacote,
 Cada operação `describe`, `probe` ou `healthcheck` inicia um processo novo com `shell: false`, diretório de trabalho na raiz do plugin e um ambiente sanitizado. Somente `PATH`, `PATHEXT`, `SystemRoot`, `WINDIR` e variáveis de locale são encaminhadas; `TEMP` e `TMP` apontam para um diretório exclusivo da operação. Entradas e ambiente não são copiados para o histórico operacional.
 
 O contrato de limites do host publica 10 segundos para `describe` e `probe`, 30 segundos para `healthcheck` e 15 minutos para `ingest`, destinados ao controlador de ciclo de vida. Os limites já aplicados pelo runner restringem cada linha JSONL a 1 MiB e o stdout de protocolo a 8 MiB. Logs continuam separados no stderr, cujo histórico preserva somente a cauda mais recente de 256 KiB. Esses processos reduzem interferência entre operações, mas não constituem um sandbox do sistema operacional: um plugin local ainda executa com os acessos concedidos ao usuário atual.
+
+Em `ingest`, o plugin devolve somente descritores temporários de artefatos. Antes de entregar a lease ao consumidor, o host valida que cada caminho permanece no diretório temporário canônico, aponta para um arquivo regular, tem tamanho e SHA-256 declarados corretos e respeita os limites agregados. A lease termina quando o consumidor conclui, inclusive se houver erro, e seus arquivos são removidos. Em cancelamento, o host pede cancelamento cooperativo e aguarda a resposta terminal por um período curto; se o processo não encerrar, força o término. No Windows, cada plugin nasce sob um supervisor privado que entra em um Job Object com `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` antes de iniciar o comando do plugin. Encerrar o supervisor fecha o Job Object e elimina toda a árvore, inclusive descendentes que conservaram pipes depois que o processo direto do plugin saiu. A ausência ou incompatibilidade do addon interrompe o lançamento com `PLUGIN_SUPERVISOR_UNAVAILABLE`, sem fallback mais fraco. Isso é controle de ciclo de vida, não sandbox: plugins locais continuam com os acessos do usuário atual.
 
 Um plugin TypeScript define as quatro operações primárias e o cancelamento cooperativo, depois entrega o controle ao runner:
 

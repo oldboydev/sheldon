@@ -50,8 +50,14 @@ it('does not load the Windows addon on non-Windows platforms', () => {
 });
 
 it.runIf(process.platform === 'win32')('reports an unavailable addon', () => {
-  expect(() => initializeWindowsJob({ platform: 'win32', load: () => { throw new Error('missing'); } }))
-    .toThrow(expect.objectContaining({ code: 'PLUGIN_SUPERVISOR_UNAVAILABLE' }));
+  expect(() =>
+    initializeWindowsJob({
+      platform: 'win32',
+      load: () => {
+        throw new Error('missing');
+      },
+    }),
+  ).toThrow(expect.objectContaining({ code: 'PLUGIN_SUPERVISOR_UNAVAILABLE' }));
 });
 ```
 
@@ -69,12 +75,14 @@ Create `binding.gyp`:
 
 ```json
 {
-  "targets": [{
-    "target_name": "sheldon_job_object",
-    "sources": ["src/job-object.cc"],
-    "defines": ["NAPI_VERSION=8"],
-    "conditions": [["OS=='win'", { "libraries": ["-lkernel32"] }]]
-  }]
+  "targets": [
+    {
+      "target_name": "sheldon_job_object",
+      "sources": ["src/job-object.cc"],
+      "defines": ["NAPI_VERSION=8"],
+      "conditions": [["OS=='win'", { "libraries": ["-lkernel32"] }]]
+    }
+  ]
 }
 ```
 
@@ -93,9 +101,13 @@ export function initializeWindowsJob(
     const addon = options.load?.() ?? loadGeneratedAddon();
     addon.initialize();
   } catch (cause) {
-    throw new PluginHostError('PLUGIN_SUPERVISOR_UNAVAILABLE',
-      'The Windows plugin supervisor could not initialize its native Job Object.', '',
-      'Rebuild the Windows-native Sheldon plugin host component for this Node architecture.', { cause });
+    throw new PluginHostError(
+      'PLUGIN_SUPERVISOR_UNAVAILABLE',
+      'The Windows plugin supervisor could not initialize its native Job Object.',
+      '',
+      'Rebuild the Windows-native Sheldon plugin host component for this Node architecture.',
+      { cause },
+    );
   }
 }
 ```
@@ -260,11 +272,11 @@ git commit -m "fix(plugin-host): guarantee Windows process tree cleanup"
 
 ## Coverage map
 
-| Design requirement | Plan task |
-| --- | --- |
-| Kill-on-close Job Object before plugin spawn | Task 1, Task 2 |
-| Transparent JSONL/stdin/stdout/stderr forwarding | Task 2 |
-| No weak Windows fallback; stable unavailable diagnostic | Task 1, Task 2, Task 3 |
-| Descendant survives direct parent exit then is terminated | Task 3 |
-| No temporary lease or async teardown leak | Task 3 |
-| Node-only public runtime and explicit source-build prerequisites | Task 1, Task 3 |
+| Design requirement                                               | Plan task              |
+| ---------------------------------------------------------------- | ---------------------- |
+| Kill-on-close Job Object before plugin spawn                     | Task 1, Task 2         |
+| Transparent JSONL/stdin/stdout/stderr forwarding                 | Task 2                 |
+| No weak Windows fallback; stable unavailable diagnostic          | Task 1, Task 2, Task 3 |
+| Descendant survives direct parent exit then is terminated        | Task 3                 |
+| No temporary lease or async teardown leak                        | Task 3                 |
+| Node-only public runtime and explicit source-build prerequisites | Task 1, Task 3         |

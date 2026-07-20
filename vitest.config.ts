@@ -20,6 +20,7 @@ export default defineConfig({
     },
   },
   test: {
+    globalSetup: ['./vitest.global-setup.ts'],
     coverage: {
       provider: 'v8',
       include: ['apps/**/src/**/*.ts', 'packages/**/src/**/*.ts'],

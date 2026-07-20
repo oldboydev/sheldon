@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,6 +14,7 @@ import {
   parsePluginDescription,
   parseProbeResult,
   parseResponseEnvelope,
+  parseSourceArtifacts,
   writeJsonl,
   type HealthcheckResult,
   type JsonValue,
@@ -22,11 +23,15 @@ import {
   type ProbeResult,
   type RequestEnvelope,
   type ResponseEnvelope,
+  type SourceArtifact,
 } from '@sheldon/plugin-sdk';
 
+import { ArtifactValidator } from './artifact-validator.js';
 import { PluginHostError } from './errors.js';
 import { DEFAULT_PLUGIN_LIMITS, type PluginLimits } from './limits.js';
 import type { LoadedPluginManifest } from './manifest-loader.js';
+import { startPluginProcess, type ProcessLauncherOptions } from './process-launcher.js';
+import { terminateProcessTree } from './process-tree.js';
 import { StderrTail } from './stderr-tail.js';
 
 export type RunnablePlugin = LoadedPluginManifest;
@@ -37,16 +42,27 @@ export interface ProcessOperationResult<T> {
   readonly durationMs: number;
 }
 
+export interface IngestLease {
+  readonly temporaryDirectory: string;
+  readonly artifacts: readonly SourceArtifact[];
+}
+
+export interface PluginRunOptions {
+  readonly signal?: AbortSignal;
+}
+
 export interface PluginProcessRunnerOptions {
   readonly state: PluginStateDatabase;
   readonly environment?: NodeJS.ProcessEnv;
   readonly limits?: PluginLimits;
   readonly now?: () => Date;
   readonly requestId?: () => string;
+  readonly artifactValidator?: ArtifactValidator;
+  readonly processLauncher?: ProcessLauncherOptions;
 }
 
-type PrimaryOperation = Exclude<PluginOperation, 'cancel' | 'ingest'>;
-type PrimaryRequest = Exclude<RequestEnvelope, { readonly operation: 'cancel' | 'ingest' }>;
+type PrimaryOperation = Exclude<PluginOperation, 'cancel'>;
+type PrimaryRequest = Exclude<RequestEnvelope, { readonly operation: 'cancel' }>;
 
 interface ProcessExit {
   readonly code: number | null;
@@ -56,6 +72,18 @@ interface ProcessExit {
 
 interface TerminalRead {
   readonly response?: ResponseEnvelope;
+}
+
+interface HandledResult<T> {
+  readonly value: T;
+  readonly artifactCount: number;
+  readonly artifactBytes: number;
+}
+
+interface Conversation {
+  readonly completion: Promise<TerminalRead>;
+  readonly cooperativeCancellation: Promise<void>;
+  setCancelRequestId(requestId: string): void;
 }
 
 const forwardedEnvironmentKeys = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR'] as const;
@@ -69,6 +97,8 @@ export class PluginProcessRunner {
   private readonly limits: PluginLimits;
   private readonly now: () => Date;
   private readonly requestId: () => string;
+  private readonly artifactValidator: ArtifactValidator;
+  private readonly processLauncher: ProcessLauncherOptions;
 
   public constructor(options: PluginProcessRunnerOptions) {
     this.state = options.state;
@@ -76,6 +106,8 @@ export class PluginProcessRunner {
     this.limits = options.limits ?? DEFAULT_PLUGIN_LIMITS;
     this.now = options.now ?? (() => new Date());
     this.requestId = options.requestId ?? randomUUID;
+    this.artifactValidator = options.artifactValidator ?? new ArtifactValidator();
+    this.processLauncher = options.processLauncher ?? {};
   }
 
   public describe(plugin: RunnablePlugin): Promise<ProcessOperationResult<PluginDescription>> {
@@ -88,11 +120,13 @@ export class PluginProcessRunner {
         operation: 'describe',
         payload: {},
       }),
-      (value) => {
-        const description = parsePluginDescription(value);
+      async (value) => {
+        const description = this.parseResult(plugin, value, parsePluginDescription);
         this.validateDescription(plugin, description);
-        return description;
+        return handled(description);
       },
+      {},
+      (value, stderrTail, durationMs) => ({ result: value, stderrTail, durationMs }),
     );
   }
 
@@ -109,7 +143,9 @@ export class PluginProcessRunner {
         operation: 'probe',
         payload: { input },
       }),
-      parseProbeResult,
+      async (value) => handled(this.parseResult(plugin, value, parseProbeResult)),
+      {},
+      (value, stderrTail, durationMs) => ({ result: value, stderrTail, durationMs }),
     );
   }
 
@@ -123,44 +159,100 @@ export class PluginProcessRunner {
         operation: 'healthcheck',
         payload: {},
       }),
-      parseHealthcheckResult,
+      async (value) => handled(this.parseResult(plugin, value, parseHealthcheckResult)),
+      {},
+      (value, stderrTail, durationMs) => ({ result: value, stderrTail, durationMs }),
     );
   }
 
-  private async run<T>(
+  public ingest<T>(
+    plugin: RunnablePlugin,
+    input: Readonly<Record<string, JsonValue>>,
+    options: Readonly<Record<string, JsonValue>>,
+    consume: (lease: IngestLease) => Promise<T>,
+    runOptions: PluginRunOptions = {},
+  ): Promise<T> {
+    return this.run(
+      plugin,
+      'ingest',
+      (requestId, temporaryDirectory) => ({
+        protocolVersion: PROTOCOL_VERSION,
+        requestId,
+        operation: 'ingest',
+        payload: { input, options, temporaryDirectory },
+      }),
+      async (value, temporaryDirectory) => {
+        const descriptors = this.parseResult(plugin, value, parseSourceArtifacts);
+        const artifacts = await this.artifactValidator.validate(
+          temporaryDirectory,
+          descriptors,
+          this.limits,
+        );
+        const consumed = await consume({ temporaryDirectory, artifacts });
+        return {
+          value: consumed,
+          artifactCount: artifacts.length,
+          artifactBytes: artifacts.reduce((total, artifact) => total + artifact.bytes, 0),
+        };
+      },
+      runOptions,
+      (value) => value,
+    );
+  }
+
+  private async run<T, TResult>(
     plugin: RunnablePlugin,
     operation: PrimaryOperation,
-    makeRequest: (requestId: string) => PrimaryRequest,
-    parseResult: (value: unknown) => T,
-  ): Promise<ProcessOperationResult<T>> {
+    makeRequest: (requestId: string, temporaryDirectory: string) => PrimaryRequest,
+    handleResult: (value: unknown, temporaryDirectory: string) => Promise<HandledResult<T>>,
+    runOptions: PluginRunOptions,
+    present: (value: T, stderrTail: string, durationMs: number) => TResult,
+  ): Promise<TResult> {
     const startedAt = this.now();
     const stderr = new StderrTail(this.limits.stderrBytes);
     let temporaryDirectory: string | undefined;
     let exitCode: number | undefined;
     let runError: PluginHostError | undefined;
+    let result: TResult | undefined;
+    let artifactCount = 0;
+    let artifactBytes = 0;
     let status = 'error';
 
     try {
       temporaryDirectory = await mkdtemp(join(tmpdir(), `sheldon-plugin-${plugin.manifest.id}-`));
       const requestId = this.requestId();
-      const request = makeRequest(requestId);
-      const child = this.startProcess(plugin, temporaryDirectory, stderr);
+      const request = makeRequest(requestId, temporaryDirectory);
+      const child = await this.startProcess(plugin, temporaryDirectory, stderr);
       const exit = waitForExit(child);
+      const conversation = this.startConversation(child, requestId);
+      conversation.completion.catch(() => undefined);
 
       let terminal: TerminalRead;
       try {
-        const writeOutcome = await Promise.race([
-          writeJsonl(child.stdin, request).then(() => ({ kind: 'written' as const })),
-          exit.then((result) => ({ kind: 'exit' as const, result })),
+        const lifecycle = this.awaitLifecycle(
+          plugin,
+          operation,
+          child,
+          exit,
+          conversation,
+          requestId,
+          runOptions.signal,
+        );
+        const requestWrite = writeJsonl(child.stdin, request);
+        requestWrite.catch(() => undefined);
+        const requestOutcome = await Promise.race([
+          requestWrite.then(() => ({ kind: 'written' as const })),
+          lifecycle.then((lifecycleTerminal) => ({
+            kind: 'terminal' as const,
+            terminal: lifecycleTerminal,
+          })),
         ]);
-        if (writeOutcome.kind === 'exit' && writeOutcome.result.error !== undefined) {
-          throw this.processStartError(plugin, writeOutcome.result.error);
-        }
-
-        terminal = await this.readTerminal(child, requestId);
+        terminal = requestOutcome.kind === 'terminal' ? requestOutcome.terminal : await lifecycle;
       } catch (error) {
-        const failedExit = await settleFailedProcess(child, exit);
-        if (failedExit.code !== null) exitCode = failedExit.code;
+        const failedExit = await settleFailedProcess(child, exit, error).catch(() => undefined);
+        if (failedExit?.code !== null && failedExit?.code !== undefined) {
+          exitCode = failedExit.code;
+        }
         throw error;
       } finally {
         child.stdin.end();
@@ -177,7 +269,6 @@ export class PluginProcessRunner {
           'The plugin process exited without a terminal protocol response.',
         );
       }
-
       if (terminal.response.status === 'success' && processExit.code !== 0) {
         throw this.processExitedError(plugin, processExit);
       }
@@ -192,46 +283,137 @@ export class PluginProcessRunner {
         throw this.error(plugin, 'PLUGIN_CANCELLED', 'The plugin reported cancellation.');
       }
 
-      let result: T;
-      try {
-        result = parseResult(terminal.response.result);
-      } catch (error) {
-        if (error instanceof PluginHostError) throw error;
-        if (error instanceof ProtocolValidationError) {
-          throw this.error(plugin, 'PLUGIN_RESULT_INVALID', error.message, error);
-        }
-        throw error;
-      }
-
+      const handledResult = await handleResult(terminal.response.result, temporaryDirectory);
+      artifactCount = handledResult.artifactCount;
+      artifactBytes = handledResult.artifactBytes;
       status = 'success';
-      const durationMs = duration(startedAt, this.now());
-      return { result, stderrTail: stderr.text(), durationMs };
+      result = present(handledResult.value, stderr.text(), duration(startedAt, this.now()));
     } catch (error) {
       runError = this.normalizeError(plugin, error);
-      throw runError;
-    } finally {
-      if (temporaryDirectory !== undefined) {
-        await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+      if (runError.code === 'PLUGIN_CANCELLED') status = 'cancelled';
+    }
+
+    if (temporaryDirectory !== undefined) {
+      try {
+        await rm(temporaryDirectory, {
+          recursive: true,
+          force: true,
+          maxRetries: 3,
+          retryDelay: 20,
+        });
+      } catch (error) {
+        if (runError === undefined) {
+          runError = this.error(
+            plugin,
+            'PLUGIN_TEMP_CLEANUP_FAILED',
+            'The plugin temporary directory could not be removed.',
+            error,
+          );
+          status = 'error';
+          artifactCount = 0;
+          artifactBytes = 0;
+        }
       }
-      const durationMs = duration(startedAt, this.now());
-      this.state.recordRun({
-        pluginId: plugin.manifest.id,
-        version: plugin.manifest.version,
-        operation,
-        startedAt: startedAt.toISOString(),
-        durationMs,
-        status,
-        ...(exitCode === undefined ? {} : { exitCode }),
-        artifactCount: 0,
-        artifactBytes: 0,
-        stderrTail: stderr.text(),
-        ...(runError === undefined
-          ? {}
-          : {
-              errorCode: runError.code,
-              errorMessage: recordedErrorMessage,
-            }),
+    }
+
+    const durationMs = duration(startedAt, this.now());
+    this.state.recordRun({
+      pluginId: plugin.manifest.id,
+      version: plugin.manifest.version,
+      operation,
+      startedAt: startedAt.toISOString(),
+      durationMs,
+      status,
+      ...(exitCode === undefined ? {} : { exitCode }),
+      artifactCount,
+      artifactBytes,
+      stderrTail: stderr.text(),
+      ...(runError === undefined
+        ? {}
+        : { errorCode: runError.code, errorMessage: recordedErrorMessage }),
+    });
+
+    if (runError !== undefined) throw runError;
+    return result as TResult;
+  }
+
+  private async awaitLifecycle(
+    plugin: RunnablePlugin,
+    operation: PrimaryOperation,
+    child: ChildProcessWithoutNullStreams,
+    exit: Promise<ProcessExit>,
+    conversation: Conversation,
+    requestId: string,
+    signal: AbortSignal | undefined,
+  ): Promise<TerminalRead> {
+    const timeout = deferredTimer(this.limits.timeouts[operation]);
+    const abort = deferredAbort(signal);
+    try {
+      const event = await Promise.race([
+        conversation.completion.then((terminal) => ({ kind: 'terminal' as const, terminal })),
+        timeout.promise.then(() => ({ kind: 'timeout' as const })),
+        abort.promise.then(() => ({ kind: 'abort' as const })),
+      ]);
+
+      if (event.kind === 'terminal') return event.terminal;
+      if (event.kind === 'timeout') {
+        throw this.error(plugin, 'PLUGIN_TIMEOUT', 'The plugin operation timed out.');
+      }
+
+      await this.cancelCooperatively(child, exit, conversation, requestId);
+      throw this.error(plugin, 'PLUGIN_CANCELLED', 'The plugin operation was cancelled.');
+    } finally {
+      timeout.cancel();
+      abort.cancel();
+    }
+  }
+
+  private async cancelCooperatively(
+    child: ChildProcessWithoutNullStreams,
+    exit: Promise<ProcessExit>,
+    conversation: Conversation,
+    targetRequestId: string,
+  ): Promise<void> {
+    const cancelRequestId = this.requestId();
+    conversation.setCancelRequestId(cancelRequestId);
+    const grace = deferredTimer(this.limits.timeouts.cancellationGrace);
+    try {
+      const cancelWrite = writeJsonl(child.stdin, {
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: cancelRequestId,
+        operation: 'cancel',
+        payload: { targetRequestId },
       });
+      cancelWrite.catch(() => undefined);
+      const writeOutcome = await Promise.race([
+        cancelWrite.then(() => 'written' as const),
+        exit.then(() => 'exit' as const),
+        grace.promise.then(() => 'grace' as const),
+      ]);
+      if (writeOutcome !== 'written') {
+        await terminateBestEffort(child, exit);
+        return;
+      }
+      const acknowledgement = await Promise.race([
+        conversation.cooperativeCancellation.then(() => 'cooperative' as const),
+        exit.then(() => 'exit' as const),
+        grace.promise.then(() => 'grace' as const),
+      ]);
+      if (acknowledgement === 'cooperative') {
+        child.stdin.end();
+        const stopped = await Promise.race([
+          exit.then(() => true),
+          grace.promise.then(() => false),
+        ]);
+        if (stopped) return;
+      } else if (acknowledgement === 'exit') {
+        return;
+      }
+      await terminateBestEffort(child, exit);
+    } catch {
+      await terminateBestEffort(child, exit);
+    } finally {
+      grace.cancel();
     }
   }
 
@@ -239,23 +421,49 @@ export class PluginProcessRunner {
     plugin: RunnablePlugin,
     temporaryDirectory: string,
     stderr: StderrTail,
-  ): ChildProcessWithoutNullStreams {
-    const { executable, arguments: commandArguments } = plugin.manifest.command;
-    const child = spawn(executable, commandArguments, {
-      cwd: plugin.root,
-      env: sanitizedEnvironment(this.environment, temporaryDirectory),
-      shell: false,
-      windowsHide: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
+  ): Promise<ChildProcessWithoutNullStreams> {
+    const child = startPluginProcess(
+      plugin,
+      temporaryDirectory,
+      sanitizedEnvironment(this.environment, temporaryDirectory),
+      this.processLauncher,
+    );
+    return child.then((started) => {
+      started.stderr.on('data', (chunk: Buffer) => stderr.consume(chunk));
+      started.stdin.on('error', () => undefined);
+      return started;
     });
-    child.stderr.on('data', (chunk: Buffer) => stderr.consume(chunk));
-    child.stdin.on('error', () => undefined);
-    return child;
   }
 
-  private async readTerminal(
+  private startConversation(
     child: ChildProcessWithoutNullStreams,
-    requestId: string,
+    primaryRequestId: string,
+  ): Conversation {
+    let cancelRequestId: string | undefined;
+    let resolveCooperative = (): void => undefined;
+    const cooperativeCancellation = new Promise<void>((resolve) => {
+      resolveCooperative = resolve;
+    });
+    const completion = this.readResponses(
+      child,
+      primaryRequestId,
+      () => cancelRequestId,
+      resolveCooperative,
+    );
+    return {
+      completion,
+      cooperativeCancellation,
+      setCancelRequestId: (requestId) => {
+        cancelRequestId = requestId;
+      },
+    };
+  }
+
+  private async readResponses(
+    child: ChildProcessWithoutNullStreams,
+    primaryRequestId: string,
+    cancelRequestId: () => string | undefined,
+    resolveCooperative: () => void,
   ): Promise<TerminalRead> {
     let stdoutBytes = 0;
     const boundedStdout = new Transform({
@@ -276,34 +484,35 @@ export class PluginProcessRunner {
     });
     child.stdout.pipe(boundedStdout);
     const reader = new JsonlReader(boundedStdout, this.limits.lineBytes);
-    let terminal: ResponseEnvelope | undefined;
+    let primary: ResponseEnvelope | undefined;
+    let cancel: ResponseEnvelope | undefined;
 
     while (true) {
       let value: unknown | undefined;
       try {
         value = await reader.next();
       } catch (error) {
-        if (terminal !== undefined && isInvalidJson(error)) {
+        if (primary !== undefined || cancel !== undefined) {
           throw this.error(
             undefined,
             'PLUGIN_PROTOCOL_LATE_OUTPUT',
-            'The plugin wrote output after its terminal response.',
+            'The plugin wrote output after a terminal response.',
             error,
           );
         }
         throw this.framingError(error);
       }
-      if (value === undefined) return { response: terminal };
+      if (value === undefined) return { response: primary };
 
       let response: ResponseEnvelope;
       try {
         response = parseResponseEnvelope(value);
       } catch (error) {
-        if (terminal !== undefined) {
+        if (primary !== undefined || cancel !== undefined) {
           throw this.error(
             undefined,
             'PLUGIN_PROTOCOL_LATE_OUTPUT',
-            'The plugin wrote output after its terminal response.',
+            'The plugin wrote output after a terminal response.',
             error,
           );
         }
@@ -315,21 +524,51 @@ export class PluginProcessRunner {
         );
       }
 
-      if (terminal !== undefined) {
-        throw this.error(
-          undefined,
-          'PLUGIN_PROTOCOL_DUPLICATE_TERMINAL',
-          'The plugin wrote more than one terminal response.',
-        );
-      }
-      if (response.requestId !== requestId) {
+      if (response.requestId === primaryRequestId) {
+        if (primary !== undefined) {
+          throw this.error(
+            undefined,
+            'PLUGIN_PROTOCOL_DUPLICATE_TERMINAL',
+            'The plugin wrote more than one terminal response.',
+          );
+        }
+        primary = response;
+      } else if (response.requestId === cancelRequestId()) {
+        if (cancel !== undefined) {
+          throw this.error(
+            undefined,
+            'PLUGIN_PROTOCOL_DUPLICATE_TERMINAL',
+            'The plugin wrote more than one cancellation acknowledgement.',
+          );
+        }
+        cancel = response;
+      } else {
         throw this.error(
           undefined,
           'PLUGIN_PROTOCOL_REQUEST_MISMATCH',
           'The plugin response request ID does not match the operation request.',
         );
       }
-      terminal = response;
+
+      if (primary?.status === 'cancelled' && cancel?.status === 'success') {
+        resolveCooperative();
+      }
+    }
+  }
+
+  private parseResult<T>(
+    plugin: RunnablePlugin,
+    value: unknown,
+    parser: (candidate: unknown) => T,
+  ): T {
+    try {
+      return parser(value);
+    } catch (error) {
+      if (error instanceof PluginHostError) throw error;
+      if (error instanceof ProtocolValidationError) {
+        throw this.error(plugin, 'PLUGIN_RESULT_INVALID', error.message, error);
+      }
+      throw error;
     }
   }
 
@@ -407,7 +646,9 @@ export class PluginProcessRunner {
   private normalizeError(plugin: RunnablePlugin, error: unknown): PluginHostError {
     if (error instanceof PluginHostError) {
       if (error.target.length > 0) return error;
-      return this.error(plugin, error.code, error.message, error);
+      return new PluginHostError(error.code, error.message, plugin.manifest.id, error.recovery, {
+        cause: error,
+      });
     }
     return this.error(
       plugin,
@@ -431,6 +672,10 @@ export class PluginProcessRunner {
       cause === undefined ? undefined : { cause },
     );
   }
+}
+
+function handled<T>(value: T): HandledResult<T> {
+  return { value, artifactCount: 0, artifactBytes: 0 };
 }
 
 function sanitizedEnvironment(
@@ -462,24 +707,87 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<ProcessExit
   });
 }
 
-async function settleFailedProcess(
+async function terminateAndWait(
   child: ChildProcessWithoutNullStreams,
   exit: Promise<ProcessExit>,
 ): Promise<ProcessExit> {
-  let cancelTimer = (): void => undefined;
-  const graceElapsed = new Promise<undefined>((resolve) => {
-    const timer = setTimeout(resolve, protocolFailureExitGraceMilliseconds);
-    cancelTimer = () => clearTimeout(timer);
-  });
-  const naturalExit = await Promise.race([exit, graceElapsed]);
-  cancelTimer();
-  if (naturalExit !== undefined) return naturalExit;
-  child.kill();
+  try {
+    await terminateProcessTree(child);
+  } catch {
+    if (!child.kill('SIGKILL')) {
+      throw new Error('The plugin process could not be terminated.');
+    }
+  }
   return exit;
 }
 
-function isInvalidJson(error: unknown): boolean {
-  return error instanceof Error && error.message === 'Invalid JSONL line.';
+async function terminateBestEffort(
+  child: ChildProcessWithoutNullStreams,
+  exit: Promise<ProcessExit>,
+): Promise<void> {
+  await terminateAndWait(child, exit).catch(() => undefined);
+}
+
+async function settleFailedProcess(
+  child: ChildProcessWithoutNullStreams,
+  exit: Promise<ProcessExit>,
+  error: unknown,
+): Promise<ProcessExit> {
+  if (requiresImmediateTermination(error)) return terminateAndWait(child, exit);
+
+  const grace = deferredTimer(protocolFailureExitGraceMilliseconds);
+  try {
+    const outcome = await Promise.race([
+      exit.then((processExit) => ({ kind: 'exit' as const, processExit })),
+      grace.promise.then(() => ({ kind: 'grace' as const })),
+    ]);
+    if (outcome.kind === 'exit') return outcome.processExit;
+  } finally {
+    grace.cancel();
+  }
+  return terminateAndWait(child, exit);
+}
+
+function requiresImmediateTermination(error: unknown): boolean {
+  return (
+    error instanceof PluginHostError &&
+    (error.code === 'PLUGIN_TIMEOUT' || error.code === 'PLUGIN_CANCELLED')
+  );
+}
+
+function deferredTimer(milliseconds: number): {
+  readonly promise: Promise<void>;
+  cancel(): void;
+} {
+  let timer: NodeJS.Timeout | undefined;
+  const promise = new Promise<void>((resolve) => {
+    timer = setTimeout(resolve, milliseconds);
+  });
+  return {
+    promise,
+    cancel: () => {
+      if (timer !== undefined) clearTimeout(timer);
+    },
+  };
+}
+
+function deferredAbort(signal: AbortSignal | undefined): {
+  readonly promise: Promise<void>;
+  cancel(): void;
+} {
+  let listener = (): void => undefined;
+  const promise = new Promise<void>((resolve) => {
+    if (signal?.aborted === true) {
+      resolve();
+      return;
+    }
+    listener = resolve;
+    signal?.addEventListener('abort', listener, { once: true });
+  });
+  return {
+    promise,
+    cancel: () => signal?.removeEventListener('abort', listener),
+  };
 }
 
 function duration(startedAt: Date, endedAt: Date): number {

@@ -1415,30 +1415,18 @@ Expected: FAIL because ingest cancellation and tree termination are not implemen
 
 - [ ] **Step 6: Implement non-shell process-tree termination**
 
-Create `process-tree.ts`:
+Create `process-tree.ts`. On Windows the child passed to this function is the private Node supervisor, which entered a kill-on-close Job Object before it launched the plugin. Killing that supervisor closes the Job Object and terminates all descendants, including the exited-parent case. Do not skip termination based on `exitCode`: the direct plugin may have exited while a descendant still owns inherited pipes. Never invoke a shell or a separate process-tree utility.
 
 ```ts
-import { spawn, type ChildProcess } from 'node:child_process';
-import { join } from 'node:path';
+import type { ChildProcess } from 'node:child_process';
 
 export async function terminateProcessTree(child: ChildProcess): Promise<void> {
-  if (child.exitCode !== null || child.signalCode !== null || child.pid === undefined) return;
-  if (process.platform === 'win32') {
-    const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe');
-    await new Promise<void>((resolve, reject) => {
-      const killer = spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], {
-        shell: false,
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      killer.once('error', reject);
-      killer.once('exit', (code) =>
-        code === 0 || code === 128 ? resolve() : reject(new Error(`taskkill exited ${code}`)),
-      );
-    });
-    return;
+  if (child.pid === undefined) return;
+  try {
+    child.kill('SIGKILL');
+  } catch (error) {
+    if (!(error instanceof Error) || !('code' in error) || error.code !== 'ESRCH') throw error;
   }
-  child.kill('SIGKILL');
 }
 ```
 
@@ -1483,6 +1471,13 @@ Document temporary artifact descriptors, validation-before-consumption, cooperat
 git add packages/plugin-host/src packages/plugin-host/test README.md CHANGELOG.md
 git commit -m "feat(plugin-host): cancel plugin process trees safely"
 ```
+
+**Implementation evidence (19 July 2026):**
+
+- `process-launcher.ts` starts `windows-supervisor.js` instead of the plugin on Windows and accepts protocol traffic only after the supervisor reports that the native Job Object is ready.
+- `process-lifecycle.test.ts` covers a descendant that inherits pipes after its direct parent exits, then proves cancellation removes both that descendant and the operation lease.
+- Windows source builds run the package-local `node-gyp` target and require Python 3, Visual Studio 2022 with the **Desktop development with C++** workload, and a compatible Windows SDK. Packaged Windows output includes `native/windows-job/build/Release/sheldon_job_object.node` so consumers do not need the source-build toolchain.
+- The old external process-tree utility is no longer used; forced lifecycle cleanup targets the supervisor, and an unavailable native addon fails before the plugin command can start.
 
 ### Task 7: Discovery, selection, and doctor services
 

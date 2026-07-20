@@ -16,6 +16,11 @@ import {
 } from '../src/index.js';
 
 const fixturePath = fileURLToPath(new URL('./fixtures/protocol-fixture.mjs', import.meta.url));
+const unavailableSupervisorPath = fileURLToPath(
+  new URL('./fixtures/unavailable-supervisor-fixture.mjs', import.meta.url),
+);
+const supervisorPath = fileURLToPath(new URL('../dist/windows-supervisor.js', import.meta.url));
+const processLauncher = { supervisorPath } as const;
 const temporaryRoots: string[] = [];
 const databases: PluginStateDatabase[] = [];
 
@@ -62,10 +67,33 @@ afterEach(async () => {
 });
 
 describe('PluginProcessRunner', () => {
+  it.runIf(process.platform === 'win32')(
+    'propagates an unavailable Windows supervisor before protocol exchange',
+    async () => {
+      const state = stateDatabase();
+      const runner = new PluginProcessRunner({
+        state,
+        processLauncher: { supervisorPath: unavailableSupervisorPath },
+      });
+
+      await expect(runner.describe(await pluginFor())).rejects.toMatchObject({
+        code: 'PLUGIN_SUPERVISOR_UNAVAILABLE',
+        target: 'fixture.node',
+        recovery:
+          'Rebuild the Windows-native Sheldon plugin host component for this Node architecture.',
+      });
+      expect(state.listRuns().at(-1)).toMatchObject({
+        status: 'error',
+        errorCode: 'PLUGIN_SUPERVISOR_UNAVAILABLE',
+      });
+    },
+  );
+
   it('runs a fresh process, sanitizes its environment, and retains stderr separately', async () => {
     const state = stateDatabase();
     const runner = new PluginProcessRunner({
       state,
+      processLauncher,
       environment: {
         PATH: process.env.PATH,
         SystemRoot: process.env.SystemRoot,
@@ -100,6 +128,7 @@ describe('PluginProcessRunner', () => {
     const state = stateDatabase();
     const runner = new PluginProcessRunner({
       state,
+      processLauncher,
       limits:
         mode === 'oversized-line'
           ? limits({ lineBytes: 512, stdoutBytes: 4_096 })
@@ -114,7 +143,7 @@ describe('PluginProcessRunner', () => {
 
   it('validates operation results and describe identity against the manifest', async () => {
     const state = stateDatabase();
-    const runner = new PluginProcessRunner({ state });
+    const runner = new PluginProcessRunner({ state, processLauncher });
 
     await expect(runner.describe(await pluginFor('invalid-result'))).rejects.toMatchObject({
       code: 'PLUGIN_RESULT_INVALID',
@@ -126,7 +155,7 @@ describe('PluginProcessRunner', () => {
 
   it('does not persist request values echoed by a plugin error', async () => {
     const state = stateDatabase();
-    const runner = new PluginProcessRunner({ state });
+    const runner = new PluginProcessRunner({ state, processLauncher });
 
     await expect(
       runner.probe(await pluginFor('error-echo'), { secret: 'request-secret-value' }),
@@ -138,7 +167,7 @@ describe('PluginProcessRunner', () => {
     'maps a plugin-controlled error code to a bounded host code',
     async (pluginErrorCode) => {
       const state = stateDatabase();
-      const runner = new PluginProcessRunner({ state });
+      const runner = new PluginProcessRunner({ state, processLauncher });
 
       await expect(
         runner.probe(await pluginFor('error-echo'), {
@@ -155,7 +184,7 @@ describe('PluginProcessRunner', () => {
 
   it('records a numeric process exit after a framing violation when available', async () => {
     const state = stateDatabase();
-    const runner = new PluginProcessRunner({ state });
+    const runner = new PluginProcessRunner({ state, processLauncher });
 
     await expect(runner.describe(await pluginFor('malformed'))).rejects.toMatchObject({
       code: 'PLUGIN_PROTOCOL_INVALID_JSON',
@@ -164,7 +193,7 @@ describe('PluginProcessRunner', () => {
   });
 
   it('treats equivalent capability and permission ordering as the same identity', async () => {
-    const runner = new PluginProcessRunner({ state: stateDatabase() });
+    const runner = new PluginProcessRunner({ state: stateDatabase(), processLauncher });
 
     await expect(runner.describe(await pluginFor('equivalent-order'))).resolves.toMatchObject({
       result: { id: 'fixture.node' },

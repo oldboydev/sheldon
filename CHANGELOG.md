@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- Ingestão de plugins agora valida caminhos, tipo, tamanho, SHA-256 e limites agregados de artefatos temporários antes de conceder a lease ao consumidor; timeout e cancelamento cooperativo removem a lease e, no Windows, encerram o supervisor dono do Job Object quando necessário.
 - Build dos workspaces e transformação TypeScript do Vitest migrados de esbuild para SWC.
 - Instalação local de plugins reforçada com validação autoritativa da árvore em staging, leitura estável do manifesto, serialização concorrente do registro e rollback com diagnóstico fiel.
 - Lock do registro de plugins reforçado com propriedade por token, recuperação de processos encerrados e liberação que nunca remove propriedade substituta nem mascara o erro primário.
@@ -16,6 +17,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Supervisor privado de plugins no Windows com addon N-API, Job Object `KILL_ON_JOB_CLOSE`, falha fechada quando indisponível e término de descendentes mesmo após a saída do processo direto do plugin.
 - Protocol v1 schemas and manifest validation.
 - TypeScript plugin runner with cooperative cancellation.
 - Visão, arquitetura, modelo de conhecimento e decisões do produto.

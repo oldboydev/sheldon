@@ -1,4 +1,5 @@
 export { pluginAppPaths, type PluginAppPaths } from './app-paths.js';
+export { ArtifactValidator, type ArtifactValidationLimits } from './artifact-validator.js';
 export { PluginHostError } from './errors.js';
 export { DEFAULT_PLUGIN_LIMITS, type PluginLimits } from './limits.js';
 export {
@@ -20,8 +21,16 @@ export {
 export { type RegistryLockFileSystem, type RegistryLockOptions } from './registry-lock.js';
 export {
   PluginProcessRunner,
+  type IngestLease,
+  type PluginRunOptions,
   type PluginProcessRunnerOptions,
   type ProcessOperationResult,
   type RunnablePlugin,
 } from './process-runner.js';
+export {
+  startPluginProcess,
+  type PluginLaunchDescriptor,
+  type ProcessLauncherOptions,
+} from './process-launcher.js';
+export { terminateProcessTree } from './process-tree.js';
 export { StderrTail } from './stderr-tail.js';

@@ -15,6 +15,12 @@ describe('Vitest configuration', () => {
     });
   });
 
+  it('rebuilds compiled process entry points before source-level tests start', async () => {
+    const { default: config } = await import('./vitest.config.js');
+
+    expect(config.test?.globalSetup).toEqual(['./vitest.global-setup.ts']);
+  });
+
   it('enforces the approved V8 coverage policy for workspace sources', async () => {
     const { default: config } = await import('./vitest.config.js');
 
