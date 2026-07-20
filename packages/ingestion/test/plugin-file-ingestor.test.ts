@@ -204,73 +204,95 @@ describe('plugin file ingestion publication', () => {
     });
   });
 
-  it('ignores malformed historical manifests when linking the previous valid capture', async () => {
+  it('rejects malformed history that matches the relevant URI and options', async () => {
     const directory = await fixtureDirectory();
     const temporaryDirectory = join(directory, 'lease');
     const rawDirectory = join(directory, 'raw');
     await Promise.all([mkdir(temporaryDirectory), mkdir(rawDirectory)]);
     const fixtureLease = await lease(temporaryDirectory, Buffer.from('current'));
     const optionsSha256 = sha256('{"language":"en","ocr":"off"}');
-    const validSourceId = '1'.repeat(64);
-    const historical = [
-      {
-        directory: validSourceId,
-        manifest: {
-          source_id: validSourceId,
-          canonical_uri: 'file:///knowledge/fixture.pdf',
-          content_sha256: 'a'.repeat(64),
-          options_sha256: optionsSha256,
-          captured_at: '2026-07-19T12:00:00.000Z',
-        },
-      },
-      {
-        directory: '2'.repeat(64),
-        manifest: 'source_id: [malformed',
-      },
-      {
-        directory: '3'.repeat(64),
-        manifest: {
-          source_id: '3'.repeat(64),
-          canonical_uri: 'file:///knowledge/fixture.pdf',
-          content_sha256: 'not-a-sha256',
-          options_sha256: optionsSha256,
-          captured_at: '2026-07-20T09:00:00.000Z',
-        },
-      },
-      {
-        directory: '4'.repeat(64),
-        manifest: {
-          source_id: '5'.repeat(64),
-          canonical_uri: 'file:///knowledge/fixture.pdf',
-          content_sha256: 'b'.repeat(64),
-          options_sha256: optionsSha256,
-          captured_at: '2026-07-20T10:00:00.000Z',
-        },
-      },
-      {
-        directory: '6'.repeat(64),
-        manifest: {
-          source_id: '6'.repeat(64),
-          canonical_uri: 'file:///knowledge/fixture.pdf',
-          content_sha256: 'c'.repeat(64),
-          options_sha256: optionsSha256,
-          captured_at: 'not-an-iso-timestamp',
-        },
-      },
-    ] as const;
-    for (const entry of historical) {
-      const rawPath = join(rawDirectory, entry.directory);
+    const historicalSourceId = '3'.repeat(64);
+    const historicalRaw = join(rawDirectory, historicalSourceId);
+    await mkdir(historicalRaw);
+    await writeFile(
+      join(historicalRaw, 'manifest.yaml'),
+      stringify({
+        source_id: historicalSourceId,
+        canonical_uri: 'file:///knowledge/fixture.pdf',
+        content_sha256: 'not-a-sha256',
+        options_sha256: optionsSha256,
+        captured_at: '2026-07-20T09:00:00.000Z',
+      }),
+      'utf8',
+    );
+
+    await expect(
+      publishPluginFileIngestion(input(rawDirectory), fixtureLease, fixedClock),
+    ).rejects.toMatchObject({ code: 'PLUGIN_FILE_HISTORY_INVALID' });
+    await expect(
+      publishPluginFileIngestion(input(rawDirectory), fixtureLease, fixedClock),
+    ).rejects.toBeInstanceOf(PluginFileIngestionError);
+  });
+
+  it('links the chronologically latest history when timestamps use offsets', async () => {
+    const directory = await fixtureDirectory();
+    const temporaryDirectory = join(directory, 'lease');
+    const rawDirectory = join(directory, 'raw');
+    await Promise.all([mkdir(temporaryDirectory), mkdir(rawDirectory)]);
+    const fixtureLease = await lease(temporaryDirectory, Buffer.from('offset-history'));
+    const optionsSha256 = sha256('{"language":"en","ocr":"off"}');
+    const earlierSourceId = '8'.repeat(64);
+    const laterSourceId = '9'.repeat(64);
+    const history = [
+      { sourceId: earlierSourceId, capturedAt: '2026-07-20T13:00:00+02:00' },
+      { sourceId: laterSourceId, capturedAt: '2026-07-20T12:00:00Z' },
+    ];
+    for (const entry of history) {
+      const rawPath = join(rawDirectory, entry.sourceId);
       await mkdir(rawPath);
       await writeFile(
         join(rawPath, 'manifest.yaml'),
-        typeof entry.manifest === 'string' ? entry.manifest : stringify(entry.manifest),
+        stringify({
+          source_id: entry.sourceId,
+          canonical_uri: 'file:///knowledge/fixture.pdf',
+          content_sha256: 'a'.repeat(64),
+          options_sha256: optionsSha256,
+          captured_at: entry.capturedAt,
+        }),
         'utf8',
       );
     }
 
     const result = await publishPluginFileIngestion(input(rawDirectory), fixtureLease, fixedClock);
 
-    expect(result.manifest.previous_source_id).toBe(validSourceId);
+    expect(result.manifest.previous_source_id).toBe(laterSourceId);
+  });
+
+  it('rejects a relevant historical timestamp with an invalid calendar date', async () => {
+    const directory = await fixtureDirectory();
+    const temporaryDirectory = join(directory, 'lease');
+    const rawDirectory = join(directory, 'raw');
+    await Promise.all([mkdir(temporaryDirectory), mkdir(rawDirectory)]);
+    const fixtureLease = await lease(temporaryDirectory, Buffer.from('invalid-calendar-history'));
+    const optionsSha256 = sha256('{"language":"en","ocr":"off"}');
+    const historicalSourceId = 'a'.repeat(64);
+    const historicalRaw = join(rawDirectory, historicalSourceId);
+    await mkdir(historicalRaw);
+    await writeFile(
+      join(historicalRaw, 'manifest.yaml'),
+      stringify({
+        source_id: historicalSourceId,
+        canonical_uri: 'file:///knowledge/fixture.pdf',
+        content_sha256: 'b'.repeat(64),
+        options_sha256: optionsSha256,
+        captured_at: '2026-02-30T12:00:00Z',
+      }),
+      'utf8',
+    );
+
+    await expect(
+      publishPluginFileIngestion(input(rawDirectory), fixtureLease, fixedClock),
+    ).rejects.toMatchObject({ code: 'PLUGIN_FILE_HISTORY_INVALID' });
   });
 
   it.each(['file', 'directory'] as const)(
@@ -294,6 +316,34 @@ describe('plugin file ingestion publication', () => {
       ).rejects.toBeInstanceOf(PluginFileIngestionError);
     },
   );
+
+  it('reports a typed source conflict when manifest.yaml is an unreadable directory', async () => {
+    const directory = await fixtureDirectory();
+    const temporaryDirectory = join(directory, 'lease');
+    const rawDirectory = join(directory, 'raw');
+    await Promise.all([mkdir(temporaryDirectory), mkdir(rawDirectory)]);
+    const originalBytes = Buffer.from('manifest-directory-source');
+    const fixtureLease = await lease(temporaryDirectory, originalBytes);
+    const rawPath = join(rawDirectory, sourceId(originalBytes, '{"language":"en","ocr":"off"}'));
+    await mkdir(join(rawPath, 'manifest.yaml'), { recursive: true });
+
+    await expect(
+      publishPluginFileIngestion(input(rawDirectory), fixtureLease, fixedClock),
+    ).rejects.toMatchObject({ code: 'PLUGIN_FILE_SOURCE_CONFLICT' });
+  });
+
+  it('reports typed invalid history when a historical manifest cannot be read', async () => {
+    const directory = await fixtureDirectory();
+    const temporaryDirectory = join(directory, 'lease');
+    const rawDirectory = join(directory, 'raw');
+    await Promise.all([mkdir(temporaryDirectory), mkdir(rawDirectory)]);
+    const fixtureLease = await lease(temporaryDirectory, Buffer.from('manifest-directory-history'));
+    await mkdir(join(rawDirectory, '7'.repeat(64), 'manifest.yaml'), { recursive: true });
+
+    await expect(
+      publishPluginFileIngestion(input(rawDirectory), fixtureLease, fixedClock),
+    ).rejects.toMatchObject({ code: 'PLUGIN_FILE_HISTORY_INVALID' });
+  });
 
   it('does not publish when normalized is absent', async () => {
     const directory = await fixtureDirectory();
