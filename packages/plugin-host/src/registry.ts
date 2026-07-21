@@ -484,6 +484,46 @@ export class PluginRegistry {
     return [...this.records];
   }
 
+  public async getInstalled(id: string): Promise<InstalledPlugin> {
+    return this.transaction(async () => {
+      const record = this.records.find((candidate) => candidate.id === id);
+      if (!record) {
+        throw new PluginHostError(
+          'PLUGIN_NOT_INSTALLED',
+          `Plugin ${id} is not installed.`,
+          id,
+          'List installed plugins and retry with an installed identifier.',
+        );
+      }
+      const root = assertExactPluginChild(this.paths.plugins, id, record.root);
+      let installed: LoadedPluginManifest;
+      try {
+        installed = await loadPluginManifest(root, 'installed', { opener: this.manifestOpener });
+      } catch (error) {
+        throw new PluginHostError(
+          'PLUGIN_INSTALLATION_TAMPERED',
+          'The installed plugin manifest no longer matches its registry record.',
+          root,
+          'Reinstall the plugin from the official catalog.',
+          { cause: error },
+        );
+      }
+      if (
+        installed.manifest.id !== record.id ||
+        installed.manifest.version !== record.version ||
+        installed.manifestDigest !== record.manifestDigest
+      ) {
+        throw new PluginHostError(
+          'PLUGIN_INSTALLATION_TAMPERED',
+          'The installed plugin manifest no longer matches its registry record.',
+          root,
+          'Reinstall the plugin from the official catalog.',
+        );
+      }
+      return { ...installed, root, record };
+    });
+  }
+
   public async install(
     sourceDirectory: string,
     reservedIds: ReadonlySet<string>,

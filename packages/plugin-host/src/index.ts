@@ -12,6 +12,8 @@ export {
   type OfficialPlatform,
   type OfficialPluginCatalogEntry,
 } from './official-catalog.js';
+export { downloadOfficialArtifact, type OfficialFetch } from './official-download.js';
+export { installOfficialPlugin, type OfficialArchiveExtractor } from './official-installer.js';
 export { DEFAULT_PLUGIN_LIMITS, type PluginLimits } from './limits.js';
 export {
   loadPluginManifest,
