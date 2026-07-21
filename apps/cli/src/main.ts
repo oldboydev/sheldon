@@ -37,6 +37,11 @@ import {
   removePlugin,
   testPlugin,
 } from './commands/plugins.js';
+import {
+  installImageLanguageCommand,
+  listImageLanguageCommand,
+  removeImageLanguageCommand,
+} from './commands/images.js';
 import type { OfficialPlatform } from '@sheldon/plugin-host';
 
 import {
@@ -170,6 +175,15 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .action((id: string, options: { remote?: boolean }) => infoPlugin(id, context, options));
   plugin.command('doctor <id>').action((id: string) => doctorPlugin(id, context));
   plugin.command('test <directory>').action((directory: string) => testPlugin(directory, context));
+  const image = program.command('image');
+  const language = image.command('language');
+  language.command('list').action(() => listImageLanguageCommand(context));
+  language
+    .command('install <code>')
+    .action((code: string) => installImageLanguageCommand(code, context));
+  language
+    .command('remove <code>')
+    .action((code: string) => removeImageLanguageCommand(code, context));
   return program;
 }
 

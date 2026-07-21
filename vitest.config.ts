@@ -26,6 +26,12 @@ export default defineConfig({
       '@sheldon/plugin-source-image': sourcePath(
         './packages/plugins/official/source.image/src/index.ts',
       ),
+      '@sheldon/plugin-source-url': sourcePath(
+        './packages/plugins/official/source.url/src/index.ts',
+      ),
+      '@sheldon/plugin-source-youtube': sourcePath(
+        './packages/plugins/official/source.youtube/src/index.ts',
+      ),
     },
   },
   test: {

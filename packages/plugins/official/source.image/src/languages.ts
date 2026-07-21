@@ -5,6 +5,7 @@ import {
   downloadOfficialArtifact,
   selectOfficialArtifact,
   type OfficialFetch,
+  type OfficialArtifact,
   type OfficialLanguageCatalogEntry,
   type OfficialPlatform,
 } from '@sheldon/plugin-host';
@@ -48,8 +49,9 @@ export async function installImageLanguage(input: {
   readonly fetcher: OfficialFetch;
   readonly platform: OfficialPlatform;
   readonly now: () => Date;
+  readonly downloadArtifact?: (artifact: OfficialArtifact) => Promise<Uint8Array>;
 }): Promise<ImageLanguageRecord> {
-  const { root, entry, catalogVersion, fetcher, platform, now } = input;
+  const { root, entry, catalogVersion, fetcher, platform, now, downloadArtifact } = input;
   if (entry.owner !== 'source.image' || !LANGUAGE_CODE.test(entry.code)) {
     throw imageLanguageError('IMAGE_LANGUAGE_INVALID', 'The requested image language is invalid.');
   }
@@ -60,7 +62,9 @@ export async function installImageLanguage(input: {
     );
   }
   const artifact = selectOfficialArtifact(entry.artifacts, platform);
-  const bytes = await downloadOfficialArtifact(artifact, fetcher);
+  const bytes = downloadArtifact
+    ? await downloadArtifact(artifact)
+    : await downloadOfficialArtifact(artifact, fetcher);
   const record: ImageLanguageRecord = Object.freeze({
     code: entry.code,
     catalogVersion,

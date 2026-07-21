@@ -9,8 +9,10 @@ import {
   parseVerifiedOfficialCatalog,
   type InstalledPlugin,
   type OfficialCatalog,
+  type OfficialArtifact,
   type OfficialPlatform,
   type PluginRegistry,
+  downloadOfficialArtifact,
 } from '@sheldon/plugin-host';
 
 export const CATALOG_URL =
@@ -23,6 +25,7 @@ const OFFICIAL_PLUGIN_ID = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9]*)*$/u;
 export interface OfficialCatalogClient {
   load(): Promise<OfficialCatalog>;
   install(id: string, registry: PluginRegistry): Promise<InstalledPlugin>;
+  downloadArtifact?(artifact: OfficialArtifact): Promise<Uint8Array>;
 }
 
 export interface OfficialCatalogFetch {
@@ -55,6 +58,13 @@ export function createOfficialCatalogClient(
 
   return {
     load,
+    downloadArtifact: (artifact) =>
+      downloadOfficialArtifact(artifact, {
+        fetch: async (url) => {
+          const response = await fetcher.fetch(url);
+          return { status: response.status, body: singleChunk(await response.bytes()) };
+        },
+      }),
     async install(id: string, registry: PluginRegistry): Promise<InstalledPlugin> {
       assertOfficialPluginId(id);
       const catalog = await load();

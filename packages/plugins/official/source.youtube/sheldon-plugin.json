@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "source.youtube",
+  "name": "Official YouTube ingestion",
+  "version": "1.0.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": { "executable": "node", "arguments": ["plugin.mjs"] },
+  "capabilities": ["ingest-url"],
+  "priority": 100,
+  "platforms": ["win32", "darwin", "linux"],
+  "permissions": { "network": true, "cookies": false },
+  "dependencies": []
+}

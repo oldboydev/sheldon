@@ -18,6 +18,8 @@ const targets = [
   ['packages/review/src', 'packages/review/dist'],
   ['packages/plugins/official/source.file/src', 'packages/plugins/official/source.file/dist'],
   ['packages/plugins/official/source.image/src', 'packages/plugins/official/source.image/dist'],
+  ['packages/plugins/official/source.url/src', 'packages/plugins/official/source.url/dist'],
+  ['packages/plugins/official/source.youtube/src', 'packages/plugins/official/source.youtube/dist'],
   ['apps/cli/src', 'apps/cli/dist'],
 ];
 

@@ -36,7 +36,7 @@ const description: PluginDescription = {
   protocolVersion: '1',
   license: 'MIT',
   capabilities: ['ingest-file'],
-  priority: 110,
+  priority: 100,
   platforms: ['win32', 'darwin', 'linux'],
   permissions: { network: false, cookies: false },
   dependencies: [

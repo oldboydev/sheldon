@@ -33,7 +33,12 @@ beforeEach(async () => {
     confirm: async () => true,
     commandAvailable: async () => false,
     officialCatalogClient: {
-      load: async () => ({ schemaVersion: 1, publishedAt: '2026-07-21T00:00:00.000Z', plugins: [], languages: [] }),
+      load: async () => ({
+        schemaVersion: 1,
+        publishedAt: '2026-07-21T00:00:00.000Z',
+        plugins: [],
+        languages: [],
+      }),
       install: async (id, registry) => {
         expect(id).toBe('source.file');
         return registry.install(await writeFilePlugin(root), new Set());
@@ -95,24 +100,26 @@ describe('file ingestion CLI flow', () => {
     });
   });
 
-  it.each([
-    'FILE_INPUT_INVALID',
-    'FILE_FORMAT_UNSUPPORTED',
-    'FILE_EXTRACTION_FAILED',
-  ])('preserves %s from the SDK plugin protocol to CLI diagnostics', async (code) => {
-    const pluginRoot = await writeDiagnosticPlugin(harness.root, code);
-    const message = `Diagnostic message for ${code}.`;
-    const pluginId = `diagnostic.${code.toLowerCase().replaceAll('_', '-')}`;
+  it.each(['FILE_INPUT_INVALID', 'FILE_FORMAT_UNSUPPORTED', 'FILE_EXTRACTION_FAILED'])(
+    'preserves %s from the SDK plugin protocol to CLI diagnostics',
+    async (code) => {
+      const pluginRoot = await writeDiagnosticPlugin(harness.root, code);
+      const message = `Diagnostic message for ${code}.`;
+      const pluginId = `diagnostic.${code.toLowerCase().replaceAll('_', '-')}`;
 
-    const registry = await PluginRegistry.open(join(harness.root, 'appdata', 'Sheldon'));
-    await registry.install(pluginRoot, new Set());
-    const result = await runCli([...ingestArguments(), '--plugin', pluginId], harness.dependencies);
+      const registry = await PluginRegistry.open(join(harness.root, 'appdata', 'Sheldon'));
+      await registry.install(pluginRoot, new Set());
+      const result = await runCli(
+        [...ingestArguments(), '--plugin', pluginId],
+        harness.dependencies,
+      );
 
-    expect(result).toMatchObject({
-      exitCode: 1,
-      stderr: `Error [${code}]: ${message}\nTarget: ${pluginId}\nRecovery: Inspect the plugin manifest, protocol output, and retained stderr before retrying.\n`,
-    });
-  });
+      expect(result).toMatchObject({
+        exitCode: 1,
+        stderr: `Error [${code}]: ${message}\nTarget: ${pluginId}\nRecovery: Inspect the plugin manifest, protocol output, and retained stderr before retrying.\n`,
+      });
+    },
+  );
 });
 
 async function writeDiagnosticPlugin(root: string, code: string): Promise<string> {
