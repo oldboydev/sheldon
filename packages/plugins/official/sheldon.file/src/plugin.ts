@@ -91,6 +91,7 @@ export function createOfficialFilePlugin(
                 id: 'tesseract',
                 severity: 'warning' as const,
                 message: 'Optional Tesseract OCR executable is unavailable.',
+                remediation: 'Install Tesseract and the requested language model.',
               },
         ],
       };

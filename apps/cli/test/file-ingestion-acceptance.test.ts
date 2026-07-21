@@ -89,4 +89,11 @@ describe('official file ingestion CLI flow', () => {
       access(join(harness.root, 'appdata', 'Sheldon', 'plugin-state.db')),
     ).rejects.toThrow();
   });
+
+  it('reports OCR remediation through plugin doctor', async () => {
+    const result = await runCli(['plugin', 'doctor', 'sheldon.file'], harness.dependencies);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Install Tesseract and the requested language model');
+  });
 });

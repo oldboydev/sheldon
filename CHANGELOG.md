@@ -19,6 +19,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Plugin oficial `sheldon.file` para ingestão offline de PDF, Office, EPUB, HTML, dados estruturados, Markdown, texto e imagens, com seleção automática ou `--plugin`, raws deduplicados e versionados e diagnóstico acionável de OCR local opcional.
 - Fluxo vertical M2 de memória: ingestão determinística de arquivo local para raw, compilação de proposta por Codex CLI ou Claude Code, prévia e promoção explícita por arquivo para a wiki.
 - Plataforma M1 de plugins: protocolo JSONL v1, validação schema-first, SDK TypeScript para autores, host de instalação/descoberta/execução, comandos `sheldon plugin`, contratos Node SDK e PowerShell, timeout/cancelamento e gate de qualidade de manifestos e contratos.
 - Supervisor privado de plugins no Windows com addon N-API, Job Object `KILL_ON_JOB_CLOSE`, falha fechada quando indisponível e término de descendentes mesmo após a saída do processo direto do plugin.
