@@ -6,7 +6,6 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 export default async function globalSetup(): Promise<void> {
-  if (process.platform !== 'win32') return;
   const root = fileURLToPath(new URL('.', import.meta.url));
   const npmCli =
     process.env.npm_execpath ??

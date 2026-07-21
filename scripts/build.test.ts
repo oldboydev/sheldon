@@ -7,6 +7,15 @@ import { describe, expect, it } from 'vitest';
 const execFileAsync = promisify(execFile);
 
 describe('SWC build', () => {
+  it('prepares JavaScript build artifacts before tests on every platform', async () => {
+    const globalSetup = await readFile('vitest.global-setup.ts', 'utf8');
+
+    expect(globalSetup).not.toContain("if (process.platform !== 'win32') return;");
+    expect(globalSetup).toContain(
+      "await execFileAsync(process.execPath, [npmCli, 'run', 'build'], { cwd: root });",
+    );
+  });
+
   it('runs the Windows-native build directly before plugin-host compilation', async () => {
     const rootPackage = JSON.parse(await readFile('package.json', 'utf8'));
     const pluginHostPackage = JSON.parse(
