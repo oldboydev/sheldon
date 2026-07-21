@@ -140,9 +140,7 @@ describe('embedded file extraction', () => {
       }),
     );
 
-    await expect(extractFile({ filePath: unsafePath })).rejects.toThrow(
-      'Unsafe XML declaration',
-    );
+    await expect(extractFile({ filePath: unsafePath })).rejects.toThrow('Unsafe XML declaration');
   });
 
   it('uses presentation relationships for slide order and joins runs within paragraphs', async () => {
@@ -199,12 +197,8 @@ describe('embedded file extraction', () => {
       format: 'epub',
       content: '# encoded.epub\n\n## Chapter 1\n\n# Encoded\n',
     });
-    await expect(extractFile({ filePath: queriedPath })).rejects.toThrow(
-      'Unsafe EPUB reference',
-    );
-    await expect(extractFile({ filePath: traversalPath })).rejects.toThrow(
-      'Unsafe EPUB reference',
-    );
+    await expect(extractFile({ filePath: queriedPath })).rejects.toThrow('Unsafe EPUB reference');
+    await expect(extractFile({ filePath: traversalPath })).rejects.toThrow('Unsafe EPUB reference');
   });
 
   it('escapes structured keys and scalar Markdown syntax', async () => {

@@ -6,7 +6,14 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Added
+
+- Catálogo oficial assinado para instalação opcional de plugins e comandos explícitos para gerenciar idiomas do `source.image`.
+- Plugins `source.file`, `source.image`, `source.url` e `source.youtube`; URL e YouTube permanecem scaffolds sem ingestão nesta milestone.
+
 ### Changed
+
+- OCR de imagens passou a ser propriedade exclusiva do `source.image`, com modelos base `por` e `eng` privados ao plugin.
 
 - Verificações locais agora ignoram worktrees e arquivos de scratch aninhados, evitando suites duplicadas e lint de dependências de outra cópia do repositório.
 - Ingestão de plugins agora valida caminhos, tipo, tamanho, SHA-256 e limites agregados de artefatos temporários antes de conceder a lease ao consumidor; timeout e cancelamento cooperativo removem a lease e, no Windows, encerram o supervisor dono do Job Object quando necessário.

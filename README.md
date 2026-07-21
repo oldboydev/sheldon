@@ -48,6 +48,25 @@ O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. N
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
+## Plugins oficiais e OCR
+
+Plugins oficiais são opcionais. `sheldon plugin list` consulta somente o registro local; use `sheldon plugin list --remote` ou `sheldon plugin info source.image --remote` para carregar o catálogo assinado da release oficial. A instalação valida assinatura do catálogo e tamanho/SHA-256 do artefato:
+
+```powershell
+sheldon plugin install source.file
+sheldon plugin install source.image
+```
+
+`source.file` processa documentos e dados locais; `source.image` é o único plugin que processa imagens e traz OCR Tesseract privado, com `por+eng` como padrão. Idiomas extras são dados locais do `source.image`; os modelos base não podem ser removidos:
+
+```powershell
+sheldon image language list
+sheldon image language install deu
+sheldon image language remove deu
+```
+
+Não há plugin público `ocr.tesseract`, alteração de `PATH` ou instalação do Tesseract no sistema. As operações locais de listagem e remoção não usam rede.
+
 Plugins locais são instalados exclusivamente a partir de um diretório local. Sheldon valida o manifesto e todos os links, copia os links sem segui-los para uma área privada de staging, valida novamente a árvore copiada e confirma que a identidade dessa raiz não mudou durante a publicação em `%APPDATA%\Sheldon\plugins\<id>`, antes de persistir o registro YAML atômico. Identificadores já usados por plugins oficiais ou instalados são rejeitados, sem opção de sobrescrita no M1.
 
 A instalação apenas copia arquivos: não executa código ou scripts de pacote, não instala dependências, não faz downloads e não acessa a rede. Instalações e remoções concorrentes são serializadas por processo e por um lock exclusivo no diretório da aplicação para impedir perda de registros. O lock registra token de propriedade, PID e horário, preserva locks de processos ativos e recupera com segurança locks abandonados por processos encerrados. A remoção aceita somente um identificador registrado e apaga apenas o filho exato correspondente dentro do diretório de plugins, respeitando a comparação de caminhos sem distinção entre maiúsculas e minúsculas no Windows.

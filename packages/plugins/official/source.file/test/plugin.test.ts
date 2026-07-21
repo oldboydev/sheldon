@@ -66,7 +66,9 @@ describe('official file plugin scaffold', () => {
     temporaryDirectories.push(directory);
     const imagePath = join(directory, 'evidence.png');
     await writeFile(imagePath, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    await expect(createOfficialSourceFilePlugin().probe({ input: { filePath: imagePath } }, context)).resolves.toEqual({
+    await expect(
+      createOfficialSourceFilePlugin().probe({ input: { filePath: imagePath } }, context),
+    ).resolves.toEqual({
       supported: false,
       confidence: 0,
       reason: 'The file format is not supported by this plugin.',
@@ -202,7 +204,9 @@ describe('official file plugin scaffold', () => {
     const plugin = createOfficialSourceFilePlugin();
     const description = await plugin.describe(context);
 
-    expect(description.dependencies).not.toContainEqual(expect.objectContaining({ id: 'tesseract' }));
+    expect(description.dependencies).not.toContainEqual(
+      expect.objectContaining({ id: 'tesseract' }),
+    );
     await expect(plugin.healthcheck(context)).resolves.toEqual({
       checks: expect.arrayContaining([
         expect.objectContaining({ id: 'embedded-extractors', severity: 'info' }),

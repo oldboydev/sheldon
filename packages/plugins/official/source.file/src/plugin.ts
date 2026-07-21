@@ -35,9 +35,7 @@ const description: PluginDescription = {
 };
 
 type FilePluginErrorCode =
-  | 'FILE_INPUT_INVALID'
-  | 'FILE_FORMAT_UNSUPPORTED'
-  | 'FILE_EXTRACTION_FAILED';
+  'FILE_INPUT_INVALID' | 'FILE_FORMAT_UNSUPPORTED' | 'FILE_EXTRACTION_FAILED';
 
 export interface OfficialSourceFileDependencies {
   readonly fileExists?: (filePath: string) => Promise<boolean>;

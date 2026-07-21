@@ -311,7 +311,10 @@ describe('installOfficialPlugin', () => {
     const plugins = join(parent, 'app', 'plugins');
     const replacement = join(parent, 'outside-plugins');
     await rename(plugins, replacement);
-    await writeFile(join(replacement, 'fixture.node', 'plugin.mjs'), 'export const attacker = true');
+    await writeFile(
+      join(replacement, 'fixture.node', 'plugin.mjs'),
+      'export const attacker = true',
+    );
     await symlink(replacement, plugins, process.platform === 'win32' ? 'junction' : 'dir');
 
     await expect(registry.getInstalled(installed.manifest.id)).rejects.toMatchObject({
