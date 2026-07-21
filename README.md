@@ -67,6 +67,8 @@ sheldon image language remove deu
 
 Não há plugin público `ocr.tesseract`, alteração de `PATH` ou instalação do Tesseract no sistema. As operações locais de listagem e remoção não usam rede.
 
+As releases oficiais são construídas de um estágio explícito (`release/stage`) e contêm ZIPs por plataforma, `catalog.json`, assinatura, SBOM e notices. O catálogo é assinado apenas em CI pela variável secreta `SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM`; a chave privada não é gravada no repositório nem nos artefatos.
+
 Plugins locais são instalados exclusivamente a partir de um diretório local. Sheldon valida o manifesto e todos os links, copia os links sem segui-los para uma área privada de staging, valida novamente a árvore copiada e confirma que a identidade dessa raiz não mudou durante a publicação em `%APPDATA%\Sheldon\plugins\<id>`, antes de persistir o registro YAML atômico. Identificadores já usados por plugins oficiais ou instalados são rejeitados, sem opção de sobrescrita no M1.
 
 A instalação apenas copia arquivos: não executa código ou scripts de pacote, não instala dependências, não faz downloads e não acessa a rede. Instalações e remoções concorrentes são serializadas por processo e por um lock exclusivo no diretório da aplicação para impedir perda de registros. O lock registra token de propriedade, PID e horário, preserva locks de processos ativos e recupera com segurança locks abandonados por processos encerrados. A remoção aceita somente um identificador registrado e apaga apenas o filho exato correspondente dentro do diretório de plugins, respeitando a comparação de caminhos sem distinção entre maiúsculas e minúsculas no Windows.

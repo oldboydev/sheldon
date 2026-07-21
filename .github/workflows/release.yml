@@ -1,0 +1,41 @@
+name: Release official plugin catalog
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  official-catalog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+      - id: published-at
+        run: echo "value=$(node --input-type=module --eval \"console.log(new Date().toISOString())\")" >> "$GITHUB_OUTPUT"
+      - run: >-
+          node scripts/release/build-official-artifacts.mjs
+          --input release/stage
+          --output release/out
+          --published-at ${{ steps.published-at.outputs.value }}
+      - run: >-
+          node scripts/release/sign-official-catalog.mjs
+          --catalog release/out/catalog.json
+          --signature release/out/catalog.sig
+        env:
+          SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM: ${{ secrets.SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM }}
+      - run: >-
+          node scripts/release/verify-official-release.mjs
+          --directory release/out
+          --public-key release/official-catalog-public.pem
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: release/out/*

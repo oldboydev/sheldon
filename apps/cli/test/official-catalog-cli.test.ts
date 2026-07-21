@@ -1,4 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { OfficialCatalog, OfficialPluginCatalogEntry } from '@sheldon/plugin-host';
 
 import { runCli, type CliDependencies } from '../src/main.js';
@@ -43,6 +45,8 @@ function dependencies(load: () => Promise<OfficialCatalog>): CliDependencies {
   };
 }
 
+afterEach(() => vi.unstubAllGlobals());
+
 describe('official catalog plugin commands', () => {
   it('keeps plugin list local-only unless --remote is passed', async () => {
     let loads = 0;
@@ -86,7 +90,12 @@ describe('official catalog plugin commands', () => {
     const client = createOfficialCatalogClient({
       fetch: async (url) => {
         calls.push(url);
-        return { status: 200, bytes: async () => new Uint8Array([0]) };
+        return {
+          status: 200,
+          body: (async function* () {
+            yield new Uint8Array([0]);
+          })(),
+        };
       },
       platform: 'win32-x64',
       temporaryRoot: 'C:/tmp/sheldon-catalog-test',
@@ -96,5 +105,61 @@ describe('official catalog plugin commands', () => {
       code: 'OFFICIAL_CATALOG_SIGNATURE_INVALID',
     });
     expect(calls).toEqual([CATALOG_URL, CATALOG_SIGNATURE_URL]);
+  });
+
+  it('streams official artifact response chunks to the verifier', async () => {
+    const payload = new Uint8Array([1, 2, 3, 4]);
+    const client = createOfficialCatalogClient({
+      fetch: async () => ({
+        status: 200,
+        body: (async function* () {
+          yield payload.subarray(0, 2);
+          yield payload.subarray(2);
+        })(),
+      }),
+      platform: 'win32-x64',
+      temporaryRoot: 'C:/tmp/sheldon-catalog-test',
+    });
+
+    await expect(
+      client.downloadArtifact?.({
+        url: 'https://github.com/oldboydev/sheldon/releases/download/source.image-1.0.0/source.image-win32-x64.zip',
+        bytes: payload.byteLength,
+        sha256: createHash('sha256').update(payload).digest('hex'),
+      }),
+    ).resolves.toEqual(payload);
+  });
+
+  it('adapts the native fetch body without calling arrayBuffer', async () => {
+    const payload = new Uint8Array([1, 2, 3, 4]);
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        ({
+          status: 200,
+          body: new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(payload.subarray(0, 2));
+              controller.enqueue(payload.subarray(2));
+              controller.close();
+            },
+          }),
+          arrayBuffer: async () => {
+            throw new Error('artifact must not be buffered with arrayBuffer');
+          },
+        }) as unknown as Response,
+    );
+    const client = createOfficialCatalogClient({
+      platform: 'win32-x64',
+      temporaryRoot: 'C:/tmp/sheldon-catalog-test',
+    });
+
+    await expect(
+      client.downloadArtifact?.({
+        url: 'https://github.com/oldboydev/sheldon/releases/download/source.image-1.0.0/source.image-win32-x64.zip',
+        bytes: payload.byteLength,
+        sha256: createHash('sha256').update(payload).digest('hex'),
+      }),
+    ).resolves.toEqual(payload);
   });
 });

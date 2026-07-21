@@ -96,6 +96,19 @@ describe('official source image plugin', () => {
       ),
     ).resolves.toMatchObject({ supported: true, confidence: 100 });
   });
+
+  it('fails closed for release placeholder runtime assets while permitting test fixtures', async () => {
+    const root = await pluginRoot();
+    await writeFile(
+      join(root, 'data', 'tessdata', 'por.traineddata'),
+      'release-managed-por-model-placeholder\n',
+    );
+    const plugin = createOfficialSourceImagePlugin({ pluginRoot: root, platform: 'win32-x64' });
+
+    await expect(plugin.healthcheck(context)).resolves.toMatchObject({
+      checks: expect.arrayContaining([expect.objectContaining({ id: 'por', severity: 'error' })]),
+    });
+  });
 });
 
 async function pluginRoot(): Promise<string> {

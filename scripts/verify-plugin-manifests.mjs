@@ -5,7 +5,7 @@ import { parseContractFixture, parsePluginManifest } from '../packages/plugin-sd
 
 const manifestName = 'sheldon-plugin.json';
 const contractName = 'sheldon-plugin.contract.json';
-const roots = ['test-fixtures/plugins', 'plugins'];
+const roots = ['test-fixtures/plugins', 'plugins', 'packages/plugins/official'];
 let invalidFiles = 0;
 
 for (const root of roots) {

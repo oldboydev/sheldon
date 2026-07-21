@@ -10,6 +10,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 - Catálogo oficial assinado para instalação opcional de plugins e comandos explícitos para gerenciar idiomas do `source.image`.
 - Plugins `source.file`, `source.image`, `source.url` e `source.youtube`; URL e YouTube permanecem scaffolds sem ingestão nesta milestone.
+- Pipeline de release com ZIPs determinísticos por plataforma, catálogo assinado, SBOM, notices e verificação offline antes do upload.
 
 ### Changed
 

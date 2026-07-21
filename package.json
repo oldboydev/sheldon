@@ -17,6 +17,9 @@
   "scripts": {
     "prepare": "husky",
     "build": "node scripts/build.mjs",
+    "build:official-release": "node scripts/release/build-official-artifacts.mjs",
+    "sign:official-catalog": "node scripts/release/sign-official-catalog.mjs",
+    "verify:official-release": "node scripts/release/verify-official-release.mjs",
     "build:native:win32": "npm run build:native:win32 --workspace @sheldon/plugin-host",
     "sheldon": "node apps/cli/dist/sheldon.js",
     "lint": "eslint .",

@@ -15,7 +15,7 @@ import {
 import type { OfficialPlatform } from '@sheldon/plugin-host';
 
 import { BASE_IMAGE_LANGUAGES, hasInstalledImageLanguage } from './languages.js';
-import { isRegularNonEmptyFile, resolveTesseractExecutable } from './runtime.js';
+import { isUsablePluginAsset, resolveTesseractExecutable } from './runtime.js';
 
 const IMAGE_EXTENSIONS = new Set([
   '.png',
@@ -199,7 +199,7 @@ async function healthChecks(root: string, executable: string) {
     remediation?: string;
   }[];
   checks.push(
-    (await isRegularNonEmptyFile(executable))
+    (await isUsablePluginAsset(root, executable))
       ? { id: 'tesseract', severity: 'info', message: 'Packaged Tesseract runtime is available.' }
       : {
           id: 'tesseract',
@@ -210,7 +210,7 @@ async function healthChecks(root: string, executable: string) {
   );
   for (const code of BASE_IMAGE_LANGUAGES)
     checks.push(
-      (await isRegularNonEmptyFile(join(root, 'data', 'tessdata', `${code}.traineddata`)))
+      (await isUsablePluginAsset(root, join(root, 'data', 'tessdata', `${code}.traineddata`)))
         ? {
             id: code,
             severity: 'info',
@@ -227,13 +227,13 @@ async function healthChecks(root: string, executable: string) {
 }
 
 async function assertRuntime(root: string, executable: string): Promise<void> {
-  if (!(await isRegularNonEmptyFile(executable)))
+  if (!(await isUsablePluginAsset(root, executable)))
     throw imageError(
       'IMAGE_RUNTIME_UNAVAILABLE',
       'Packaged Tesseract runtime is missing or malformed.',
     );
   for (const code of BASE_IMAGE_LANGUAGES)
-    if (!(await isRegularNonEmptyFile(join(root, 'data', 'tessdata', `${code}.traineddata`))))
+    if (!(await isUsablePluginAsset(root, join(root, 'data', 'tessdata', `${code}.traineddata`))))
       throw imageError(
         'IMAGE_RUNTIME_UNAVAILABLE',
         `Bundled ${code} image language model is missing or malformed.`,

@@ -1,5 +1,15 @@
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  access,
+  mkdtemp,
+  mkdir,
+  readdir,
+  rename,
+  rm,
+  stat,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -161,6 +171,34 @@ describe('installOfficialPlugin', () => {
       record: { id: 'fixture.node', version: '1.0.0' },
     });
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'preserves execute permission only for packaged Tesseract binaries',
+    async () => {
+      const zip = new JSZip();
+      zip.file('fixture.node/sheldon-plugin.json', manifest());
+      zip.file('fixture.node/plugin.mjs', 'export {}', { unixPermissions: 0o100755 });
+      zip.file('fixture.node/runtime/linux-x64/tesseract', 'fixture', {
+        unixPermissions: 0o100755,
+      });
+      zip.file('fixture.node/runtime/linux-x64/helper', 'fixture', { unixPermissions: 0o100755 });
+      const payload = await zip.generateAsync({
+        type: 'uint8array',
+        compression: 'DEFLATE',
+        platform: 'UNIX',
+      });
+      const { result } = await install(payload);
+      const installed = await result;
+
+      const tesseractMode = (await stat(join(installed.root, 'runtime', 'linux-x64', 'tesseract')))
+        .mode;
+      const pluginMode = (await stat(join(installed.root, 'plugin.mjs'))).mode;
+      const helperMode = (await stat(join(installed.root, 'runtime', 'linux-x64', 'helper'))).mode;
+      expect(tesseractMode & 0o111).not.toBe(0);
+      expect(pluginMode & 0o111).toBe(0);
+      expect(helperMode & 0o111).toBe(0);
+    },
+  );
 
   it('rejects archive traversal without creating a registry record or plugin directory', async () => {
     const payload = await archive({

@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, open, readdir, rm } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, open, readdir, rm } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
 import { type Readable } from 'node:stream';
 
@@ -25,6 +25,7 @@ interface ArchiveEntry {
   readonly name: string;
   readonly directory: boolean;
   readonly uncompressedSize: number;
+  readonly executable: boolean;
 }
 
 interface ExtractionSizeState {
@@ -208,7 +209,12 @@ function centralDirectoryEntries(bytes: Uint8Array): ArchiveEntry[] {
     }
     names.add(normalizedName);
     totalSize += uncompressedSize;
-    entries.push({ name, directory, uncompressedSize });
+    entries.push({
+      name,
+      directory,
+      uncompressedSize,
+      executable: unixHost === 3 && (unixMode & 0o111) !== 0,
+    });
     offset = end;
   }
   return entries;
@@ -260,6 +266,7 @@ async function defaultExtract(zipBytes: Uint8Array, destination: string): Promis
     } finally {
       await handle.close();
     }
+    if (entry.executable && isPackagedTesseract(entry.name)) await chmod(output, 0o700);
   }
   const root = join(destination, [...roots][0]!);
   try {
@@ -272,6 +279,17 @@ async function defaultExtract(zipBytes: Uint8Array, destination: string): Promis
       error,
     );
   }
+}
+
+function isPackagedTesseract(entryName: string): boolean {
+  const parts = entryName.split('/');
+  if (parts.length !== 4 || parts[1] !== 'runtime') return false;
+  const [platform, executable] = [parts[2], parts[3]];
+  return (
+    (platform === 'win32-x64' && executable === 'tesseract.exe') ||
+    ((platform === 'darwin-arm64' || platform === 'darwin-x64' || platform === 'linux-x64') &&
+      executable === 'tesseract')
+  );
 }
 
 const defaultExtractor: OfficialArchiveExtractor = { extract: defaultExtract };

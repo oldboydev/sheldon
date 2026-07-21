@@ -29,7 +29,10 @@ export interface OfficialCatalogClient {
 }
 
 export interface OfficialCatalogFetch {
-  fetch(url: string): Promise<{ readonly status: number; bytes(): Promise<Uint8Array> }>;
+  fetch(url: string): Promise<{
+    readonly status: number;
+    readonly body: AsyncIterable<Uint8Array>;
+  }>;
 }
 
 export interface OfficialCatalogClientOptions {
@@ -62,7 +65,7 @@ export function createOfficialCatalogClient(
       downloadOfficialArtifact(artifact, {
         fetch: async (url) => {
           const response = await fetcher.fetch(url);
-          return { status: response.status, body: singleChunk(await response.bytes()) };
+          return response;
         },
       }),
     async install(id: string, registry: PluginRegistry): Promise<InstalledPlugin> {
@@ -82,10 +85,7 @@ export function createOfficialCatalogClient(
         fetcher: {
           fetch: async (url) => {
             const response = await fetcher.fetch(url);
-            return {
-              status: response.status,
-              body: singleChunk(await response.bytes()),
-            };
+            return response;
           },
         },
         temporaryRoot,
@@ -138,7 +138,7 @@ async function fetchCatalogBytes(fetcher: OfficialCatalogFetch, url: string): Pr
     );
   }
   try {
-    return await response.bytes();
+    return await collectResponseBytes(response.body);
   } catch (error) {
     throw officialCatalogError(
       'OFFICIAL_CATALOG_DOWNLOAD_FAILED',
@@ -150,16 +150,44 @@ async function fetchCatalogBytes(fetcher: OfficialCatalogFetch, url: string): Pr
 
 async function fetchOfficialBytes(
   url: string,
-): Promise<{ readonly status: number; bytes(): Promise<Uint8Array> }> {
+): Promise<{ readonly status: number; readonly body: AsyncIterable<Uint8Array> }> {
   const response = await fetch(url);
   return {
     status: response.status,
-    bytes: async () => new Uint8Array(await response.arrayBuffer()),
+    body: readableStreamChunks(response.body),
   };
 }
 
-async function* singleChunk(bytes: Uint8Array): AsyncIterable<Uint8Array> {
-  yield bytes;
+async function collectResponseBytes(body: AsyncIterable<Uint8Array>): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of body) {
+    chunks.push(chunk);
+    size += chunk.byteLength;
+  }
+  const bytes = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function* readableStreamChunks(
+  body: ReadableStream<Uint8Array> | null,
+): AsyncIterable<Uint8Array> {
+  if (body === null) return;
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const result = await reader.read();
+      if (result.done) return;
+      yield result.value;
+    }
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function publicKeyPath(): string {
