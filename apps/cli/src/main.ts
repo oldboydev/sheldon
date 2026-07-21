@@ -26,6 +26,7 @@ import {
   ingestFile,
   lintWiki,
   previewProposal,
+  type FileIngestionOptions,
 } from './commands/memory.js';
 import { assertProposalNotRejected, rejectProposal, retryCompile } from './commands/workflow.js';
 import {
@@ -35,7 +36,7 @@ import {
   removePlugin,
   testPlugin,
 } from './commands/plugins.js';
-import type { CommandContext } from './runtime.js';
+import { bundledOfficialPluginRoot, type CommandContext } from './runtime.js';
 
 export interface CliDependencies {
   readonly environment?: NodeJS.ProcessEnv;
@@ -62,7 +63,7 @@ export async function runCli(
   const context: CommandContext = {
     environment: dependencies.environment ?? process.env,
     homeDirectory: dependencies.homeDirectory ?? homedir(),
-    officialPluginRoots: dependencies.officialPluginRoots ?? [],
+    officialPluginRoots: dependencies.officialPluginRoots ?? [bundledOfficialPluginRoot],
     confirm: dependencies.confirm ?? defaultConfirm,
     commandAvailable: dependencies.commandAvailable ?? defaultCommandAvailable,
     write: (message) => stdout.push(`${message}\n`),
@@ -76,7 +77,7 @@ export async function runCli(
   } catch (error) {
     if (error instanceof PluginHostError) {
       stderr.push(
-        `Error: ${error.message}\nTarget: ${error.target}\nRecovery: ${error.recovery}\n`,
+        `Error [${error.code}]: ${error.message}\nTarget: ${error.target}\nRecovery: ${error.recovery}\n`,
       );
       return { exitCode: 1, stdout: stdout.join(''), stderr: stderr.join('') };
     }
@@ -158,7 +159,8 @@ function addMemoryCommands(
   ingest
     .command('file <kind> <slug> <file>')
     .option('--vault <path>', 'explicit vault path')
-    .action((kind: EntityKind, slug: string, file: string, options: VaultOption) =>
+    .option('--plugin <id>', 'explicit file ingestion plugin')
+    .action((kind: EntityKind, slug: string, file: string, options: FileIngestionOptions) =>
       ingestFile(kind, slug, file, options, context),
     );
 

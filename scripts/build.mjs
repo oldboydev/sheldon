@@ -53,11 +53,11 @@ if (process.platform === 'win32') {
 }
 
 await Promise.all(targets.map(([source, output]) => compile(source, output)));
-await copyOfficialFilePlugin();
+await copyOfficialPlugins();
 
-async function copyOfficialFilePlugin() {
-  const source = join('packages', 'plugins', 'official', 'sheldon.file');
-  const destination = join('apps', 'cli', 'dist', 'plugins', 'official', 'sheldon.file');
+async function copyOfficialPlugins() {
+  const source = join('packages', 'plugins', 'official');
+  const destination = join('apps', 'cli', 'dist', 'plugins', 'official');
   await rm(destination, { recursive: true, force: true });
   await cp(source, destination, {
     recursive: true,
