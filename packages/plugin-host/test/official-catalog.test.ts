@@ -150,6 +150,20 @@ describe('parseVerifiedOfficialCatalog', () => {
   });
 
   it.each([
+    ['the same timestamp', '2026-07-21T00:00:00.000Z'],
+    ['an earlier timestamp', '2026-07-21T00:00:00.001Z'],
+  ])('rejects a catalog that does not advance beyond %s', async (_label, previousPublishedAt) => {
+    await expect(
+      parseVerifiedOfficialCatalog(
+        document(catalog()),
+        bytes('signature'),
+        verifier(true),
+        previousPublishedAt,
+      ),
+    ).rejects.toMatchObject({ code: 'OFFICIAL_CATALOG_TIMESTAMP_NON_MONOTONIC' });
+  });
+
+  it.each([
     [
       'duplicate plugin identifiers',
       { plugins: [initialPlugin(), initialPlugin()] },

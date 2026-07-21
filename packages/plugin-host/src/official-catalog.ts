@@ -48,6 +48,7 @@ export async function parseVerifiedOfficialCatalog(
   catalog: Uint8Array,
   signature: Uint8Array,
   verifier: OfficialCatalogVerifier,
+  previousPublishedAt?: string,
 ): Promise<OfficialCatalog> {
   if (!(await verifier.verify(catalog, signature))) {
     throw officialCatalogError(
@@ -67,7 +68,9 @@ export async function parseVerifiedOfficialCatalog(
     );
   }
 
-  return freezeCatalog(parseCatalogDocument(document));
+  const parsed = parseCatalogDocument(document);
+  assertPublishedAtAdvances(parsed.publishedAt, previousPublishedAt);
+  return freezeCatalog(parsed);
 }
 
 export function selectOfficialArtifact(
@@ -252,6 +255,17 @@ function timestamp(value: unknown): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime()) || date.toISOString() !== value) timestampInvalid();
   return value;
+}
+
+function assertPublishedAtAdvances(publishedAt: string, previousPublishedAt?: string): void {
+  if (previousPublishedAt === undefined) return;
+  const previous = timestamp(previousPublishedAt);
+  if (publishedAt <= previous) {
+    throw officialCatalogError(
+      'OFFICIAL_CATALOG_TIMESTAMP_NON_MONOTONIC',
+      'The official catalog publication timestamp does not advance the previously accepted catalog.',
+    );
+  }
 }
 
 function pluginIdentifier(value: unknown): string {
