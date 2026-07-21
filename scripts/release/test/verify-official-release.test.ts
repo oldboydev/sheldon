@@ -46,7 +46,61 @@ describe('official release verifier', () => {
     expect(runImageRuntime).toHaveBeenCalledTimes(4);
     expect(runImageRuntime).toHaveBeenCalledWith(
       expect.stringMatching(/source\.image[\\/]runtime[\\/]win32-x64[\\/]tesseract\.exe$/),
-      expect.arrayContaining(['--tessdata-dir']),
+      expect.arrayContaining(['--tessdata-dir', '--list-langs']),
+    );
+  });
+
+  it('fails closed when the packaged runtime cannot execute', async () => {
+    const fixture = await signedRelease();
+    const runImageRuntime = vi.fn(async () => {
+      throw new Error('runtime failed');
+    });
+
+    await expect(
+      verifyOfficialRelease(fixture.output, fixture.publicKey, {
+        runImageRuntime,
+        runtimePlatform: 'linux-x64',
+      }),
+    ).rejects.toThrow('OFFICIAL_RELEASE_IMAGE_RUNTIME_FAILED');
+    expect(runImageRuntime).toHaveBeenCalledTimes(1);
+  });
+
+  it('executes the packaged host runtime when no test runner is injected', async () => {
+    const fixture = await signedRelease();
+
+    await expect(verifyOfficialRelease(fixture.output, fixture.publicKey)).rejects.toThrow(
+      'OFFICIAL_RELEASE_IMAGE_RUNTIME_FAILED',
+    );
+  });
+
+  it.each([
+    ['unknown top-level field', { unexpected: true }],
+    ['missing official plugin', { plugins: [] }],
+    [
+      'incomplete artifact record',
+      {
+        plugins: [
+          {
+            id: 'source.file',
+            version: '1.0.0',
+            platforms: ['linux-x64'],
+            artifacts: {},
+            description: 'source.file',
+          },
+        ],
+      },
+    ],
+  ])('rejects a signed catalog with %s', async (_name, mutation) => {
+    const fixture = await signedRelease();
+    const path = join(fixture.output, 'catalog.json');
+    const catalog = JSON.parse(
+      await (await import('node:fs/promises')).readFile(path, 'utf8'),
+    ) as Record<string, unknown>;
+    await writeFile(path, `${JSON.stringify({ ...catalog, ...mutation }, null, 2)}\n`);
+    await signCatalog(path, join(fixture.output, 'catalog.sig'), fixture.privateKey);
+
+    await expect(verifyOfficialRelease(fixture.output, fixture.publicKey)).rejects.toThrow(
+      'OFFICIAL_RELEASE_CATALOG_INVALID',
     );
   });
 
@@ -62,6 +116,36 @@ describe('official release verifier', () => {
     ).rejects.toThrow('OFFICIAL_RELEASE_IMAGE_TESSDATA_MISSING');
   });
 });
+
+async function signedRelease(): Promise<{
+  output: string;
+  publicKey: string;
+  privateKey: string;
+}> {
+  const root = await mkdtemp(join(tmpdir(), 'sheldon-release-signed-'));
+  temporaryRoots.push(root);
+  const input = join(root, 'stage');
+  const output = join(root, 'out');
+  await createStage(input);
+  await buildOfficialArtifacts(input, output, '2026-07-21T00:00:00.000Z');
+  const keys = generateKeyPairSync('ed25519');
+  const publicKey = join(root, 'public.pem');
+  const privateKey = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+  await writeFile(publicKey, keys.publicKey.export({ type: 'spki', format: 'pem' }));
+  await signCatalog(join(output, 'catalog.json'), join(output, 'catalog.sig'), privateKey);
+  return { output, publicKey, privateKey };
+}
+
+async function signCatalog(catalog: string, signature: string, privateKey: string): Promise<void> {
+  const original = process.env.SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM;
+  process.env.SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM = privateKey;
+  try {
+    await signOfficialCatalog(catalog, signature);
+  } finally {
+    if (original === undefined) delete process.env.SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM;
+    else process.env.SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM = original;
+  }
+}
 
 async function createStage(root: string): Promise<void> {
   // Keep this fixture independent from test order while sharing the exact staged layout.

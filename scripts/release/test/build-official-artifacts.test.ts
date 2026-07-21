@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile, mkdir, readdir } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import JSZip from 'jszip';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildOfficialArtifacts } from '../build-official-artifacts.mjs';
@@ -47,6 +48,12 @@ describe('official release builder', () => {
       'source.youtube-win32-x64.zip',
     ]);
     expect(await readFile(join(first, 'catalog.json'), 'utf8')).toContain('"schemaVersion": 1');
+    const catalog = JSON.parse(await readFile(join(first, 'catalog.json'), 'utf8')) as {
+      plugins: { id: string; artifacts: Record<string, { url: string }> }[];
+    };
+    expect(catalog.plugins[0]?.artifacts['linux-x64']?.url).toBe(
+      'https://github.com/oldboydev/sheldon/releases/download/official-catalog/source.file-linux-x64.zip',
+    );
     await expect(readFile(join(first, 'SBOM.spdx.json'), 'utf8')).resolves.toContain('SPDX-2.3');
     await expect(readFile(join(first, 'THIRD_PARTY_NOTICES'), 'utf8')).resolves.toContain(
       'source.image notices',
@@ -56,6 +63,39 @@ describe('official release builder', () => {
     );
     await expect(readFile(join(first, 'source.image-win32-x64.zip'))).resolves.toEqual(
       await readFile(join(second, 'source.image-win32-x64.zip')),
+    );
+
+    const linuxImage = await JSZip.loadAsync(
+      await readFile(join(first, 'source.image-linux-x64.zip')),
+    );
+    expect(linuxImage.file('source.image/runtime/linux-x64/tesseract')?.unixPermissions).toBe(
+      0o100755,
+    );
+  });
+
+  it('publishes every additional staged image language for all supported platforms', async () => {
+    const root = await temporaryRoot();
+    const input = join(root, 'stage');
+    const output = join(root, 'out');
+    await writeStage(input);
+    await writeFile(join(input, 'source.image', 'data', 'tessdata', 'deu.traineddata'), 'deu');
+
+    await buildOfficialArtifacts(input, output, '2026-07-21T00:00:00.000Z');
+
+    const catalog = JSON.parse(await readFile(join(output, 'catalog.json'), 'utf8')) as {
+      languages: { code: string; artifacts: Record<string, { url: string }> }[];
+    };
+    expect(catalog.languages).toHaveLength(1);
+    expect(catalog.languages[0]?.code).toBe('deu');
+    expect(Object.keys(catalog.languages[0]?.artifacts ?? {})).toEqual([
+      'win32-x64',
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64',
+    ]);
+    await expect(readFile(join(output, 'deu-linux-x64.traineddata'), 'utf8')).resolves.toBe('deu');
+    expect(catalog.languages[0]?.artifacts['linux-x64']?.url).toBe(
+      'https://github.com/oldboydev/sheldon/releases/download/official-catalog/deu-linux-x64.traineddata',
     );
   });
 

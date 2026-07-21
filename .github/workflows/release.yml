@@ -19,6 +19,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run verify
+      - run: >-
+          node scripts/release/stage-official-artifacts.mjs
+          --source packages/plugins/official
+          --output release/stage
       - id: published-at
         run: echo "value=$(node --input-type=module --eval \"console.log(new Date().toISOString())\")" >> "$GITHUB_OUTPUT"
       - run: >-
@@ -38,4 +42,10 @@ jobs:
           --public-key release/official-catalog-public.pem
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: official-catalog
+          name: Official plugin catalog
+          target_commitish: ${{ github.sha }}
+          make_latest: true
+          overwrite_files: true
+          fail_on_unmatched_files: true
           files: release/out/*

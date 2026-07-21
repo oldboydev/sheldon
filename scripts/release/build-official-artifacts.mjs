@@ -7,7 +7,10 @@ import JSZip from 'jszip';
 
 export const OFFICIAL_PLUGIN_IDS = ['source.file', 'source.image', 'source.url', 'source.youtube'];
 export const OFFICIAL_PLATFORMS = ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64'];
-const RELEASE_PREFIX = 'https://github.com/oldboydev/sheldon/releases/download/';
+export const OFFICIAL_RELEASE_TAG = 'official-catalog';
+export const OFFICIAL_RELEASE_PREFIX = `https://github.com/oldboydev/sheldon/releases/download/${OFFICIAL_RELEASE_TAG}/`;
+const BASE_IMAGE_LANGUAGES = new Set(['por', 'eng']);
+const LANGUAGE_CODE = /^[a-z]{3}$/u;
 
 export async function buildOfficialArtifacts(input, output, publishedAt) {
   const timestamp = parsePublishedAt(publishedAt);
@@ -26,7 +29,7 @@ export async function buildOfficialArtifacts(input, output, publishedAt) {
       const archive = await createPluginArchive(plugin, platform, timestamp);
       await writeFile(join(output, archiveName), archive);
       artifacts[platform] = {
-        url: `${RELEASE_PREFIX}${plugin.id}-${plugin.version}/${archiveName}`,
+        url: `${OFFICIAL_RELEASE_PREFIX}${archiveName}`,
         sha256: createHash('sha256').update(archive).digest('hex'),
         bytes: archive.byteLength,
       };
@@ -44,11 +47,16 @@ export async function buildOfficialArtifacts(input, output, publishedAt) {
     });
   }
 
+  const languages = await buildLanguageArtifacts(
+    plugins.find((plugin) => plugin.id === 'source.image'),
+    output,
+  );
+
   const catalog = {
     schemaVersion: 1,
     publishedAt: timestamp.toISOString(),
     plugins: catalogPlugins,
-    languages: [],
+    languages,
   };
   await writeFile(join(output, 'catalog.json'), `${JSON.stringify(catalog, null, 2)}\n`);
   await writeFile(
@@ -112,7 +120,7 @@ async function createPluginArchive(plugin, platform, timestamp) {
     if (!includeInPlatformArchive(plugin.id, path, platform)) continue;
     zip.file(`${plugin.id}/${path}`, await readFile(file), {
       date: timestamp,
-      unixPermissions: 0o100644,
+      unixPermissions: archivePermissions(plugin.id, path, platform),
       createFolders: false,
     });
   }
@@ -125,8 +133,57 @@ async function createPluginArchive(plugin, platform, timestamp) {
 }
 
 function includeInPlatformArchive(id, path, platform) {
-  if (id !== 'source.image' || !path.startsWith('runtime/')) return true;
+  if (id !== 'source.image') return true;
+  if (path === 'data/languages.yaml') return false;
+  if (path.startsWith('data/tessdata/')) {
+    return BASE_IMAGE_LANGUAGES.has(path.slice('data/tessdata/'.length, -'.traineddata'.length));
+  }
+  if (!path.startsWith('runtime/')) return true;
   return path.startsWith(`runtime/${platform}/`);
+}
+
+function archivePermissions(id, path, platform) {
+  const unixRuntime =
+    id === 'source.image' && platform !== 'win32-x64' && path === `runtime/${platform}/tesseract`;
+  return unixRuntime ? 0o100755 : 0o100644;
+}
+
+async function buildLanguageArtifacts(imagePlugin, output) {
+  if (!imagePlugin) return [];
+  const tessdata = join(imagePlugin.root, 'data', 'tessdata');
+  const entries = await readdir(tessdata, { withFileTypes: true });
+  const languages = [];
+  for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
+    if (!entry.name.endsWith('.traineddata')) continue;
+    const code = entry.name.slice(0, -'.traineddata'.length);
+    if (BASE_IMAGE_LANGUAGES.has(code)) continue;
+    if (!LANGUAGE_CODE.test(code) || !entry.isFile() || entry.isSymbolicLink()) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_IMAGE_LANGUAGE_INVALID',
+        `The staged image language is invalid: ${entry.name}.`,
+      );
+    }
+    const bytes = await readFile(join(tessdata, entry.name));
+    if (bytes.byteLength === 0) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_IMAGE_LANGUAGE_INVALID',
+        `The staged image language is empty: ${entry.name}.`,
+      );
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const artifacts = {};
+    for (const platform of OFFICIAL_PLATFORMS) {
+      const assetName = `${code}-${platform}.traineddata`;
+      await writeFile(join(output, assetName), bytes);
+      artifacts[platform] = {
+        url: `${OFFICIAL_RELEASE_PREFIX}${assetName}`,
+        sha256,
+        bytes: bytes.byteLength,
+      };
+    }
+    languages.push({ owner: 'source.image', code, artifacts });
+  }
+  return languages;
 }
 
 async function listRegularFiles(root) {
