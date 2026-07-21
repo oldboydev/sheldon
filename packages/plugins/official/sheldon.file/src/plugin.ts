@@ -95,7 +95,7 @@ export function createOfficialFilePlugin(
       return ingestFile(request, runExtraction, tesseract);
     },
     healthcheck: async (context) => {
-      const tesseractAvailable = await available('tesseract');
+      const tesseractAvailable = await available(tesseractCommand);
       context.log('Official file plugin healthcheck completed.');
       return {
         checks: [
@@ -232,7 +232,7 @@ function validatedOptions(options: Readonly<Record<string, unknown>>): {
   readonly language: string;
 } {
   const ocr = options.ocr ?? 'auto';
-  const language = options.language ?? 'und';
+  const language = options.language ?? 'eng';
   if (ocr !== 'off' && ocr !== 'auto' && ocr !== 'required') {
     throw fileError('FILE_INPUT_INVALID', 'ocr must be off, auto, or required.');
   }

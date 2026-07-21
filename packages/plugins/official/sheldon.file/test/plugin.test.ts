@@ -81,7 +81,7 @@ describe('official file plugin scaffold', () => {
     await plugin.ingest(
       {
         input: { filePath: imagePath, canonicalUri: 'file:///evidence.png' },
-        options: { ocr: 'required', language: 'eng' },
+        options: { ocr: 'required' },
         temporaryDirectory,
       },
       context,
@@ -173,7 +173,7 @@ describe('official file plugin scaffold', () => {
           format: 'markdown',
           extractionStatus: 'complete',
           warnings: [],
-          language: 'und',
+          language: 'eng',
           extractor: 'embedded',
         },
       }),
@@ -233,6 +233,24 @@ describe('official file plugin scaffold', () => {
         expect.objectContaining({ id: 'tesseract', severity: 'warning' }),
       ]),
     });
+  });
+
+  it('checks the configured Tesseract executable in its healthcheck', async () => {
+    const commands: string[] = [];
+    const plugin = createOfficialFilePlugin({
+      tesseractCommand: 'tesseract-custom',
+      commandAvailable: async (command) => {
+        commands.push(command);
+        return true;
+      },
+    });
+
+    await expect(plugin.healthcheck(context)).resolves.toMatchObject({
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'tesseract', severity: 'info' }),
+      ]),
+    });
+    expect(commands).toEqual(['tesseract-custom']);
   });
 
   it('reports input, unsupported format, OCR, and extractor failures with stable codes', async () => {
