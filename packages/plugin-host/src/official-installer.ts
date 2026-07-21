@@ -1,5 +1,6 @@
 import { mkdir, mkdtemp, open, readdir, rm } from 'node:fs/promises';
 import { join, relative, sep } from 'node:path';
+import { type Readable } from 'node:stream';
 
 import JSZip from 'jszip';
 
@@ -26,6 +27,10 @@ interface ArchiveEntry {
   readonly uncompressedSize: number;
 }
 
+interface ExtractionSizeState {
+  actualTotalSize: number;
+}
+
 function archiveError(code: string, message: string, cause?: unknown): PluginHostError {
   return new PluginHostError(
     code,
@@ -38,6 +43,71 @@ function archiveError(code: string, message: string, cause?: unknown): PluginHos
 
 function readUint32(view: DataView, offset: number): number {
   return view.getUint32(offset, true);
+}
+
+async function writeBoundedArchiveEntry(
+  file: JSZip.JSZipObject,
+  handle: Awaited<ReturnType<typeof open>>,
+  entry: ArchiveEntry,
+  state: ExtractionSizeState,
+): Promise<void> {
+  const stream = file.nodeStream() as unknown as Readable;
+  let actualEntrySize = 0;
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const fail = (error: unknown): void => {
+      if (settled) return;
+      settled = true;
+      stream.destroy();
+      reject(error);
+    };
+    stream.on('error', fail);
+    stream.on('data', (chunk: Buffer) => {
+      stream.pause();
+      void (async () => {
+        actualEntrySize += chunk.byteLength;
+        state.actualTotalSize += chunk.byteLength;
+        if (
+          actualEntrySize > MAX_ARCHIVE_ENTRY_BYTES ||
+          state.actualTotalSize > MAX_ARCHIVE_UNCOMPRESSED_BYTES
+        ) {
+          fail(
+            archiveError(
+              'OFFICIAL_ARCHIVE_ENTRY_TOO_LARGE',
+              'The official artifact contains an oversized ZIP entry.',
+            ),
+          );
+          return;
+        }
+        if (actualEntrySize > entry.uncompressedSize) {
+          fail(
+            archiveError(
+              'OFFICIAL_ARCHIVE_INVALID',
+              'The official artifact ZIP entry size does not match its data.',
+            ),
+          );
+          return;
+        }
+        await handle.write(chunk);
+        stream.resume();
+      })().catch(fail);
+    });
+    stream.on('end', () => {
+      if (settled) return;
+      if (actualEntrySize !== entry.uncompressedSize) {
+        fail(
+          archiveError(
+            'OFFICIAL_ARCHIVE_INVALID',
+            'The official artifact ZIP entry size does not match its data.',
+          ),
+        );
+        return;
+      }
+      settled = true;
+      resolve();
+    });
+    stream.resume();
+  });
 }
 
 function centralDirectoryEntries(bytes: Uint8Array): ArchiveEntry[] {
@@ -74,11 +144,24 @@ function centralDirectoryEntries(bytes: Uint8Array): ArchiveEntry[] {
     const commentLength = view.getUint16(offset + 32, true);
     const madeBy = view.getUint16(offset + 4, true);
     const externalAttributes = readUint32(view, offset + 38);
+    const localOffset = readUint32(view, offset + 42);
     const end = offset + 46 + nameLength + extraLength + commentLength;
     if (end > bytes.byteLength || flags & 1 || flags & 8) {
       throw archiveError(
         'OFFICIAL_ARCHIVE_INVALID',
         'The official artifact ZIP metadata is unsupported.',
+      );
+    }
+    if (
+      localOffset + 30 > bytes.byteLength ||
+      readUint32(view, localOffset) !== 0x04034b50 ||
+      view.getUint16(localOffset + 6, true) !== flags ||
+      readUint32(view, localOffset + 18) !== readUint32(view, offset + 20) ||
+      readUint32(view, localOffset + 22) !== uncompressedSize
+    ) {
+      throw archiveError(
+        'OFFICIAL_ARCHIVE_INVALID',
+        'The official artifact ZIP local entry metadata does not match its directory.',
       );
     }
     let name: string;
@@ -135,7 +218,7 @@ async function defaultExtract(zipBytes: Uint8Array, destination: string): Promis
   const entries = centralDirectoryEntries(zipBytes);
   let zip: JSZip;
   try {
-    zip = await JSZip.loadAsync(zipBytes, { checkCRC32: true, createFolders: false });
+    zip = await JSZip.loadAsync(zipBytes, { checkCRC32: false, createFolders: false });
   } catch (error) {
     throw archiveError(
       'OFFICIAL_ARCHIVE_INVALID',
@@ -150,6 +233,7 @@ async function defaultExtract(zipBytes: Uint8Array, destination: string): Promis
       'The official artifact must contain exactly one plugin root.',
     );
   }
+  const sizeState: ExtractionSizeState = { actualTotalSize: 0 };
   for (const entry of entries) {
     const output = join(destination, ...entry.name.split('/'));
     if (relative(destination, output).startsWith(`..${sep}`)) {
@@ -172,7 +256,7 @@ async function defaultExtract(zipBytes: Uint8Array, destination: string): Promis
     await mkdir(join(output, '..'), { recursive: true, mode: 0o700 });
     const handle = await open(output, 'wx', 0o600);
     try {
-      await handle.writeFile(await file.async('nodebuffer'));
+      await writeBoundedArchiveEntry(file, handle, entry, sizeState);
     } finally {
       await handle.close();
     }

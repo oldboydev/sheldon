@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, readdir, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -108,6 +108,26 @@ function withDuplicateCentralDirectoryEntry(bytes: Uint8Array): Uint8Array {
   return result;
 }
 
+function withForgedUncompressedSize(bytes: Uint8Array): Uint8Array {
+  const result = bytes.slice();
+  const eocd = findEndOfCentralDirectory(result);
+  const view = new DataView(result.buffer, result.byteOffset, result.byteLength);
+  let offset = view.getUint32(eocd + 16, true);
+  const count = view.getUint16(eocd + 10, true);
+  for (let index = 0; index < count; index += 1) {
+    const nameLength = view.getUint16(offset + 28, true);
+    const extraLength = view.getUint16(offset + 30, true);
+    const commentLength = view.getUint16(offset + 32, true);
+    const name = new TextDecoder().decode(result.subarray(offset + 46, offset + 46 + nameLength));
+    if (name.endsWith('plugin.mjs')) {
+      view.setUint32(offset + 24, 0, true);
+      return result;
+    }
+    offset += 46 + nameLength + extraLength + commentLength;
+  }
+  throw new Error('missing plugin file entry');
+}
+
 async function install(payload: Uint8Array, extractor?: OfficialArchiveExtractor) {
   const parent = await temporaryDirectory('install');
   const registry = await PluginRegistry.open(join(parent, 'app'));
@@ -197,6 +217,20 @@ describe('installOfficialPlugin', () => {
     await expect(readdir(join(parent, 'temporary'))).resolves.toEqual([]);
   });
 
+  it('rejects a ZIP whose central-directory size understates decompressed file bytes', async () => {
+    const payload = withForgedUncompressedSize(
+      await archive({
+        'fixture.node/sheldon-plugin.json': manifest(),
+        'fixture.node/plugin.mjs': 'this file has real decompressed bytes',
+      }),
+    );
+    const { parent, registry, result } = await install(payload);
+
+    await expect(result).rejects.toMatchObject({ code: 'OFFICIAL_ARCHIVE_INVALID' });
+    expect(registry.listRecords()).toEqual([]);
+    await expect(readdir(join(parent, 'temporary'))).resolves.toEqual([]);
+  });
+
   it('rejects an archive manifest that differs from the signed catalog entry and cleans temporary data', async () => {
     const payload = await archive({
       'fixture.node/sheldon-plugin.json': manifest('fixture.other'),
@@ -243,6 +277,23 @@ describe('installOfficialPlugin', () => {
     const { registry, result } = await install(payload);
     const installed = await result;
     await writeFile(join(installed.root, 'sheldon-plugin.json'), manifest('fixture.node', '1.0.1'));
+
+    await expect(registry.getInstalled('fixture.node')).rejects.toMatchObject({
+      code: 'PLUGIN_INSTALLATION_TAMPERED',
+    });
+    expect(registry.listRecords()).toMatchObject([{ id: 'fixture.node', version: '1.0.0' }]);
+  });
+
+  it('reports an installed-root symlink replacement as tampered without changing registry state', async () => {
+    const payload = await archive({
+      'fixture.node/sheldon-plugin.json': manifest(),
+      'fixture.node/plugin.mjs': 'export {}',
+    });
+    const { parent, registry, result } = await install(payload);
+    const installed = await result;
+    const replacement = join(parent, 'matching-plugin-outside-registry');
+    await rename(installed.root, replacement);
+    await symlink(replacement, installed.root, process.platform === 'win32' ? 'junction' : 'dir');
 
     await expect(registry.getInstalled('fixture.node')).rejects.toMatchObject({
       code: 'PLUGIN_INSTALLATION_TAMPERED',

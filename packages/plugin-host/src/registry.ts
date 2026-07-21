@@ -498,7 +498,23 @@ export class PluginRegistry {
       const root = assertExactPluginChild(this.paths.plugins, id, record.root);
       let installed: LoadedPluginManifest;
       try {
+        const [metadata, canonicalPlugins, canonicalRoot] = await Promise.all([
+          lstat(root),
+          realpath(this.paths.plugins),
+          realpath(root),
+        ]);
+        const expected = join(canonicalPlugins, id);
+        if (
+          metadata.isSymbolicLink() ||
+          !metadata.isDirectory() ||
+          pathComparisonKey(canonicalRoot) !== pathComparisonKey(expected)
+        ) {
+          throw new Error('installed plugin root no longer resolves to its exact registry child');
+        }
         installed = await loadPluginManifest(root, 'installed', { opener: this.manifestOpener });
+        if (pathComparisonKey(await realpath(root)) !== pathComparisonKey(expected)) {
+          throw new Error('installed plugin root changed while it was being loaded');
+        }
       } catch (error) {
         throw new PluginHostError(
           'PLUGIN_INSTALLATION_TAMPERED',

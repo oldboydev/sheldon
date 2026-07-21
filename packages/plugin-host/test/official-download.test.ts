@@ -4,7 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { downloadOfficialArtifact, type OfficialFetch } from '../src/index.js';
 
-function artifact(bytes: Uint8Array, overrides: Partial<{ bytes: number; sha256: string }> = {}) {
+function artifact(
+  bytes: Uint8Array,
+  overrides: Partial<{ bytes: number; sha256: string; url: string }> = {},
+) {
   return {
     url: 'https://github.com/oldboydev/sheldon/releases/download/source.file-1.0.0/source.file.zip',
     bytes: bytes.byteLength,
@@ -38,6 +41,19 @@ describe('downloadOfficialArtifact', () => {
     expect(request).toHaveBeenCalledWith(
       'https://github.com/oldboydev/sheldon/releases/download/source.file-1.0.0/source.file.zip',
     );
+  });
+
+  it('rejects an arbitrary artifact URL before making a network request', async () => {
+    const payload = new Uint8Array([1]);
+    const request = vi.fn(fetcher(200, [payload]).fetch);
+
+    await expect(
+      downloadOfficialArtifact(
+        artifact(payload, { url: 'https://example.invalid/attacker-plugin.zip' }),
+        { fetch: request },
+      ),
+    ).rejects.toMatchObject({ code: 'OFFICIAL_ARTIFACT_URL_INVALID' });
+    expect(request).not.toHaveBeenCalled();
   });
 
   it.each([

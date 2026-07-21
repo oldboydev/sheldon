@@ -3,6 +3,8 @@ import { createHash } from 'node:crypto';
 import { type OfficialArtifact } from './official-catalog.js';
 import { PluginHostError } from './errors.js';
 
+const RELEASE_PREFIX = 'https://github.com/oldboydev/sheldon/releases/download/';
+
 export interface OfficialFetch {
   fetch(url: string): Promise<{
     readonly status: number;
@@ -20,10 +22,38 @@ function officialArtifactError(code: string, message: string, cause?: unknown): 
   );
 }
 
+function isOfficialReleaseArtifactUrl(value: string): boolean {
+  if (!value.startsWith(RELEASE_PREFIX)) return false;
+  try {
+    const url = new URL(value);
+    const segments = value.slice(RELEASE_PREFIX.length).split('/');
+    return (
+      url.protocol === 'https:' &&
+      url.hostname === 'github.com' &&
+      url.port === '' &&
+      url.username === '' &&
+      url.password === '' &&
+      url.search === '' &&
+      url.hash === '' &&
+      url.href === value &&
+      segments.length >= 2 &&
+      segments.every((segment) => /^[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(segment))
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function downloadOfficialArtifact(
   artifact: OfficialArtifact,
   fetcher: OfficialFetch,
 ): Promise<Uint8Array> {
+  if (!isOfficialReleaseArtifactUrl(artifact.url)) {
+    throw officialArtifactError(
+      'OFFICIAL_ARTIFACT_URL_INVALID',
+      'The official artifact URL is outside the Sheldon release assets.',
+    );
+  }
   let response: { readonly status: number; readonly body: AsyncIterable<Uint8Array> };
   try {
     response = await fetcher.fetch(artifact.url);
