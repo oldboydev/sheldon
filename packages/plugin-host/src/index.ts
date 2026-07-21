@@ -1,6 +1,17 @@
 export { pluginAppPaths, type PluginAppPaths } from './app-paths.js';
 export { ArtifactValidator, type ArtifactValidationLimits } from './artifact-validator.js';
 export { PluginHostError } from './errors.js';
+export {
+  officialCatalogError,
+  parseVerifiedOfficialCatalog,
+  selectOfficialArtifact,
+  type OfficialArtifact,
+  type OfficialCatalog,
+  type OfficialCatalogVerifier,
+  type OfficialLanguageCatalogEntry,
+  type OfficialPlatform,
+  type OfficialPluginCatalogEntry,
+} from './official-catalog.js';
 export { DEFAULT_PLUGIN_LIMITS, type PluginLimits } from './limits.js';
 export {
   loadPluginManifest,
