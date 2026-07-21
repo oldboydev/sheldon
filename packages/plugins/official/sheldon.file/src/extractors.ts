@@ -45,12 +45,14 @@ export interface ExtractedAsset {
 }
 
 export interface TesseractAdapter {
-  recognize(bytes: Uint8Array, fileName: string): Promise<string>;
+  recognize(bytes: Uint8Array, fileName: string, language: string): Promise<string>;
 }
 
 export interface ExtractFileInput {
   readonly filePath: string;
+  readonly bytes?: Uint8Array;
   readonly ocr?: 'off' | 'auto' | 'required';
+  readonly language?: string;
   readonly tesseract?: TesseractAdapter;
 }
 
@@ -110,7 +112,7 @@ const extractors: readonly Extractor[] = [
 ];
 
 export async function extractFile(input: ExtractFileInput): Promise<ExtractedFile> {
-  const bytes = new Uint8Array(await readFile(input.filePath));
+  const bytes = input.bytes ?? new Uint8Array(await readFile(input.filePath));
   if (bytes.byteLength > MAX_INPUT_BYTES) {
     throw new Error(`Input size limit exceeded: ${bytes.byteLength} bytes.`);
   }
@@ -127,6 +129,23 @@ export async function extractFile(input: ExtractFileInput): Promise<ExtractedFil
   });
 }
 
+export async function supportsFile(input: Pick<ExtractFileInput, 'filePath' | 'bytes'>): Promise<boolean> {
+  try {
+    return (await formatFor(input)) !== 'unsupported';
+  } catch {
+    return false;
+  }
+}
+
+async function formatFor(input: Pick<ExtractFileInput, 'filePath' | 'bytes'>): Promise<FileFormat> {
+  const bytes = input.bytes ?? new Uint8Array(await readFile(input.filePath));
+  if (bytes.byteLength > MAX_INPUT_BYTES) return 'unsupported';
+  const archive = hasZipSignature(bytes) ? await BoundedArchive.open(bytes) : undefined;
+  const archiveFormat = archive === undefined ? undefined : await detectArchiveFormat(archive);
+  return extractorFor(bytes, extname(input.filePath).toLowerCase(), archive !== undefined, archiveFormat)
+    .format;
+}
+
 function extractorFor(
   bytes: Uint8Array,
   extension: string,
@@ -139,7 +158,11 @@ function extractorFor(
   if (isArchive) return unsupported;
   return (
     extractors.find((candidate) => candidate.signature(bytes)) ??
-    extractors.find((candidate) => candidate.extension(extension)) ??
+    extractors.find(
+      (candidate) =>
+        candidate.extension(extension) &&
+        !['docx', 'pptx', 'xlsx', 'epub'].includes(candidate.format),
+    ) ??
     unsupported
   );
 }
@@ -481,7 +504,11 @@ async function extractText(context: ExtractionContext): Promise<ExtractedFile> {
 
 async function extractImage(context: ExtractionContext): Promise<ExtractedFile> {
   if (context.ocr !== 'off' && context.tesseract !== undefined) {
-    const recognized = await context.tesseract.recognize(context.bytes, context.fileName);
+    const recognized = await context.tesseract.recognize(
+      context.bytes,
+      context.fileName,
+      context.language ?? 'und',
+    );
     return complete('image', titledMarkdown(context.fileName, recognized.trim()));
   }
 

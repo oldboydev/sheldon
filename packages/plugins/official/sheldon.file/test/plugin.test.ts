@@ -51,6 +51,86 @@ describe('official file plugin scaffold', () => {
     ).resolves.toMatchObject({
       supported: false,
     });
+
+    const unsupportedPath = join(directory, 'opaque.bin');
+    await writeFile(unsupportedPath, Uint8Array.from([0, 1, 2, 3]));
+    await expect(plugin.probe({ input: { filePath: unsupportedPath } }, context)).resolves.toEqual({
+      supported: false,
+      confidence: 0,
+      reason: 'The file format is not supported by this plugin.',
+    });
+  });
+
+  it('uses the executable Tesseract adapter for image ingestion without a model download', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sheldon-file-plugin-'));
+    temporaryDirectories.push(directory);
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-file-output-'));
+    temporaryDirectories.push(temporaryDirectory);
+    const imagePath = join(directory, 'evidence.png');
+    await writeFile(imagePath, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+    const calls: Array<{ command: string; arguments: readonly string[] }> = [];
+    const plugin = createOfficialFilePlugin({
+      tesseractCommand: 'tesseract-local',
+      commandAvailable: async (command) => command === 'tesseract-local',
+      executeTesseract: async (command, arguments_) => {
+        calls.push({ command, arguments: arguments_ });
+        return 'Recognized locally';
+      },
+    });
+
+    await plugin.ingest(
+      {
+        input: { filePath: imagePath, canonicalUri: 'file:///evidence.png' },
+        options: { ocr: 'required', language: 'eng' },
+        temporaryDirectory,
+      },
+      context,
+    );
+
+    expect(calls).toEqual([
+      expect.objectContaining({
+        command: 'tesseract-local',
+        arguments: expect.arrayContaining(['stdout', '-l', 'eng']),
+      }),
+    ]);
+    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).resolves.toBe(
+      '# evidence.png\n\nRecognized locally\n',
+    );
+  });
+
+  it('materializes original bytes from the same snapshot that was extracted', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'sheldon-file-plugin-'));
+    temporaryDirectories.push(directory);
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-file-output-'));
+    temporaryDirectories.push(temporaryDirectory);
+    const filePath = join(directory, 'evidence.md');
+    await writeFile(filePath, 'before\n', 'utf8');
+    const plugin = createOfficialFilePlugin({
+      extractFile: async ({ bytes }) => {
+        await writeFile(filePath, 'after\n', 'utf8');
+        return {
+          format: 'markdown',
+          content: `# Snapshot\n\n${new TextDecoder().decode(bytes)}`,
+          status: 'complete',
+          warnings: [],
+          assets: [],
+        };
+      },
+    });
+
+    await plugin.ingest(
+      {
+        input: { filePath, canonicalUri: 'file:///evidence.md' },
+        options: {},
+        temporaryDirectory,
+      },
+      context,
+    );
+
+    await expect(readFile(join(temporaryDirectory, 'original.md'), 'utf8')).resolves.toBe('before\n');
+    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).resolves.toBe(
+      '# Snapshot\n\nbefore\n',
+    );
   });
 
   it('writes original and normalized artifacts below the temporary root', async () => {

@@ -1,6 +1,9 @@
 import { createHash } from 'node:crypto';
-import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { execFile } from 'node:child_process';
+import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { delimiter, extname, join } from 'node:path';
+import { promisify } from 'node:util';
 
 import {
   definePlugin,
@@ -11,7 +14,14 @@ import {
   type SourceArtifact,
 } from '@sheldon/plugin-sdk';
 
-import { extractFile, type ExtractedFile, type TesseractAdapter } from './extractors.js';
+import {
+  extractFile,
+  supportsFile,
+  type ExtractedFile,
+  type TesseractAdapter,
+} from './extractors.js';
+
+const execFileAsync = promisify(execFile);
 
 const description: PluginDescription = {
   id: 'sheldon.file',
@@ -52,10 +62,14 @@ export interface OfficialFilePluginDependencies {
   readonly commandAvailable?: (command: string) => Promise<boolean>;
   readonly extractFile?: (input: {
     readonly filePath: string;
+    readonly bytes: Uint8Array;
     readonly ocr: OcrMode;
+    readonly language: string;
     readonly tesseract?: TesseractAdapter;
   }) => Promise<ExtractedFile>;
   readonly tesseract?: TesseractAdapter;
+  readonly tesseractCommand?: string;
+  readonly executeTesseract?: (command: string, arguments_: readonly string[]) => Promise<string>;
   readonly nodeVersion?: string;
 }
 
@@ -65,11 +79,21 @@ export function createOfficialFilePlugin(
   const fileExists = dependencies.fileExists ?? exists;
   const available = dependencies.commandAvailable ?? commandAvailable;
   const runExtraction = dependencies.extractFile ?? extractFile;
+  const tesseractCommand = dependencies.tesseractCommand ?? 'tesseract';
+  const executableTesseract = createTesseractAdapter(
+    tesseractCommand,
+    dependencies.executeTesseract ?? executeTesseract,
+  );
 
   return definePlugin({
     describe: async () => description,
     probe: async ({ input }) => probeFile(input, fileExists),
-    ingest: async (request) => ingestFile(request, runExtraction, dependencies.tesseract),
+    ingest: async (request) => {
+      const tesseract =
+        dependencies.tesseract ??
+        ((await available(tesseractCommand)) ? executableTesseract : undefined);
+      return ingestFile(request, runExtraction, tesseract);
+    },
     healthcheck: async (context) => {
       const tesseractAvailable = await available('tesseract');
       context.log('Official file plugin healthcheck completed.');
@@ -112,13 +136,19 @@ async function ingestFile(
   const { filePath, canonicalUri } = validatedInput(request.input);
   const { ocr, language } = validatedOptions(request.options);
   await assertRegularFile(filePath);
+  let sourceBytes: Uint8Array;
+  try {
+    sourceBytes = new Uint8Array(await readFile(filePath));
+  } catch {
+    throw fileError('FILE_INPUT_INVALID', `Unable to read input file: ${filePath}`);
+  }
   if (ocr === 'required' && tesseract === undefined) {
     throw fileError('FILE_OCR_UNAVAILABLE', 'Required OCR is unavailable.');
   }
 
   let extracted: ExtractedFile;
   try {
-    extracted = await runExtraction!({ filePath, ocr, tesseract });
+    extracted = await runExtraction!({ filePath, bytes: sourceBytes, ocr, language, tesseract });
   } catch (error) {
     throw fileError('FILE_EXTRACTION_FAILED', `File extraction failed: ${errorMessage(error)}`);
   }
@@ -135,7 +165,7 @@ async function ingestFile(
     const original = await writeArtifact(
       request.temporaryDirectory,
       originalPath,
-      await readFile(filePath),
+      sourceBytes,
       mediaTypeFor(extracted.format),
       'original',
     );
@@ -297,7 +327,45 @@ async function probeFile(
     return { supported: false, confidence: 0, reason: 'A readable local file is required.' };
   }
 
-  return { supported: true, confidence: 100, reason: 'Local file is supported.' };
+  if (!(await supportsFile({ filePath }))) {
+    return {
+      supported: false,
+      confidence: 0,
+      reason: 'The file format is not supported by this plugin.',
+    };
+  }
+
+  return { supported: true, confidence: 100, reason: 'Local file format is supported.' };
+}
+
+function createTesseractAdapter(
+  command: string,
+  execute: (command: string, arguments_: readonly string[]) => Promise<string>,
+): TesseractAdapter {
+  return {
+    recognize: async (bytes, fileName, language) => {
+      const directory = await mkdtemp(join(tmpdir(), 'sheldon-tesseract-'));
+      const extension = extname(fileName) || '.image';
+      const imagePath = join(directory, `input${extension}`);
+      try {
+        await writeFile(imagePath, bytes);
+        return await execute(command, [imagePath, 'stdout', '-l', language]);
+      } finally {
+        await rm(directory, { recursive: true, force: true });
+      }
+    },
+  };
+}
+
+async function executeTesseract(
+  command: string,
+  arguments_: readonly string[],
+): Promise<string> {
+  const { stdout } = await execFileAsync(command, [...arguments_], {
+    encoding: 'utf8',
+    maxBuffer: 8 * 1024 * 1024,
+  });
+  return stdout;
 }
 
 async function exists(filePath: string): Promise<boolean> {
