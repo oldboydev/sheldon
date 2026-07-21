@@ -90,6 +90,12 @@ const forwardedEnvironmentKeys = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR'] as 
 const recordedErrorMessage =
   'Plugin operation failed. Inspect the stable error code and retained stderr.';
 const protocolFailureExitGraceMilliseconds = 50;
+const fileDiagnosticCodes = new Set([
+  'FILE_INPUT_INVALID',
+  'FILE_FORMAT_UNSUPPORTED',
+  'FILE_OCR_UNAVAILABLE',
+  'FILE_EXTRACTION_FAILED',
+]);
 
 export class PluginProcessRunner {
   private readonly state: PluginStateDatabase;
@@ -273,6 +279,8 @@ export class PluginProcessRunner {
         throw this.processExitedError(plugin, processExit);
       }
       if (terminal.response.status === 'error') {
+        const { code, message } = terminal.response.error;
+        if (fileDiagnosticCodes.has(code)) throw this.error(plugin, code, message);
         throw this.error(
           plugin,
           'PLUGIN_OPERATION_FAILED',

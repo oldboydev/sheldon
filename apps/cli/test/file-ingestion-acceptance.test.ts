@@ -1,7 +1,7 @@
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -9,6 +9,9 @@ import { runCli, type CliDependencies } from '../src/main.js';
 
 const officialPluginRoot = fileURLToPath(
   new URL('../../../packages/plugins/official/', import.meta.url),
+);
+const pluginSdkEntrypoint = fileURLToPath(
+  new URL('../../../packages/plugin-sdk/dist/index.js', import.meta.url),
 );
 const temporaryDirectories: string[] = [];
 
@@ -96,4 +99,80 @@ describe('official file ingestion CLI flow', () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain('Install Tesseract and the requested language model');
   });
+
+  it.each([
+    'FILE_INPUT_INVALID',
+    'FILE_FORMAT_UNSUPPORTED',
+    'FILE_OCR_UNAVAILABLE',
+    'FILE_EXTRACTION_FAILED',
+  ])('preserves %s from the SDK plugin protocol to CLI diagnostics', async (code) => {
+    const pluginRoot = await writeDiagnosticPlugin(harness.root, code);
+    const message = `Diagnostic message for ${code}.`;
+    const pluginId = `diagnostic.${code.toLowerCase().replaceAll('_', '-')}`;
+
+    const result = await runCli([...ingestArguments(), '--plugin', pluginId], {
+      ...harness.dependencies,
+      officialPluginRoots: [pluginRoot],
+    });
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      stderr: `Error [${code}]: ${message}\nTarget: ${pluginId}\nRecovery: Inspect the plugin manifest, protocol output, and retained stderr before retrying.\n`,
+    });
+  });
 });
+
+async function writeDiagnosticPlugin(root: string, code: string): Promise<string> {
+  const pluginRoot = join(root, 'diagnostic-plugins');
+  const id = `diagnostic.${code.toLowerCase().replaceAll('_', '-')}`;
+  const directory = join(pluginRoot, id);
+  const message = `Diagnostic message for ${code}.`;
+  await mkdir(directory, { recursive: true });
+  await writeFile(
+    join(directory, 'sheldon-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      id,
+      name: 'Diagnostic fixture plugin',
+      version: '1.0.0',
+      protocolVersion: '1',
+      license: 'MIT',
+      command: { executable: process.execPath, arguments: ['plugin.mjs'] },
+      capabilities: ['ingest-file'],
+      priority: 100,
+      platforms: [process.platform],
+      permissions: { network: false, cookies: false },
+      dependencies: [],
+    }),
+    'utf8',
+  );
+  await writeFile(
+    join(directory, 'plugin.mjs'),
+    `import { definePlugin, runPlugin } from ${JSON.stringify(pathToFileURL(pluginSdkEntrypoint).href)};
+
+const error = new Error(${JSON.stringify(message)});
+error.code = ${JSON.stringify(code)};
+
+await runPlugin(definePlugin({
+  describe: async () => (${JSON.stringify({
+    id,
+    name: 'Diagnostic fixture plugin',
+    version: '1.0.0',
+    protocolVersion: '1',
+    license: 'MIT',
+    capabilities: ['ingest-file'],
+    priority: 100,
+    platforms: [process.platform],
+    permissions: { network: false, cookies: false },
+    dependencies: [],
+  })}),
+  probe: async () => ({ supported: true, confidence: 100, reason: 'diagnostic fixture' }),
+  ingest: async () => { throw error; },
+  healthcheck: async () => ({ checks: [] }),
+  cancel: async () => undefined,
+}));
+`,
+    'utf8',
+  );
+  return pluginRoot;
+}

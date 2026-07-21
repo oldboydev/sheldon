@@ -127,7 +127,9 @@ describe('official file plugin scaffold', () => {
       context,
     );
 
-    await expect(readFile(join(temporaryDirectory, 'original.md'), 'utf8')).resolves.toBe('before\n');
+    await expect(readFile(join(temporaryDirectory, 'original.md'), 'utf8')).resolves.toBe(
+      'before\n',
+    );
     await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).resolves.toBe(
       '# Snapshot\n\nbefore\n',
     );

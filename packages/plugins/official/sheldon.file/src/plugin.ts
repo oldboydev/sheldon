@@ -357,10 +357,7 @@ function createTesseractAdapter(
   };
 }
 
-async function executeTesseract(
-  command: string,
-  arguments_: readonly string[],
-): Promise<string> {
+async function executeTesseract(command: string, arguments_: readonly string[]): Promise<string> {
   const { stdout } = await execFileAsync(command, [...arguments_], {
     encoding: 'utf8',
     maxBuffer: 8 * 1024 * 1024,

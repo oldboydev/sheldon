@@ -129,7 +129,9 @@ export async function extractFile(input: ExtractFileInput): Promise<ExtractedFil
   });
 }
 
-export async function supportsFile(input: Pick<ExtractFileInput, 'filePath' | 'bytes'>): Promise<boolean> {
+export async function supportsFile(
+  input: Pick<ExtractFileInput, 'filePath' | 'bytes'>,
+): Promise<boolean> {
   try {
     return (await formatFor(input)) !== 'unsupported';
   } catch {
@@ -142,8 +144,12 @@ async function formatFor(input: Pick<ExtractFileInput, 'filePath' | 'bytes'>): P
   if (bytes.byteLength > MAX_INPUT_BYTES) return 'unsupported';
   const archive = hasZipSignature(bytes) ? await BoundedArchive.open(bytes) : undefined;
   const archiveFormat = archive === undefined ? undefined : await detectArchiveFormat(archive);
-  return extractorFor(bytes, extname(input.filePath).toLowerCase(), archive !== undefined, archiveFormat)
-    .format;
+  return extractorFor(
+    bytes,
+    extname(input.filePath).toLowerCase(),
+    archive !== undefined,
+    archiveFormat,
+  ).format;
 }
 
 function extractorFor(
