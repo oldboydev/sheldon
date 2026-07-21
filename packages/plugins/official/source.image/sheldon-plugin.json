@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "id": "source.image",
+  "name": "Official image ingestion",
+  "version": "1.0.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": { "executable": "node", "arguments": ["plugin.mjs"] },
+  "capabilities": ["ingest-file"],
+  "priority": 110,
+  "platforms": ["win32", "darwin", "linux"],
+  "permissions": { "network": false, "cookies": false },
+  "dependencies": [
+    {
+      "id": "tesseract",
+      "kind": "executable",
+      "required": true,
+      "remediation": "Install the official source.image plugin for this platform."
+    },
+    {
+      "id": "por",
+      "kind": "asset",
+      "required": true,
+      "remediation": "Reinstall source.image to restore the bundled Portuguese language model."
+    },
+    {
+      "id": "eng",
+      "kind": "asset",
+      "required": true,
+      "remediation": "Reinstall source.image to restore the bundled English language model."
+    }
+  ]
+}

@@ -16,7 +16,8 @@ const targets = [
   ['packages/ingestion/src', 'packages/ingestion/dist'],
   ['packages/agent-runtime/src', 'packages/agent-runtime/dist'],
   ['packages/review/src', 'packages/review/dist'],
-  ['packages/plugins/official/sheldon.file/src', 'packages/plugins/official/sheldon.file/dist'],
+  ['packages/plugins/official/source.file/src', 'packages/plugins/official/source.file/dist'],
+  ['packages/plugins/official/source.image/src', 'packages/plugins/official/source.image/dist'],
   ['apps/cli/src', 'apps/cli/dist'],
 ];
 

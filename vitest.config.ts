@@ -20,7 +20,12 @@ export default defineConfig({
       '@sheldon/ingestion': sourcePath('./packages/ingestion/src/index.ts'),
       '@sheldon/agent-runtime': sourcePath('./packages/agent-runtime/src/index.ts'),
       '@sheldon/review': sourcePath('./packages/review/src/index.ts'),
-      '@sheldon/plugin-file': sourcePath('./packages/plugins/official/sheldon.file/src/index.ts'),
+      '@sheldon/plugin-source-file': sourcePath(
+        './packages/plugins/official/source.file/src/index.ts',
+      ),
+      '@sheldon/plugin-source-image': sourcePath(
+        './packages/plugins/official/source.image/src/index.ts',
+      ),
     },
   },
   test: {

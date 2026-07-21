@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "id": "sheldon.file",
+  "id": "source.file",
   "name": "Official file ingestion",
   "version": "1.0.0",
   "protocolVersion": "1",
@@ -17,12 +17,6 @@
       "required": true,
       "version": ">=24",
       "remediation": "Install Node.js 24 or later."
-    },
-    {
-      "id": "tesseract",
-      "kind": "executable",
-      "required": false,
-      "remediation": "Install Tesseract to enable optional OCR."
     }
   ]
 }

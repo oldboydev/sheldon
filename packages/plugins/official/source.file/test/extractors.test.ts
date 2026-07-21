@@ -64,8 +64,8 @@ describe('embedded file extraction', () => {
     ],
     ['sample.epub', '# sample.epub\n\n## Chapter 1\n\n# EPUB fixture\n\nBook body\n', 'epub'],
   ] as const)('normalizes %s deterministically', async (fixture, expected, format) => {
-    const first = await extractFile({ filePath: fixturePath(fixture), ocr: 'off' });
-    const second = await extractFile({ filePath: fixturePath(fixture), ocr: 'off' });
+    const first = await extractFile({ filePath: fixturePath(fixture) });
+    const second = await extractFile({ filePath: fixturePath(fixture) });
 
     expect(first).toEqual({
       format,
@@ -77,48 +77,13 @@ describe('embedded file extraction', () => {
     expect(second).toEqual(first);
   });
 
-  it('reports unavailable optional OCR without downloading', async () => {
-    await expect(
-      extractFile({ filePath: fixturePath('sample.png'), ocr: 'auto' }),
-    ).resolves.toEqual({
-      format: 'image',
-      content: '',
-      status: 'gap',
-      warnings: ['OCR is unavailable because no Tesseract adapter was provided.'],
-      assets: [],
-    });
-  });
-
-  it('uses an injected Tesseract adapter when OCR is enabled', async () => {
-    const calls: string[] = [];
-    const result = await extractFile({
-      filePath: fixturePath('sample.png'),
-      ocr: 'auto',
-      tesseract: {
-        recognize: async (_bytes, fileName) => {
-          calls.push(fileName);
-          return '  OCR fixture  \r\nsecond line  ';
-        },
-      },
-    });
-
-    expect(calls).toEqual(['sample.png']);
-    expect(result).toEqual({
-      format: 'image',
-      content: '# sample.png\n\nOCR fixture\nsecond line\n',
-      status: 'complete',
-      warnings: [],
-      assets: [],
-    });
-  });
-
   it('sniffs binary signatures before file extensions', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sheldon-extractor-'));
     temporaryDirectories.push(directory);
     const misleadingPath = join(directory, 'misleading.txt');
     await writeFile(misleadingPath, await readFile(fixturePath('sample.pdf')));
 
-    await expect(extractFile({ filePath: misleadingPath, ocr: 'off' })).resolves.toMatchObject({
+    await expect(extractFile({ filePath: misleadingPath })).resolves.toMatchObject({
       format: 'pdf',
       content: '# misleading.txt\n\nPDF fixture\n',
       status: 'complete',
@@ -133,7 +98,7 @@ describe('embedded file extraction', () => {
   ] as const)('sniffs renamed ZIP container %s from real entries', async (fixture, format) => {
     const renamedPath = await temporaryFile('renamed.bin', await readFile(fixturePath(fixture)));
 
-    await expect(extractFile({ filePath: renamedPath, ocr: 'off' })).resolves.toMatchObject({
+    await expect(extractFile({ filePath: renamedPath })).resolves.toMatchObject({
       format,
       status: 'complete',
     });
@@ -145,7 +110,7 @@ describe('embedded file extraction', () => {
       await zipBytes({ 'notes/ppt/fake.txt': 'ppt/ is only payload text' }),
     );
 
-    await expect(extractFile({ filePath: spoofPath, ocr: 'off' })).resolves.toMatchObject({
+    await expect(extractFile({ filePath: spoofPath })).resolves.toMatchObject({
       format: 'unsupported',
       status: 'gap',
     });
@@ -160,7 +125,7 @@ describe('embedded file extraction', () => {
     for (let index = 0; index < 512; index += 1) entries[`padding/${index}.txt`] = '';
     const oversizedPath = await temporaryFile('oversized.docx', await zipBytes(entries));
 
-    await expect(extractFile({ filePath: oversizedPath, ocr: 'off' })).rejects.toThrow(
+    await expect(extractFile({ filePath: oversizedPath })).rejects.toThrow(
       'Archive entry limit exceeded',
     );
   });
@@ -175,7 +140,7 @@ describe('embedded file extraction', () => {
       }),
     );
 
-    await expect(extractFile({ filePath: unsafePath, ocr: 'off' })).rejects.toThrow(
+    await expect(extractFile({ filePath: unsafePath })).rejects.toThrow(
       'Unsafe XML declaration',
     );
   });
@@ -197,7 +162,7 @@ describe('embedded file extraction', () => {
       }),
     );
 
-    await expect(extractFile({ filePath: presentationPath, ocr: 'off' })).resolves.toMatchObject({
+    await expect(extractFile({ filePath: presentationPath })).resolves.toMatchObject({
       format: 'pptx',
       content:
         '# ordered.pptx\n\n## Slide 1\n\nSecond slide\n\nBody\n\n## Slide 2\n\nFirst slide\n',
@@ -210,7 +175,7 @@ describe('embedded file extraction', () => {
       pdfBytes('BT /F1 18 Tf 72 720 Td (Con) Tj ET BT /F1 19 Tf 105.2 720 Td (tiguous) Tj ET'),
     );
 
-    await expect(extractFile({ filePath: pdfPath, ocr: 'off' })).resolves.toMatchObject({
+    await expect(extractFile({ filePath: pdfPath })).resolves.toMatchObject({
       format: 'pdf',
       content: '# runs.pdf\n\nContiguous\n',
     });
@@ -230,28 +195,16 @@ describe('embedded file extraction', () => {
       await epubBytes('%2e%2e/%2e%2e/evil.xhtml', 'evil.xhtml'),
     );
 
-    await expect(extractFile({ filePath: encodedPath, ocr: 'off' })).resolves.toMatchObject({
+    await expect(extractFile({ filePath: encodedPath })).resolves.toMatchObject({
       format: 'epub',
       content: '# encoded.epub\n\n## Chapter 1\n\n# Encoded\n',
     });
-    await expect(extractFile({ filePath: queriedPath, ocr: 'off' })).rejects.toThrow(
+    await expect(extractFile({ filePath: queriedPath })).rejects.toThrow(
       'Unsafe EPUB reference',
     );
-    await expect(extractFile({ filePath: traversalPath, ocr: 'off' })).rejects.toThrow(
+    await expect(extractFile({ filePath: traversalPath })).rejects.toThrow(
       'Unsafe EPUB reference',
     );
-  });
-
-  it('sniffs BMP before a misleading text extension', async () => {
-    const bmpPath = await temporaryFile(
-      'bitmap.txt',
-      Uint8Array.from([0x42, 0x4d, 0, 0, 0, 0, 0, 0]),
-    );
-
-    await expect(extractFile({ filePath: bmpPath, ocr: 'auto' })).resolves.toMatchObject({
-      format: 'image',
-      status: 'gap',
-    });
   });
 
   it('escapes structured keys and scalar Markdown syntax', async () => {
@@ -260,7 +213,7 @@ describe('embedded file extraction', () => {
       Buffer.from(JSON.stringify({ '# key\nnext': '*bold*\nline' })),
     );
 
-    await expect(extractFile({ filePath: jsonPath, ocr: 'off' })).resolves.toMatchObject({
+    await expect(extractFile({ filePath: jsonPath })).resolves.toMatchObject({
       content: '# syntax.json\n\n## \\# key next\n\n\\*bold\\*<br>line\n',
     });
   });
@@ -271,7 +224,7 @@ describe('embedded file extraction', () => {
     const unknownPath = join(directory, 'sample.bin');
     await writeFile(unknownPath, Uint8Array.from([0, 1, 2, 3, 4]));
 
-    const result = await extractFile({ filePath: unknownPath, ocr: 'off' });
+    const result = await extractFile({ filePath: unknownPath });
 
     expect(result).toEqual({
       format: 'unsupported',
@@ -279,6 +232,18 @@ describe('embedded file extraction', () => {
       status: 'gap',
       warnings: [`Unsupported file format: ${basename(unknownPath)}`],
       assets: [],
+    });
+  });
+
+  it('treats image signatures as unsupported so OCR stays with source.image', async () => {
+    const imagePath = await temporaryFile(
+      'evidence.png',
+      Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    );
+
+    await expect(extractFile({ filePath: imagePath })).resolves.toMatchObject({
+      format: 'unsupported',
+      status: 'gap',
     });
   });
 });

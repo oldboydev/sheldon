@@ -1,0 +1,24 @@
+{
+  "supportedProbe": {
+    "input": { "filePath": "../../../../test-fixtures/ingestion/files/sample.png" },
+    "minimumConfidence": 100
+  },
+  "unsupportedProbe": {
+    "input": { "filePath": "../../../../test-fixtures/ingestion/files/sample.md" }
+  },
+  "ingest": {
+    "input": {
+      "filePath": "../../../../test-fixtures/ingestion/files/sample.png",
+      "canonicalUri": "file:///fixtures/sample.png"
+    },
+    "options": {},
+    "expectedRoles": ["original", "normalized"]
+  },
+  "cancel": {
+    "input": {
+      "filePath": "../../../../test-fixtures/ingestion/files/sample.png",
+      "canonicalUri": "file:///fixtures/sample.png"
+    },
+    "options": {}
+  }
+}

@@ -1,9 +1,6 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
-import { access, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { delimiter, extname, join } from 'node:path';
-import { promisify } from 'node:util';
+import { access, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { extname, join } from 'node:path';
 
 import {
   definePlugin,
@@ -14,17 +11,10 @@ import {
   type SourceArtifact,
 } from '@sheldon/plugin-sdk';
 
-import {
-  extractFile,
-  supportsFile,
-  type ExtractedFile,
-  type TesseractAdapter,
-} from './extractors.js';
-
-const execFileAsync = promisify(execFile);
+import { extractFile, supportsFile, type ExtractedFile } from './extractors.js';
 
 const description: PluginDescription = {
-  id: 'sheldon.file',
+  id: 'source.file',
   name: 'Official file ingestion',
   version: '1.0.0',
   protocolVersion: '1',
@@ -41,62 +31,35 @@ const description: PluginDescription = {
       version: '>=24',
       remediation: 'Install Node.js 24 or later.',
     },
-    {
-      id: 'tesseract',
-      kind: 'executable',
-      required: false,
-      remediation: 'Install Tesseract to enable optional OCR.',
-    },
   ],
 };
 
-type OcrMode = 'off' | 'auto' | 'required';
 type FilePluginErrorCode =
   | 'FILE_INPUT_INVALID'
   | 'FILE_FORMAT_UNSUPPORTED'
-  | 'FILE_OCR_UNAVAILABLE'
   | 'FILE_EXTRACTION_FAILED';
 
-export interface OfficialFilePluginDependencies {
+export interface OfficialSourceFileDependencies {
   readonly fileExists?: (filePath: string) => Promise<boolean>;
-  readonly commandAvailable?: (command: string) => Promise<boolean>;
   readonly extractFile?: (input: {
     readonly filePath: string;
     readonly bytes: Uint8Array;
-    readonly ocr: OcrMode;
-    readonly language: string;
-    readonly tesseract?: TesseractAdapter;
   }) => Promise<ExtractedFile>;
-  readonly tesseract?: TesseractAdapter;
-  readonly tesseractCommand?: string;
-  readonly executeTesseract?: (command: string, arguments_: readonly string[]) => Promise<string>;
   readonly nodeVersion?: string;
 }
 
-export function createOfficialFilePlugin(
-  dependencies: OfficialFilePluginDependencies = {},
+export function createOfficialSourceFilePlugin(
+  dependencies: OfficialSourceFileDependencies = {},
 ): PluginImplementation {
   const fileExists = dependencies.fileExists ?? exists;
-  const available = dependencies.commandAvailable ?? commandAvailable;
   const runExtraction = dependencies.extractFile ?? extractFile;
-  const tesseractCommand = dependencies.tesseractCommand ?? 'tesseract';
-  const executableTesseract = createTesseractAdapter(
-    tesseractCommand,
-    dependencies.executeTesseract ?? executeTesseract,
-  );
 
   return definePlugin({
     describe: async () => description,
     probe: async ({ input }) => probeFile(input, fileExists),
-    ingest: async (request) => {
-      const tesseract =
-        dependencies.tesseract ??
-        ((await available(tesseractCommand)) ? executableTesseract : undefined);
-      return ingestFile(request, runExtraction, tesseract);
-    },
+    ingest: async (request) => ingestFile(request, runExtraction),
     healthcheck: async (context) => {
-      const tesseractAvailable = await available(tesseractCommand);
-      context.log('Official file plugin healthcheck completed.');
+      context.log('Official source file plugin healthcheck completed.');
       return {
         checks: [
           nodeCheck(dependencies.nodeVersion ?? process.versions.node),
@@ -105,18 +68,6 @@ export function createOfficialFilePlugin(
             severity: 'info' as const,
             message: 'Embedded extractors are available offline.',
           },
-          tesseractAvailable
-            ? {
-                id: 'tesseract',
-                severity: 'info' as const,
-                message: 'Optional Tesseract OCR executable is available.',
-              }
-            : {
-                id: 'tesseract',
-                severity: 'warning' as const,
-                message: 'Optional Tesseract OCR executable is unavailable.',
-                remediation: 'Install Tesseract and the requested language model.',
-              },
         ],
       };
     },
@@ -124,17 +75,16 @@ export function createOfficialFilePlugin(
   });
 }
 
-export async function runOfficialFilePlugin(): Promise<void> {
-  await runPlugin(createOfficialFilePlugin());
+export async function runOfficialSourceFilePlugin(): Promise<void> {
+  await runPlugin(createOfficialSourceFilePlugin());
 }
 
 async function ingestFile(
   request: Parameters<PluginImplementation['ingest']>[0],
-  runExtraction: OfficialFilePluginDependencies['extractFile'],
-  tesseract: TesseractAdapter | undefined,
+  runExtraction: OfficialSourceFileDependencies['extractFile'],
 ): Promise<readonly SourceArtifact[]> {
   const { filePath, canonicalUri } = validatedInput(request.input);
-  const { ocr, language } = validatedOptions(request.options);
+  validatedOptions(request.options);
   await assertRegularFile(filePath);
   let sourceBytes: Uint8Array;
   try {
@@ -142,21 +92,15 @@ async function ingestFile(
   } catch {
     throw fileError('FILE_INPUT_INVALID', `Unable to read input file: ${filePath}`);
   }
-  if (ocr === 'required' && tesseract === undefined) {
-    throw fileError('FILE_OCR_UNAVAILABLE', 'Required OCR is unavailable.');
-  }
 
   let extracted: ExtractedFile;
   try {
-    extracted = await runExtraction!({ filePath, bytes: sourceBytes, ocr, language, tesseract });
+    extracted = await runExtraction!({ filePath, bytes: sourceBytes });
   } catch (error) {
     throw fileError('FILE_EXTRACTION_FAILED', `File extraction failed: ${errorMessage(error)}`);
   }
   if (extracted.format === 'unsupported') {
     throw fileError('FILE_FORMAT_UNSUPPORTED', `Unsupported file format: ${filePath}`);
-  }
-  if (ocr === 'required' && extracted.status === 'gap') {
-    throw fileError('FILE_OCR_UNAVAILABLE', 'Required OCR did not produce normalized content.');
   }
 
   try {
@@ -180,7 +124,6 @@ async function ingestFile(
         format: extracted.format,
         extractionStatus: extracted.status,
         warnings: extracted.warnings,
-        language,
         extractor: 'embedded',
       },
     );
@@ -227,19 +170,10 @@ function validatedInput(input: Readonly<Record<string, unknown>>): {
   return { filePath, canonicalUri };
 }
 
-function validatedOptions(options: Readonly<Record<string, unknown>>): {
-  readonly ocr: OcrMode;
-  readonly language: string;
-} {
-  const ocr = options.ocr ?? 'auto';
-  const language = options.language ?? 'eng';
-  if (ocr !== 'off' && ocr !== 'auto' && ocr !== 'required') {
-    throw fileError('FILE_INPUT_INVALID', 'ocr must be off, auto, or required.');
+function validatedOptions(options: Readonly<Record<string, unknown>>): void {
+  if (Object.keys(options).length !== 0) {
+    throw fileError('FILE_INPUT_INVALID', 'source.file does not accept ingest options.');
   }
-  if (typeof language !== 'string' || language.trim().length === 0) {
-    throw fileError('FILE_INPUT_INVALID', 'language must be a non-empty string.');
-  }
-  return { ocr, language };
 }
 
 async function assertRegularFile(filePath: string): Promise<void> {
@@ -338,50 +272,11 @@ async function probeFile(
   return { supported: true, confidence: 100, reason: 'Local file format is supported.' };
 }
 
-function createTesseractAdapter(
-  command: string,
-  execute: (command: string, arguments_: readonly string[]) => Promise<string>,
-): TesseractAdapter {
-  return {
-    recognize: async (bytes, fileName, language) => {
-      const directory = await mkdtemp(join(tmpdir(), 'sheldon-tesseract-'));
-      const extension = extname(fileName) || '.image';
-      const imagePath = join(directory, `input${extension}`);
-      try {
-        await writeFile(imagePath, bytes);
-        return await execute(command, [imagePath, 'stdout', '-l', language]);
-      } finally {
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  };
-}
-
-async function executeTesseract(command: string, arguments_: readonly string[]): Promise<string> {
-  const { stdout } = await execFileAsync(command, [...arguments_], {
-    encoding: 'utf8',
-    maxBuffer: 8 * 1024 * 1024,
-  });
-  return stdout;
-}
-
 async function exists(filePath: string): Promise<boolean> {
   return access(filePath).then(
     () => true,
     () => false,
   );
-}
-
-async function commandAvailable(command: string): Promise<boolean> {
-  const directories = (process.env.PATH ?? '').split(delimiter).filter(Boolean);
-  const extensions =
-    process.platform === 'win32' ? (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';') : [''];
-  for (const directory of directories) {
-    for (const extension of extensions) {
-      if (await exists(join(directory, `${command}${extension}`))) return true;
-    }
-  }
-  return false;
 }
 
 function nodeCheck(version: string) {

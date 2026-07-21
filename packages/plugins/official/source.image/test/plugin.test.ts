@@ -1,0 +1,117 @@
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import type { PluginExecutionContext } from '@sheldon/plugin-sdk';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { createOfficialSourceImagePlugin } from '@sheldon/plugin-source-image';
+
+const context: PluginExecutionContext = {
+  signal: new AbortController().signal,
+  log: () => undefined,
+};
+const directories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((path) => rm(path, { recursive: true, force: true })),
+  );
+});
+
+describe('official source image plugin', () => {
+  it('claims image files only and invokes its packaged binary with private tessdata and por+eng', async () => {
+    const root = await pluginRoot();
+    const input = join(root, 'evidence.png');
+    const markdown = join(root, 'evidence.md');
+    const output = await temporaryDirectory();
+    await writeFile(input, Uint8Array.from([0x89, 0x50, 0x4e, 0x47]));
+    await writeFile(markdown, '# Evidence\n');
+    const run = vi.fn(async () => 'recognized text\n');
+    const executable = join(root, 'runtime', 'win32-x64', 'tesseract.exe');
+    const plugin = createOfficialSourceImagePlugin({
+      pluginRoot: root,
+      platform: 'win32-x64',
+      executable,
+      run,
+    });
+
+    await expect(plugin.probe({ input: { filePath: input } }, context)).resolves.toMatchObject({
+      supported: true,
+      confidence: 100,
+    });
+    await expect(plugin.probe({ input: { filePath: markdown } }, context)).resolves.toMatchObject({
+      supported: false,
+    });
+    await plugin.ingest(
+      {
+        input: { filePath: input, canonicalUri: 'file:///evidence.png' },
+        options: {},
+        temporaryDirectory: output,
+      },
+      context,
+    );
+
+    expect(run).toHaveBeenCalledWith(
+      executable,
+      expect.arrayContaining(['--tessdata-dir', join(root, 'data', 'tessdata'), '-l', 'por+eng']),
+      expect.objectContaining({ shell: false }),
+    );
+    await expect(readFile(join(output, 'content.md'), 'utf8')).resolves.toBe('recognized text\n');
+  });
+
+  it('blocks OCR before process launch when a requested language is absent', async () => {
+    const root = await pluginRoot();
+    const input = join(root, 'evidence.png');
+    await writeFile(input, Uint8Array.from([0x89, 0x50, 0x4e, 0x47]));
+    const run = vi.fn(async () => 'recognized text');
+    const plugin = createOfficialSourceImagePlugin({
+      pluginRoot: root,
+      platform: 'win32-x64',
+      run,
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { filePath: input, canonicalUri: 'file:///evidence.png' },
+          options: { language: 'por+deu' },
+          temporaryDirectory: await temporaryDirectory(),
+        },
+        context,
+      ),
+    ).rejects.toThrow('IMAGE_LANGUAGE_NOT_INSTALLED');
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it('recognizes a PNG signature even when the local filename has no image extension', async () => {
+    const root = await pluginRoot();
+    const input = join(root, 'camera-upload');
+    await writeFile(input, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+
+    await expect(
+      createOfficialSourceImagePlugin({ pluginRoot: root, platform: 'win32-x64' }).probe(
+        { input: { filePath: input } },
+        context,
+      ),
+    ).resolves.toMatchObject({ supported: true, confidence: 100 });
+  });
+});
+
+async function pluginRoot(): Promise<string> {
+  const root = await temporaryDirectory();
+  await mkdir(join(root, 'data', 'tessdata'), { recursive: true });
+  await mkdir(join(root, 'runtime', 'win32-x64'), { recursive: true });
+  await Promise.all([
+    writeFile(join(root, 'data', 'tessdata', 'por.traineddata'), 'por'),
+    writeFile(join(root, 'data', 'tessdata', 'eng.traineddata'), 'eng'),
+    writeFile(join(root, 'runtime', 'win32-x64', 'tesseract.exe'), 'fixture'),
+  ]);
+  return root;
+}
+
+async function temporaryDirectory(): Promise<string> {
+  const directory = await mkdtemp(join(tmpdir(), 'sheldon-source-image-'));
+  directories.push(directory);
+  return directory;
+}

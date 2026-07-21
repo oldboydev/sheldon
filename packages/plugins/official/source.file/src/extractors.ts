@@ -35,7 +35,6 @@ export type FileFormat =
   | 'yaml'
   | 'markdown'
   | 'text'
-  | 'image'
   | 'unsupported';
 
 export interface ExtractedAsset {
@@ -44,16 +43,9 @@ export interface ExtractedAsset {
   readonly bytes: Uint8Array;
 }
 
-export interface TesseractAdapter {
-  recognize(bytes: Uint8Array, fileName: string, language: string): Promise<string>;
-}
-
 export interface ExtractFileInput {
   readonly filePath: string;
   readonly bytes?: Uint8Array;
-  readonly ocr?: 'off' | 'auto' | 'required';
-  readonly language?: string;
-  readonly tesseract?: TesseractAdapter;
 }
 
 export interface ExtractedFile {
@@ -88,12 +80,6 @@ const json = extractor('json', hasJsonSignature, ['.json'], extractJson);
 const yaml = extractor('yaml', () => false, ['.yaml', '.yml'], extractYaml);
 const markdown = extractor('markdown', () => false, ['.md', '.markdown'], extractMarkdown);
 const text = extractor('text', () => false, ['.txt'], extractText);
-const image = extractor(
-  'image',
-  hasImageSignature,
-  ['.png', '.jpg', '.jpeg', '.gif', '.tif', '.tiff', '.webp', '.bmp'],
-  extractImage,
-);
 const unsupported = extractor('unsupported', () => false, [], extractUnsupported);
 
 const extractors: readonly Extractor[] = [
@@ -107,7 +93,6 @@ const extractors: readonly Extractor[] = [
   yaml,
   markdown,
   text,
-  image,
   unsupported,
 ];
 
@@ -508,23 +493,6 @@ async function extractText(context: ExtractionContext): Promise<ExtractedFile> {
   return complete('text', titledMarkdown(context.fileName, decodeText(context.bytes)));
 }
 
-async function extractImage(context: ExtractionContext): Promise<ExtractedFile> {
-  if (context.ocr !== 'off' && context.tesseract !== undefined) {
-    const recognized = await context.tesseract.recognize(
-      context.bytes,
-      context.fileName,
-      context.language ?? 'und',
-    );
-    return complete('image', titledMarkdown(context.fileName, recognized.trim()));
-  }
-
-  const warning =
-    context.ocr === 'off'
-      ? 'OCR is disabled for this image.'
-      : 'OCR is unavailable because no Tesseract adapter was provided.';
-  return gap('image', warning);
-}
-
 async function extractUnsupported(context: ExtractionContext): Promise<ExtractedFile> {
   return gap('unsupported', `Unsupported file format: ${context.fileName}`);
 }
@@ -545,18 +513,6 @@ function gap(format: FileFormat, warning: string): ExtractedFile {
 
 function hasPdfSignature(bytes: Uint8Array): boolean {
   return startsWith(bytes, [0x25, 0x50, 0x44, 0x46, 0x2d]);
-}
-
-function hasImageSignature(bytes: Uint8Array): boolean {
-  return (
-    startsWith(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) ||
-    startsWith(bytes, [0xff, 0xd8, 0xff]) ||
-    startsWith(bytes, [0x47, 0x49, 0x46, 0x38]) ||
-    startsWith(bytes, [0x49, 0x49, 0x2a, 0x00]) ||
-    startsWith(bytes, [0x4d, 0x4d, 0x00, 0x2a]) ||
-    startsWith(bytes, [0x42, 0x4d]) ||
-    (decodePrefix(bytes, 12).startsWith('RIFF') && decodePrefix(bytes.slice(8), 4) === 'WEBP')
-  );
 }
 
 function hasHtmlSignature(bytes: Uint8Array): boolean {

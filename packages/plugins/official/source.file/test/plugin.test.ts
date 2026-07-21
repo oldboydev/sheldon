@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import type { PluginExecutionContext } from '@sheldon/plugin-sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createOfficialFilePlugin } from '@sheldon/plugin-file';
+import { createOfficialSourceFilePlugin } from '@sheldon/plugin-source-file';
 
 const context: PluginExecutionContext = {
   signal: new AbortController().signal,
@@ -25,8 +25,8 @@ afterEach(async () => {
 
 describe('official file plugin scaffold', () => {
   it('describes an offline official file plugin', async () => {
-    await expect(createOfficialFilePlugin().describe(context)).resolves.toMatchObject({
-      id: 'sheldon.file',
+    await expect(createOfficialSourceFilePlugin().describe(context)).resolves.toMatchObject({
+      id: 'source.file',
       capabilities: ['ingest-file'],
       permissions: { network: false, cookies: false },
     });
@@ -38,7 +38,7 @@ describe('official file plugin scaffold', () => {
     const markdownPath = join(directory, 'evidence.md');
     const missingPath = join(directory, 'missing.md');
     await writeFile(markdownPath, '# Evidence\n', 'utf8');
-    const plugin = createOfficialFilePlugin();
+    const plugin = createOfficialSourceFilePlugin();
 
     await expect(
       plugin.probe({ input: { filePath: markdownPath } }, context),
@@ -61,41 +61,16 @@ describe('official file plugin scaffold', () => {
     });
   });
 
-  it('uses the executable Tesseract adapter for image ingestion without a model download', async () => {
+  it('declines PNG input so source.image is the sole image claimant', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sheldon-file-plugin-'));
     temporaryDirectories.push(directory);
-    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-file-output-'));
-    temporaryDirectories.push(temporaryDirectory);
     const imagePath = join(directory, 'evidence.png');
     await writeFile(imagePath, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    const calls: Array<{ command: string; arguments: readonly string[] }> = [];
-    const plugin = createOfficialFilePlugin({
-      tesseractCommand: 'tesseract-local',
-      commandAvailable: async (command) => command === 'tesseract-local',
-      executeTesseract: async (command, arguments_) => {
-        calls.push({ command, arguments: arguments_ });
-        return 'Recognized locally';
-      },
+    await expect(createOfficialSourceFilePlugin().probe({ input: { filePath: imagePath } }, context)).resolves.toEqual({
+      supported: false,
+      confidence: 0,
+      reason: 'The file format is not supported by this plugin.',
     });
-
-    await plugin.ingest(
-      {
-        input: { filePath: imagePath, canonicalUri: 'file:///evidence.png' },
-        options: { ocr: 'required' },
-        temporaryDirectory,
-      },
-      context,
-    );
-
-    expect(calls).toEqual([
-      expect.objectContaining({
-        command: 'tesseract-local',
-        arguments: expect.arrayContaining(['stdout', '-l', 'eng']),
-      }),
-    ]);
-    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).resolves.toBe(
-      '# evidence.png\n\nRecognized locally\n',
-    );
   });
 
   it('materializes original bytes from the same snapshot that was extracted', async () => {
@@ -105,7 +80,7 @@ describe('official file plugin scaffold', () => {
     temporaryDirectories.push(temporaryDirectory);
     const filePath = join(directory, 'evidence.md');
     await writeFile(filePath, 'before\n', 'utf8');
-    const plugin = createOfficialFilePlugin({
+    const plugin = createOfficialSourceFilePlugin({
       extractFile: async ({ bytes }) => {
         await writeFile(filePath, 'after\n', 'utf8');
         return {
@@ -142,7 +117,7 @@ describe('official file plugin scaffold', () => {
     temporaryDirectories.push(temporaryDirectory);
     const markdownPath = join(directory, 'evidence.md');
     await writeFile(markdownPath, '# Evidence\n', 'utf8');
-    const plugin = createOfficialFilePlugin();
+    const plugin = createOfficialSourceFilePlugin();
 
     const artifacts = await plugin.ingest(
       {
@@ -173,7 +148,6 @@ describe('official file plugin scaffold', () => {
           format: 'markdown',
           extractionStatus: 'complete',
           warnings: [],
-          language: 'eng',
           extractor: 'embedded',
         },
       }),
@@ -193,7 +167,7 @@ describe('official file plugin scaffold', () => {
     temporaryDirectories.push(temporaryDirectory);
     const filePath = join(directory, 'evidence._');
     await writeFile(filePath, 'source', 'utf8');
-    const plugin = createOfficialFilePlugin({
+    const plugin = createOfficialSourceFilePlugin({
       extractFile: async () => ({
         format: 'markdown',
         content: '# Evidence\n',
@@ -224,45 +198,42 @@ describe('official file plugin scaffold', () => {
     );
   });
 
-  it('reports unavailable optional OCR without an install action', async () => {
-    const plugin = createOfficialFilePlugin({ commandAvailable: async () => false });
+  it('has no Tesseract dependency or OCR options', async () => {
+    const plugin = createOfficialSourceFilePlugin();
+    const description = await plugin.describe(context);
 
-    await expect(plugin.healthcheck(context)).resolves.toMatchObject({
+    expect(description.dependencies).not.toContainEqual(expect.objectContaining({ id: 'tesseract' }));
+    await expect(plugin.healthcheck(context)).resolves.toEqual({
       checks: expect.arrayContaining([
         expect.objectContaining({ id: 'embedded-extractors', severity: 'info' }),
-        expect.objectContaining({ id: 'tesseract', severity: 'warning' }),
       ]),
     });
+    const directory = await mkdtemp(join(tmpdir(), 'sheldon-file-plugin-'));
+    temporaryDirectories.push(directory);
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-file-output-'));
+    temporaryDirectories.push(temporaryDirectory);
+    const filePath = join(directory, 'evidence.md');
+    await writeFile(filePath, '# Evidence\n', 'utf8');
+    await expect(
+      plugin.ingest(
+        {
+          input: { filePath, canonicalUri: 'file:///evidence.md' },
+          options: { ocr: 'required' },
+          temporaryDirectory,
+        },
+        context,
+      ),
+    ).rejects.toThrow('FILE_INPUT_INVALID');
   });
 
-  it('checks the configured Tesseract executable in its healthcheck', async () => {
-    const commands: string[] = [];
-    const plugin = createOfficialFilePlugin({
-      tesseractCommand: 'tesseract-custom',
-      commandAvailable: async (command) => {
-        commands.push(command);
-        return true;
-      },
-    });
-
-    await expect(plugin.healthcheck(context)).resolves.toMatchObject({
-      checks: expect.arrayContaining([
-        expect.objectContaining({ id: 'tesseract', severity: 'info' }),
-      ]),
-    });
-    expect(commands).toEqual(['tesseract-custom']);
-  });
-
-  it('reports input, unsupported format, OCR, and extractor failures with stable codes', async () => {
+  it('reports input, unsupported format, and extractor failures with stable codes', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'sheldon-file-plugin-'));
     temporaryDirectories.push(directory);
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-file-output-'));
     temporaryDirectories.push(temporaryDirectory);
     const unsupportedPath = join(directory, 'evidence.bin');
-    const imagePath = join(directory, 'evidence.png');
     await writeFile(unsupportedPath, Uint8Array.from([0, 1, 2, 3]));
-    await writeFile(imagePath, Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
-    const plugin = createOfficialFilePlugin();
+    const plugin = createOfficialSourceFilePlugin();
 
     await expect(
       plugin.ingest(
@@ -281,24 +252,14 @@ describe('official file plugin scaffold', () => {
       ),
     ).rejects.toThrow('FILE_FORMAT_UNSUPPORTED');
     await expect(
-      plugin.ingest(
-        {
-          input: { filePath: imagePath, canonicalUri: 'file:///evidence.png' },
-          options: { ocr: 'required' },
-          temporaryDirectory,
-        },
-        context,
-      ),
-    ).rejects.toThrow('FILE_OCR_UNAVAILABLE');
-    await expect(
-      createOfficialFilePlugin({
+      createOfficialSourceFilePlugin({
         extractFile: async () => {
           throw new Error('parser failed');
         },
       }).ingest(
         {
-          input: { filePath: imagePath, canonicalUri: 'file:///evidence.png' },
-          options: { ocr: 'off' },
+          input: { filePath: unsupportedPath, canonicalUri: 'file:///evidence.bin' },
+          options: {},
           temporaryDirectory,
         },
         context,

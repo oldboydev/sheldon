@@ -1,4 +1,4 @@
-import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -32,11 +32,17 @@ beforeEach(async () => {
     homeDirectory: root,
     confirm: async () => true,
     commandAvailable: async () => false,
+    officialCatalogClient: {
+      load: async () => ({ schemaVersion: 1, publishedAt: '2026-07-21T00:00:00.000Z', plugins: [], languages: [] }),
+      install: async (id, registry) => {
+        expect(id).toBe('source.file');
+        return registry.install(await writeFilePlugin(root), new Set());
+      },
+    },
   };
-  const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
-  await registry.install(await writeFilePlugin(root), new Set());
   await writeFile(input, '# Evidence\nA durable fact.\n', 'utf8');
   await runCli(['init', vault], dependencies);
+  await runCli(['plugin', 'install', 'source.file'], dependencies);
   await runCli(['topic', 'create', 'Memory', '--vault', vault], dependencies);
   harness = { root, vault, input, dependencies };
 });
@@ -59,13 +65,13 @@ describe('file ingestion CLI flow', () => {
 
     expect(result).toMatchObject({ exitCode: 0, stderr: '' });
     expect(JSON.parse(result.stdout)).toMatchObject({
-      manifest: { plugin: 'sheldon.file', content: { path: 'content.md' } },
+      manifest: { plugin: 'source.file', content: { path: 'content.md' } },
     });
   });
 
   it('honors a compatible override and rejects a missing override', async () => {
     const selected = await runCli(
-      [...ingestArguments(), '--plugin', 'sheldon.file'],
+      [...ingestArguments(), '--plugin', 'source.file'],
       harness.dependencies,
     );
     const missing = await runCli(
@@ -87,22 +93,11 @@ describe('file ingestion CLI flow', () => {
       exitCode: 1,
       stderr: expect.stringContaining('regular file'),
     });
-    await expect(
-      access(join(harness.root, 'appdata', 'Sheldon', 'plugin-state.db')),
-    ).rejects.toThrow();
-  });
-
-  it('reports OCR remediation through plugin doctor', async () => {
-    const result = await runCli(['plugin', 'doctor', 'sheldon.file'], harness.dependencies);
-
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toContain('Install Tesseract and the requested language model');
   });
 
   it.each([
     'FILE_INPUT_INVALID',
     'FILE_FORMAT_UNSUPPORTED',
-    'FILE_OCR_UNAVAILABLE',
     'FILE_EXTRACTION_FAILED',
   ])('preserves %s from the SDK plugin protocol to CLI diagnostics', async (code) => {
     const pluginRoot = await writeDiagnosticPlugin(harness.root, code);
@@ -182,7 +177,7 @@ async function writeFilePlugin(root: string): Promise<string> {
     join(directory, 'sheldon-plugin.json'),
     JSON.stringify({
       schemaVersion: 1,
-      id: 'sheldon.file',
+      id: 'source.file',
       name: 'Installed file fixture',
       version: '1.0.0',
       protocolVersion: '1',
@@ -204,7 +199,7 @@ import { join } from 'node:path';
 import { definePlugin, runPlugin } from ${JSON.stringify(pathToFileURL(pluginSdkEntrypoint).href)};
 
 const description = ${JSON.stringify({
-      id: 'sheldon.file',
+      id: 'source.file',
       name: 'Installed file fixture',
       version: '1.0.0',
       protocolVersion: '1',
@@ -232,7 +227,7 @@ await runPlugin(definePlugin({
       { id: 'content', role: 'normalized', path: 'content.md', mediaType: 'text/markdown', bytes: Buffer.byteLength(content), sha256: digest(content), metadata: { canonicalUri: input.canonicalUri, extractor: 'fixture', format: 'markdown', extractionStatus: 'complete', warnings: [] } },
     ];
   },
-  healthcheck: async () => ({ checks: [{ id: 'tesseract', severity: 'warning', message: 'Optional Tesseract OCR executable is unavailable.', remediation: 'Install Tesseract and the requested language model.' }] }),
+  healthcheck: async () => ({ checks: [] }),
   cancel: async () => undefined,
 }));
 `,

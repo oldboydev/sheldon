@@ -1,0 +1,14 @@
+{
+  "name": "@sheldon/plugin-source-image",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@sheldon/plugin-host": "*",
+    "@sheldon/plugin-sdk": "*",
+    "yaml": "^2.9.0"
+  }
+}
