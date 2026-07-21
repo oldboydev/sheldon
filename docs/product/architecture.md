@@ -38,7 +38,8 @@ packages/
   okf/                  Projeção e validação OKF
   mcp/                  Ferramentas de consumo por agentes
 plugins/
-  file/                 Arquivos locais
+  source.file/          Documentos e dados locais offline
+  source.image/         Imagens e OCR Tesseract empacotado
   website/              Páginas e sites
   youtube/              Vídeos, canais e playlists
   repository/           Repositórios locais e remotos
@@ -75,6 +76,8 @@ Plugins se comunicam por JSON Lines sobre stdin/stdout. Logs e diagnósticos usa
 - `cancel`: encerramento cooperativo quando suportado.
 
 O host impõe timeout, limite de saída, cancelamento e diretório temporário. Resultados são validados antes de qualquer escrita atômica.
+
+Plugins oficiais são distribuídos opcionalmente por um catálogo de release assinado. A CLI só acessa o catálogo em comandos remotos explícitos ou instalação; listas locais e remoção de idiomas permanecem offline. Artefatos aprovados têm tamanho e SHA-256 validados antes da instalação atômica. O modelo `source.image` mantém seu Tesseract e `tessdata` privados, sem alterar `PATH` ou instalações do sistema.
 
 ## Agent runtime
 

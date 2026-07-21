@@ -10,6 +10,8 @@ Este pacote é o lado confiável da publicação. Ele exige um artefato `origina
 
 Essa fronteira valida integridade e confinamento de caminhos; ela não transforma o plugin em sandbox. Plugins continuam executando com os acessos do usuário atual, conforme documentado pelo host.
 
+Para imagens, o artefato normalizado é gerado exclusivamente por `source.image`: o OCR usa o runtime e os modelos de idioma instalados dentro da própria raiz do plugin. `source.file` não reivindica imagens, e a publicação continua recebendo os mesmos artefatos `original` e `normalized` validados pela lease.
+
 ## Layout publicado
 
 ```text

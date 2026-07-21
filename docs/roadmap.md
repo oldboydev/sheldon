@@ -44,9 +44,9 @@ Este marco é um checkpoint vertical: utiliza primeiro o caminho de arquivo loca
 
 **PRD:** 003
 
-**Status:** em andamento; a família de arquivos foi concluída em 21 de julho de 2026. Sites inteiros, YouTube e repositórios continuam pendentes.
+**Status:** em andamento; `source.file` e a fundação opcional de `source.image` foram concluídos em 21 de julho de 2026. Sites inteiros, YouTube e repositórios continuam pendentes.
 
-Entrega: plugins oficiais para arquivos, sites inteiros, YouTube e repositórios.
+Entrega: plugins oficiais opcionais para arquivos, imagens, sites inteiros, YouTube e repositórios. O catálogo assinado expõe as fontes, mas URL e YouTube não ingerem conteúdo antes de suas milestones próprias.
 
 Saída: cada família possui fixtures, deduplicação e diagnóstico offline; nenhuma exige API paga.
 
