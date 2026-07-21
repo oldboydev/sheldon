@@ -1,6 +1,7 @@
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import type { CommandExecutor } from '@sheldon/agent-runtime';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -8,6 +9,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { runCli, type CliDependencies } from '../src/main.js';
 
 const temporaryDirectories: string[] = [];
+const officialPluginRoot = fileURLToPath(
+  new URL('../../../packages/plugins/official/', import.meta.url),
+);
 
 afterEach(async () => {
   await Promise.all(
@@ -54,6 +58,7 @@ describe('M2 vertical flow', () => {
       confirm: async () => true,
       commandAvailable: async () => false,
       agentExecutor: fakeExecutor(),
+      officialPluginRoots: [officialPluginRoot],
     };
 
     await runCli(['init', vault], dependencies);
@@ -63,11 +68,8 @@ describe('M2 vertical flow', () => {
       dependencies,
     );
     expect(ingested.exitCode).toBe(0);
-    const raw = JSON.parse(ingested.stdout) as {
-      manifest: { content: { path: string } };
-      sourceId: string;
-    };
-    const source = `raw/${raw.sourceId}/${raw.manifest.content.path}`;
+    const raw = JSON.parse(ingested.stdout) as { sourceId: string };
+    const source = `raw/${raw.sourceId}/content.md`;
 
     const codex = await runCli(
       [

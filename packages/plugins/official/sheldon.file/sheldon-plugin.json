@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "sheldon.file",
+  "name": "Official file ingestion",
+  "version": "1.0.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": { "executable": "node", "arguments": ["plugin.mjs"] },
+  "capabilities": ["ingest-file"],
+  "priority": 100,
+  "platforms": ["win32", "darwin", "linux"],
+  "permissions": { "network": false, "cookies": false },
+  "dependencies": [
+    {
+      "id": "node",
+      "kind": "runtime",
+      "required": true,
+      "version": ">=24",
+      "remediation": "Install Node.js 24 or later."
+    },
+    {
+      "id": "tesseract",
+      "kind": "executable",
+      "required": false,
+      "remediation": "Install Tesseract to enable optional OCR."
+    }
+  ]
+}

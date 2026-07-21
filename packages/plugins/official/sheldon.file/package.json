@@ -1,0 +1,21 @@
+{
+  "name": "@sheldon/plugin-file",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@sheldon/plugin-sdk": "*",
+    "fast-xml-parser": "^5.10.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
+    "pdfjs-dist": "^6.1.200",
+    "turndown": "^7.2.4",
+    "yaml": "^2.9.0"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6"
+  }
+}

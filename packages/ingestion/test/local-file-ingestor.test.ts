@@ -1,4 +1,5 @@
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -147,5 +148,30 @@ describe('local file ingestion', () => {
         options: { invalid: undefined as never },
       }),
     ).rejects.toBeInstanceOf(LocalFileIngestionError);
+  });
+
+  it('deduplicates a compatible legacy M2 manifest without extractor or version fields', async () => {
+    const directory = await fixtureDirectory();
+    const source = join(directory, 'legacy.md');
+    const rawDirectory = join(directory, 'raw');
+    const bytes = Buffer.from('# Legacy\n');
+    await writeFile(source, bytes);
+    const contentSha256 = createHash('sha256').update(bytes).digest('hex');
+    const optionsSha256 = createHash('sha256').update('{}').digest('hex');
+    const sourceId = createHash('sha256')
+      .update(`${contentSha256}\n${optionsSha256}`)
+      .digest('hex');
+    const rawPath = join(rawDirectory, sourceId);
+    await mkdir(rawPath, { recursive: true });
+    await writeFile(
+      join(rawPath, 'manifest.yaml'),
+      `source_id: ${sourceId}\ncontent_sha256: ${contentSha256}\noptions_sha256: ${optionsSha256}\n`,
+      'utf8',
+    );
+
+    await expect(ingestLocalFile({ filePath: source, rawDirectory })).resolves.toMatchObject({
+      sourceId,
+      deduplicated: true,
+    });
   });
 });

@@ -20,6 +20,7 @@ export default defineConfig({
       '@sheldon/ingestion': sourcePath('./packages/ingestion/src/index.ts'),
       '@sheldon/agent-runtime': sourcePath('./packages/agent-runtime/src/index.ts'),
       '@sheldon/review': sourcePath('./packages/review/src/index.ts'),
+      '@sheldon/plugin-file': sourcePath('./packages/plugins/official/sheldon.file/src/index.ts'),
     },
   },
   test: {

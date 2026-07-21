@@ -1,23 +1,8 @@
-import {
-  PluginDiscovery,
-  PluginDoctor,
-  PluginHostError,
-  PluginProcessRunner,
-  PluginRegistry,
-  pluginAppPaths,
-  type PluginInventoryEntry,
-} from '@sheldon/plugin-host';
-import { PluginStateDatabase } from '@sheldon/persistence';
+import { PluginHostError, type PluginInventoryEntry } from '@sheldon/plugin-host';
 import { runPluginContract } from '@sheldon/plugin-sdk';
 
-import { appDataRoot } from '../config.js';
+import { withPluginServices } from '../plugin-services.js';
 import type { CommandContext } from '../runtime.js';
-
-interface PluginServices {
-  readonly registry: PluginRegistry;
-  readonly discovery: PluginDiscovery;
-  readonly doctor: PluginDoctor;
-}
 
 export async function installPlugin(directory: string, context: CommandContext): Promise<void> {
   await withPluginServices(context, async ({ registry, discovery }) => {
@@ -92,31 +77,6 @@ export async function testPlugin(directory: string, context: CommandContext): Pr
       directory,
       'Fix the failed contract operation and run sheldon plugin test again.',
     );
-  }
-}
-
-async function withPluginServices<T>(
-  context: CommandContext,
-  callback: (services: PluginServices) => Promise<T>,
-): Promise<T> {
-  const root = appDataRoot(context);
-  const state = PluginStateDatabase.open(pluginAppPaths(root).stateDatabase, {
-    runRetention: 10_000,
-  });
-  try {
-    const registry = await PluginRegistry.open(root);
-    const runner = new PluginProcessRunner({ state, environment: context.environment });
-    return await callback({
-      registry,
-      discovery: new PluginDiscovery({
-        officialRoots: context.officialPluginRoots,
-        registry,
-        state,
-      }),
-      doctor: new PluginDoctor({ runner, state }),
-    });
-  } finally {
-    state.close();
   }
 }
 

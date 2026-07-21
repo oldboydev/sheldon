@@ -141,4 +141,13 @@ describe('runCli', () => {
     expect(result.stderr).toContain('Target: command syntax');
     expect(result.stderr).toContain('Recovery: run sheldon help <command> and retry.');
   });
+
+  it('advertises an explicit plugin override for file ingestion', async () => {
+    const { dependencies } = await makeEnvironment();
+
+    const result = await runCli(['ingest', 'file', '--help'], dependencies);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(result.stdout).toContain('--plugin <id>');
+  });
 });

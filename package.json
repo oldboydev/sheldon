@@ -8,7 +8,8 @@
   },
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "packages/*",
+    "packages/plugins/official/*"
   ],
   "engines": {
     "node": ">=24"
@@ -50,6 +51,11 @@
   },
   "dependencies": {
     "commander": "^15.0.0",
+    "fast-xml-parser": "^5.10.1",
+    "jszip": "^3.10.1",
+    "mammoth": "^1.12.0",
+    "pdfjs-dist": "^6.1.200",
+    "turndown": "^7.2.4",
     "yaml": "^2.9.0"
   }
 }

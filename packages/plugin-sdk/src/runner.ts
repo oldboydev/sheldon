@@ -158,7 +158,7 @@ async function runPrimary(
     }
 
     if (state.allowOutput) {
-      await writeFailure(output, request.requestId, errorMessage(error));
+      await writeFailure(output, request.requestId, error);
     }
   }
 }
@@ -214,18 +214,31 @@ async function handleCancel(
     };
     await writeJsonl(output, response);
   } catch (error) {
-    await writeFailure(output, request.requestId, errorMessage(error));
+    await writeFailure(output, request.requestId, error);
   }
 }
 
-async function writeFailure(output: Writable, requestId: string, message: string): Promise<void> {
+async function writeFailure(output: Writable, requestId: string, error: unknown): Promise<void> {
   const response: ResponseEnvelope = {
     protocolVersion: PROTOCOL_VERSION,
     requestId,
     status: 'error',
-    error: { code: 'PLUGIN_OPERATION_FAILED', message },
+    error: { code: errorCode(error), message: errorMessage(error) },
   };
   await writeJsonl(output, response);
+}
+
+function errorCode(error: unknown): string {
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    typeof error.code === 'string' &&
+    error.code.length > 0
+  ) {
+    return error.code;
+  }
+  return 'PLUGIN_OPERATION_FAILED';
 }
 
 function errorMessage(error: unknown): string {

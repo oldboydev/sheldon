@@ -15,9 +15,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Lock do registro de plugins reforçado com propriedade por token, recuperação de processos encerrados e liberação que nunca remove propriedade substituta nem mascara o erro primário.
 - Publicação de plugins reforçada com verificação da identidade da raiz de staging após o rename e rollback que preserva raízes substituídas por outro proprietário.
 - Runner de plugins reforçado com códigos de erro controlados pelo host, captura do exit code após violações de protocolo e decodificação linear da cauda UTF-8 de stderr.
+- Verificação pública de contratos de plugins agora também valida o plugin oficial `sheldon.file` após o build.
 
 ### Added
 
+- Plugin oficial `sheldon.file` para ingestão offline de PDF, Office, EPUB, HTML, dados estruturados, Markdown, texto e imagens, com seleção automática ou `--plugin`, raws deduplicados e versionados e diagnóstico acionável de OCR local opcional.
 - Fluxo vertical M2 de memória: ingestão determinística de arquivo local para raw, compilação de proposta por Codex CLI ou Claude Code, prévia e promoção explícita por arquivo para a wiki.
 - Plataforma M1 de plugins: protocolo JSONL v1, validação schema-first, SDK TypeScript para autores, host de instalação/descoberta/execução, comandos `sheldon plugin`, contratos Node SDK e PowerShell, timeout/cancelamento e gate de qualidade de manifestos e contratos.
 - Supervisor privado de plugins no Windows com addon N-API, Job Object `KILL_ON_JOB_CLOSE`, falha fechada quando indisponível e término de descendentes mesmo após a saída do processo direto do plugin.

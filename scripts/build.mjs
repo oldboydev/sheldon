@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative } from 'node:path';
+import { cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 
 import { transformFile } from '@swc/core';
@@ -16,6 +16,7 @@ const targets = [
   ['packages/ingestion/src', 'packages/ingestion/dist'],
   ['packages/agent-runtime/src', 'packages/agent-runtime/dist'],
   ['packages/review/src', 'packages/review/dist'],
+  ['packages/plugins/official/sheldon.file/src', 'packages/plugins/official/sheldon.file/dist'],
   ['apps/cli/src', 'apps/cli/dist'],
 ];
 
@@ -52,3 +53,14 @@ if (process.platform === 'win32') {
 }
 
 await Promise.all(targets.map(([source, output]) => compile(source, output)));
+await copyOfficialPlugins();
+
+async function copyOfficialPlugins() {
+  const source = join('packages', 'plugins', 'official');
+  const destination = join('apps', 'cli', 'dist', 'plugins', 'official');
+  await rm(destination, { recursive: true, force: true });
+  await cp(source, destination, {
+    recursive: true,
+    filter: (path) => !path.includes(`${sep}src${sep}`) && !path.includes(`${sep}test${sep}`),
+  });
+}

@@ -6,7 +6,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
-Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins locais sem misturar o estado operacional ao conhecimento.
+Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins locais sem misturar o estado operacional ao conhecimento. A família de arquivos do PRD 003 também está concluída como a primeira entrega do M3; sites, YouTube e repositórios continuam pendentes.
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
@@ -44,7 +44,7 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 
-`npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell; `npm run verify` já o inclui antes do lint de domínio.
+`npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell, além do plugin oficial `sheldon.file`; `npm run verify` já o inclui antes do lint de domínio.
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
@@ -170,6 +170,38 @@ npm run sheldon -- compile-retry topic agentes-locais nota-revisada --from nota-
 ```
 
 `agent doctor` verifica presença, versão e sessão utilizável sem expor credenciais. Rejeições e novas tentativas ficam vinculadas aos artefatos da proposta em `outputs/proposals/`.
+
+## Ingestão oficial de arquivos (M3)
+
+O comando `ingest file` descobre plugins com a capacidade `ingest-file`, executa os probes em ordem estável e seleciona automaticamente a melhor opção compatível. O plugin oficial `sheldon.file` reconhece o formato sem exigir uma opção de formato. Para escolher explicitamente um plugin compatível, use `--plugin`:
+
+```powershell
+npm run sheldon -- ingest file topic agentes-locais C:\inbox\relatorio.pdf `
+  --plugin sheldon.file `
+  --vault C:\knowledge\sheldon
+```
+
+O plugin oficial aceita PDF, DOCX, PPTX, XLSX, EPUB, HTML (`.html`, `.htm` e `.xhtml`), JSON, YAML, Markdown, texto `.txt` e imagens PNG, JPEG, GIF, TIFF, WebP e BMP. O original é sempre preservado; formatos não suportados são rejeitados com diagnóstico explícito em vez de produzir texto inventado.
+
+Cada captura é publicada atomicamente dentro da entidade escolhida:
+
+```text
+raw/<source-id>/
+  manifest.yaml
+  original.<extensão>
+  content.md
+  assets/                 # somente quando o extrator produzir assets
+```
+
+O `source-id` deriva por SHA-256 dos bytes originais e das opções relevantes serializadas de forma estável. Repetir a mesma entrada com as mesmas opções devolve o raw existente. Quando o conteúdo da mesma URI canônica muda com as mesmas opções, Sheldon cria outro raw e registra `previous_source_id` no novo `manifest.yaml`, formando o vínculo de versão sem alterar capturas anteriores.
+
+Todos os extratores embarcados funcionam offline. O manifesto de `sheldon.file` declara `network: false` e `cookies: false`; a ingestão, o probe e o healthcheck não baixam engines, modelos nem conteúdo e não exigem API paga. OCR de imagens é opcional e usa somente uma instalação local do Tesseract com o modelo do idioma solicitado. Sem ela, o original é preservado, a extração registra a lacuna e o diagnóstico continua saudável com um aviso acionável:
+
+```powershell
+npm run sheldon -- plugin doctor sheldon.file
+```
+
+Instale o Tesseract e o modelo de idioma solicitado indicado pela remediação e execute o doctor novamente; Sheldon nunca faz esse download automaticamente.
 
 ## Plugins
 
