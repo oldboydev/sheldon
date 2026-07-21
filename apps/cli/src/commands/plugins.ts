@@ -1,39 +1,66 @@
-import { PluginHostError, type PluginInventoryEntry } from '@sheldon/plugin-host';
+import {
+  PluginHostError,
+  type OfficialPluginCatalogEntry,
+  type PluginInventoryEntry,
+} from '@sheldon/plugin-host';
 import { runPluginContract } from '@sheldon/plugin-sdk';
 
 import { withPluginServices } from '../plugin-services.js';
+import { assertOfficialPluginId } from '../official-catalog.js';
 import type { CommandContext } from '../runtime.js';
 
-export async function installPlugin(directory: string, context: CommandContext): Promise<void> {
-  await withPluginServices(context, async ({ registry, discovery }) => {
-    const inventory = await discovery.discover();
-    const officialIds = new Set(
-      inventory.filter((entry) => entry.origin === 'official').map((entry) => entry.id),
-    );
-    const installed = await registry.install(directory, officialIds);
+export async function installPlugin(id: string, context: CommandContext): Promise<void> {
+  assertOfficialPluginId(id);
+  await withPluginServices(context, async ({ registry }) => {
+    const installed = await context.officialCatalogClient.install(id, registry);
     context.write(`Plugin installed: ${installed.manifest.id}@${installed.manifest.version}`);
   });
 }
 
 export async function removePlugin(id: string, context: CommandContext): Promise<void> {
-  await withPluginServices(context, async ({ registry, discovery }) => {
-    const inventory = await discovery.discover();
-    if (inventory.some((entry) => entry.id === id && entry.origin === 'official')) {
-      throw new PluginHostError(
-        'PLUGIN_OFFICIAL_IMMUTABLE',
-        `Official plugin ${id} cannot be removed.`,
-        id,
-        'Remove only locally installed plugins.',
-      );
-    }
+  await withPluginServices(context, async ({ registry }) => {
     await registry.remove(id);
     context.write(`Plugin removed: ${id}`);
   });
 }
 
-export async function listPlugins(context: CommandContext): Promise<void> {
+export async function listPlugins(
+  context: CommandContext,
+  options: { readonly remote?: boolean } = {},
+): Promise<void> {
   await withPluginServices(context, async ({ discovery }) => {
-    for (const entry of await discovery.discover()) context.write(renderInventory(entry));
+    const inventory = await discovery.discover();
+    if (!options.remote) {
+      for (const entry of inventory) context.write(renderInventory(entry));
+      return;
+    }
+    const entriesById = new Map(inventory.map((entry) => [entry.id, entry]));
+    const catalog = await context.officialCatalogClient.load();
+    for (const entry of [...catalog.plugins].sort((left, right) =>
+      left.id.localeCompare(right.id),
+    )) {
+      context.write(renderRemoteCatalogEntry(entry, entriesById.get(entry.id), context));
+    }
+  });
+}
+
+export async function infoPlugin(
+  id: string,
+  context: CommandContext,
+  options: { readonly remote?: boolean } = {},
+): Promise<void> {
+  await withPluginServices(context, async ({ discovery }) => {
+    if (options.remote) {
+      const catalog = await context.officialCatalogClient.load();
+      const entry = catalog.plugins.find((candidate) => candidate.id === id);
+      if (entry === undefined) throw officialPluginNotFound(id);
+      const local = (await discovery.discover()).find((candidate) => candidate.id === id);
+      context.write(renderRemoteCatalogEntry(entry, local, context));
+      return;
+    }
+    const entry = (await discovery.discover()).find((candidate) => candidate.id === id);
+    if (entry === undefined) throw pluginNotFound(id);
+    context.write(renderInventory(entry));
   });
 }
 
@@ -97,4 +124,41 @@ function renderInventory(entry: PluginInventoryEntry): string {
     manifest?.capabilities.join(',') ?? '',
     detail,
   ].join('\t');
+}
+
+function renderRemoteCatalogEntry(
+  entry: OfficialPluginCatalogEntry,
+  local: PluginInventoryEntry | undefined,
+  context: CommandContext,
+): string {
+  const platform = entry.platforms.includes(context.platform)
+    ? `platform available (${context.platform})`
+    : `platform unavailable (${context.platform})`;
+  const localIssue = local?.discovery.status === 'ready' ? '' : (local?.discovery.reason ?? '');
+  return [
+    entry.id,
+    local === undefined ? 'not installed' : 'installed',
+    entry.version,
+    entry.description,
+    platform,
+    localIssue,
+  ].join('\t');
+}
+
+function pluginNotFound(id: string): PluginHostError {
+  return new PluginHostError(
+    'PLUGIN_NOT_FOUND',
+    `Plugin ${id} was not found.`,
+    id,
+    'Run sheldon plugin list and retry with a listed identifier.',
+  );
+}
+
+function officialPluginNotFound(id: string): PluginHostError {
+  return new PluginHostError(
+    'OFFICIAL_PLUGIN_NOT_FOUND',
+    `Official plugin ${id} was not found in the signed catalog.`,
+    id,
+    'Run sheldon plugin list --remote and retry with a listed identifier.',
+  );
 }

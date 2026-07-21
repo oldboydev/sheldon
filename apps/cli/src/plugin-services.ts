@@ -32,7 +32,7 @@ export async function withPluginServices<T>(
       registry,
       runner,
       discovery: new PluginDiscovery({
-        officialRoots: context.officialPluginRoots,
+        officialRoots: [],
         registry,
         state,
       }),

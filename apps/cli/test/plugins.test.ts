@@ -1,8 +1,9 @@
-import { cp, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
+import { PluginRegistry, type InstalledPlugin } from '@sheldon/plugin-host';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
@@ -40,14 +41,17 @@ async function fixture(root: string, name = 'fixture'): Promise<string> {
   return target;
 }
 
+async function installFixture(root: string, source: string): Promise<InstalledPlugin> {
+  const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+  return registry.install(source, new Set());
+}
+
 describe('plugin commands', () => {
   it('installs, lists, diagnoses, and removes a plugin', async () => {
     const { root, dependencies } = await environment();
     const fixtureRoot = await fixture(root);
 
-    const installed = await runCli(['plugin', 'install', fixtureRoot], dependencies);
-    expect(installed).toMatchObject({ exitCode: 0, stderr: '' });
-    expect(installed.stdout).toContain('Plugin installed: fixture.raw@1.0.0');
+    await installFixture(root, fixtureRoot);
 
     const beforeDoctor = await runCli(['plugin', 'list'], dependencies);
     expect(beforeDoctor.stdout).toContain('fixture.raw');
@@ -68,21 +72,18 @@ describe('plugin commands', () => {
 
   it('lists discovery problems and makes doctor failures actionable', async () => {
     const { root, dependencies } = await environment();
-    const officialRoot = join(root, 'official');
-    const invalid = await fixture(officialRoot, 'invalid');
-    await writeFile(join(invalid, 'sheldon-plugin.json'), '{', 'utf8');
-    const incompatible = await fixture(officialRoot, 'incompatible');
+    const invalid = await fixture(root, 'invalid');
+    const invalidInstalled = await installFixture(root, invalid);
+    await writeFile(join(invalidInstalled.root, 'sheldon-plugin.json'), '{', 'utf8');
+    const incompatible = await fixture(root, 'incompatible');
     const manifestPath = join(incompatible, 'sheldon-plugin.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
     manifest.id = 'fixture.incompatible';
     manifest.platforms = ['darwin'];
     await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
-    await mkdir(officialRoot, { recursive: true });
+    await installFixture(root, incompatible);
 
-    const result = await runCli(['plugin', 'list'], {
-      ...dependencies,
-      officialPluginRoots: [officialRoot],
-    });
+    const result = await runCli(['plugin', 'list'], dependencies);
     expect(result).toMatchObject({ exitCode: 0, stderr: '' });
     expect(result.stdout).toContain('invalid');
     expect(result.stdout).toContain('invalid');
@@ -90,10 +91,7 @@ describe('plugin commands', () => {
     expect(result.stdout).toContain('incompatible');
     expect(result.stdout).toContain('plugin doctor <id>');
 
-    const doctor = await runCli(['plugin', 'doctor', 'fixture.incompatible'], {
-      ...dependencies,
-      officialPluginRoots: [officialRoot],
-    });
+    const doctor = await runCli(['plugin', 'doctor', 'fixture.incompatible'], dependencies);
     expect(doctor.exitCode).toBe(1);
     expect(doctor.stdout).toContain('fixture.incompatible: unhealthy');
   });
@@ -109,7 +107,7 @@ describe('plugin commands', () => {
       "result: { checks: [{ id: 'runtime', severity: 'error', message: 'runtime missing', remediation: 'Install the required runtime.' }, { id: 'credential', severity: 'warning', message: 'credential unavailable', remediation: 'Configure plugin credentials.' }] },";
     expect(plugin).toContain(healthyChecks);
     await writeFile(pluginPath, plugin.replace(healthyChecks, unhealthyChecks), 'utf8');
-    await runCli(['plugin', 'install', fixtureRoot], dependencies);
+    await installFixture(root, fixtureRoot);
 
     const doctor = await runCli(['plugin', 'doctor', 'fixture.raw'], dependencies);
 
@@ -120,25 +118,17 @@ describe('plugin commands', () => {
     expect(doctor.stdout).toContain('Configure plugin credentials.');
   });
 
-  it('rejects duplicate installs and removal of official plugins', async () => {
+  it('rejects duplicate local registry installs and allows removal', async () => {
     const { root, dependencies } = await environment();
     const fixtureRoot = await fixture(root);
-    await expect(runCli(['plugin', 'install', fixtureRoot], dependencies)).resolves.toMatchObject({
-      exitCode: 0,
-    });
-    await expect(runCli(['plugin', 'install', fixtureRoot], dependencies)).resolves.toMatchObject({
-      exitCode: 1,
-      stderr: expect.stringContaining('already in use'),
+    await installFixture(root, fixtureRoot);
+    await expect(installFixture(root, fixtureRoot)).rejects.toMatchObject({
+      code: 'PLUGIN_ID_COLLISION',
     });
 
-    const officialRoot = join(root, 'official');
-    await fixture(officialRoot, 'fixture.raw');
-    const removed = await runCli(['plugin', 'remove', 'fixture.raw'], {
-      ...dependencies,
-      officialPluginRoots: [officialRoot],
-    });
-    expect(removed.exitCode).toBe(1);
-    expect(removed.stderr).toContain('Official');
+    const removed = await runCli(['plugin', 'remove', 'fixture.raw'], dependencies);
+    expect(removed).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(removed.stdout).toContain('Plugin removed: fixture.raw');
   });
 
   it('renders failed plugin contract operations', async () => {

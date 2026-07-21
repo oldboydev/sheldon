@@ -1,20 +1,12 @@
-import { basename, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import type { OfficialPlatform } from '@sheldon/plugin-host';
 
-const runtimeDirectory = dirname(fileURLToPath(import.meta.url));
-export const bundledOfficialPluginRoot = fileURLToPath(
-  new URL(
-    basename(runtimeDirectory) === 'src'
-      ? '../../../packages/plugins/official/'
-      : './plugins/official/',
-    import.meta.url,
-  ),
-);
+import type { OfficialCatalogClient } from './official-catalog.js';
 
 export interface CommandContext {
   readonly environment: NodeJS.ProcessEnv;
   readonly homeDirectory: string;
-  readonly officialPluginRoots: readonly string[];
+  readonly officialCatalogClient: OfficialCatalogClient;
+  readonly platform: OfficialPlatform;
   readonly confirm: (message: string) => Promise<boolean>;
   readonly commandAvailable: (command: string) => Promise<boolean>;
   write(message: string): void;

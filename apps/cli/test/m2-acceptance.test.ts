@@ -1,16 +1,17 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import type { CommandExecutor } from '@sheldon/agent-runtime';
+import { PluginRegistry } from '@sheldon/plugin-host';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
 const temporaryDirectories: string[] = [];
-const officialPluginRoot = fileURLToPath(
-  new URL('../../../packages/plugins/official/', import.meta.url),
+const pluginSdkEntrypoint = fileURLToPath(
+  new URL('../../../packages/plugin-sdk/dist/index.js', import.meta.url),
 );
 
 afterEach(async () => {
@@ -58,8 +59,9 @@ describe('M2 vertical flow', () => {
       confirm: async () => true,
       commandAvailable: async () => false,
       agentExecutor: fakeExecutor(),
-      officialPluginRoots: [officialPluginRoot],
     };
+    const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+    await registry.install(await writeFilePlugin(root), new Set());
 
     await runCli(['init', vault], dependencies);
     await runCli(['topic', 'create', 'Memory', '--vault', vault], dependencies);
@@ -224,3 +226,58 @@ describe('M2 vertical flow', () => {
     ).resolves.toContain('claude-proposal');
   });
 });
+
+async function writeFilePlugin(root: string): Promise<string> {
+  const directory = join(root, 'file-plugin');
+  await mkdir(directory, { recursive: true });
+  const description = {
+    id: 'sheldon.file',
+    name: 'Installed file fixture',
+    version: '1.0.0',
+    protocolVersion: '1',
+    license: 'MIT',
+    capabilities: ['ingest-file'],
+    priority: 100,
+    platforms: [process.platform],
+    permissions: { network: false, cookies: false },
+    dependencies: [],
+  };
+  await writeFile(
+    join(directory, 'sheldon-plugin.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      ...description,
+      command: { executable: process.execPath, arguments: ['plugin.mjs'] },
+    }),
+    'utf8',
+  );
+  await writeFile(
+    join(directory, 'plugin.mjs'),
+    `import { createHash } from 'node:crypto';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { join } from 'node:path';
+import { definePlugin, runPlugin } from ${JSON.stringify(pathToFileURL(pluginSdkEntrypoint).href)};
+
+const digest = (bytes) => createHash('sha256').update(bytes).digest('hex');
+await runPlugin(definePlugin({
+  describe: async () => (${JSON.stringify(description)}),
+  probe: async () => ({ supported: true, confidence: 100, reason: 'fixture markdown support' }),
+  ingest: async ({ input, temporaryDirectory }) => {
+    const original = await readFile(input.filePath);
+    const content = original.toString('utf8');
+    await mkdir(temporaryDirectory, { recursive: true });
+    await writeFile(join(temporaryDirectory, 'original.md'), original);
+    await writeFile(join(temporaryDirectory, 'content.md'), content, 'utf8');
+    return [
+      { id: 'original', role: 'original', path: 'original.md', mediaType: 'text/markdown', bytes: original.byteLength, sha256: digest(original) },
+      { id: 'content', role: 'normalized', path: 'content.md', mediaType: 'text/markdown', bytes: Buffer.byteLength(content), sha256: digest(content), metadata: { canonicalUri: input.canonicalUri, extractor: 'fixture', format: 'markdown', extractionStatus: 'complete', warnings: [] } },
+    ];
+  },
+  healthcheck: async () => ({ checks: [] }),
+  cancel: async () => undefined,
+}));
+`,
+    'utf8',
+  );
+  return directory;
+}

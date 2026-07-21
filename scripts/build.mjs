@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { cp, mkdir, readdir, rm, writeFile } from 'node:fs/promises';
-import { dirname, join, relative, sep } from 'node:path';
+import { dirname, join, relative } from 'node:path';
 import { promisify } from 'node:util';
 
 import { transformFile } from '@swc/core';
@@ -53,14 +53,5 @@ if (process.platform === 'win32') {
 }
 
 await Promise.all(targets.map(([source, output]) => compile(source, output)));
-await copyOfficialPlugins();
-
-async function copyOfficialPlugins() {
-  const source = join('packages', 'plugins', 'official');
-  const destination = join('apps', 'cli', 'dist', 'plugins', 'official');
-  await rm(destination, { recursive: true, force: true });
-  await cp(source, destination, {
-    recursive: true,
-    filter: (path) => !path.includes(`${sep}src${sep}`) && !path.includes(`${sep}test${sep}`),
-  });
-}
+await rm(join('apps', 'cli', 'dist', 'plugins'), { recursive: true, force: true });
+await cp('release/official-catalog-public.pem', 'apps/cli/dist/official-catalog-public.pem');

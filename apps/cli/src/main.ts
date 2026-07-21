@@ -31,19 +31,28 @@ import {
 import { assertProposalNotRejected, rejectProposal, retryCompile } from './commands/workflow.js';
 import {
   doctorPlugin,
+  infoPlugin,
   installPlugin,
   listPlugins,
   removePlugin,
   testPlugin,
 } from './commands/plugins.js';
-import { bundledOfficialPluginRoot, type CommandContext } from './runtime.js';
+import type { OfficialPlatform } from '@sheldon/plugin-host';
+
+import {
+  createOfficialCatalogClient,
+  currentPlatform,
+  type OfficialCatalogClient,
+} from './official-catalog.js';
+import type { CommandContext } from './runtime.js';
 
 export interface CliDependencies {
   readonly environment?: NodeJS.ProcessEnv;
   readonly homeDirectory?: string;
   readonly confirm?: (message: string) => Promise<boolean>;
   readonly commandAvailable?: (command: string) => Promise<boolean>;
-  readonly officialPluginRoots?: readonly string[];
+  readonly officialCatalogClient?: OfficialCatalogClient;
+  readonly platform?: OfficialPlatform;
   readonly agentExecutor?: CommandExecutor;
   readonly agentHealthProbe?: AgentHealthProbe;
 }
@@ -60,10 +69,19 @@ export async function runCli(
 ): Promise<CliResult> {
   const stdout: string[] = [];
   const stderr: string[] = [];
+  const environment = dependencies.environment ?? process.env;
+  const homeDirectory = dependencies.homeDirectory ?? homedir();
+  const platform = dependencies.platform ?? currentPlatform();
   const context: CommandContext = {
-    environment: dependencies.environment ?? process.env,
-    homeDirectory: dependencies.homeDirectory ?? homedir(),
-    officialPluginRoots: dependencies.officialPluginRoots ?? [bundledOfficialPluginRoot],
+    environment,
+    homeDirectory,
+    platform,
+    officialCatalogClient:
+      dependencies.officialCatalogClient ??
+      createOfficialCatalogClient({
+        platform,
+        temporaryRoot: catalogTemporaryRoot(environment, homeDirectory),
+      }),
     confirm: dependencies.confirm ?? defaultConfirm,
     commandAvailable: dependencies.commandAvailable ?? defaultCommandAvailable,
     write: (message) => stdout.push(`${message}\n`),
@@ -140,14 +158,25 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     return doctorAgents(name as AgentName | undefined, context, dependencies.agentHealthProbe);
   });
   const plugin = program.command('plugin');
-  plugin
-    .command('install <directory>')
-    .action((directory: string) => installPlugin(directory, context));
+  plugin.command('install <id>').action((id: string) => installPlugin(id, context));
   plugin.command('remove <id>').action((id: string) => removePlugin(id, context));
-  plugin.command('list').action(() => listPlugins(context));
+  plugin
+    .command('list')
+    .option('--remote', 'load the signed official catalog')
+    .action((options: { remote?: boolean }) => listPlugins(context, options));
+  plugin
+    .command('info <id>')
+    .option('--remote', 'load the signed official catalog')
+    .action((id: string, options: { remote?: boolean }) => infoPlugin(id, context, options));
   plugin.command('doctor <id>').action((id: string) => doctorPlugin(id, context));
   plugin.command('test <directory>').action((directory: string) => testPlugin(directory, context));
   return program;
+}
+
+function catalogTemporaryRoot(environment: NodeJS.ProcessEnv, homeDirectory: string): string {
+  return environment.APPDATA
+    ? `${environment.APPDATA}\\Sheldon\\temporary`
+    : `${homeDirectory}\\.config\\sheldon\\temporary`;
 }
 
 function addMemoryCommands(
