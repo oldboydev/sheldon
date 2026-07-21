@@ -135,3 +135,21 @@ npm test
 Result: 41 files passed, 324 tests passed.
 
 Prettier and `git diff --check` also passed after the fixes.
+
+## Root-parent replacement re-review fix
+
+### RED / GREEN evidence
+
+Added a regression that installs `fixture.node`, replaces `<appRoot>/plugins` after `PluginRegistry.open()` with a symlink/junction to an external directory, retains the signed manifest bytes, and alters the executable file. The initial test run failed because `getInstalled` returned the plugin successfully.
+
+`getInstalled` now calls the existing plugin-root safety/canonical-identity guard inside its transaction before loading the recorded child. A swapped `plugins` parent is therefore mapped to `PLUGIN_INSTALLATION_TAMPERED` with no registry mutation.
+
+Verification:
+
+```text
+npm test -- --run packages/plugin-host/test/registry.test.ts packages/plugin-host/test/official-download.test.ts packages/plugin-host/test/official-installer.test.ts
+npm run typecheck
+npm test
+```
+
+Results: focused suite 48 tests passed; typecheck passed; full suite 41 files and 325 tests passed.

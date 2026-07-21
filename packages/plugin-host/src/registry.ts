@@ -498,6 +498,7 @@ export class PluginRegistry {
       const root = assertExactPluginChild(this.paths.plugins, id, record.root);
       let installed: LoadedPluginManifest;
       try {
+        await assertSafePluginRoot(this.paths);
         const [metadata, canonicalPlugins, canonicalRoot] = await Promise.all([
           lstat(root),
           realpath(this.paths.plugins),

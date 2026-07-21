@@ -300,4 +300,23 @@ describe('installOfficialPlugin', () => {
     });
     expect(registry.listRecords()).toMatchObject([{ id: 'fixture.node', version: '1.0.0' }]);
   });
+
+  it('reports a replaced plugin root as tampered without changing registry state', async () => {
+    const payload = await archive({
+      'fixture.node/sheldon-plugin.json': manifest(),
+      'fixture.node/plugin.mjs': 'export {}',
+    });
+    const { parent, registry, result } = await install(payload);
+    const installed = await result;
+    const plugins = join(parent, 'app', 'plugins');
+    const replacement = join(parent, 'outside-plugins');
+    await rename(plugins, replacement);
+    await writeFile(join(replacement, 'fixture.node', 'plugin.mjs'), 'export const attacker = true');
+    await symlink(replacement, plugins, process.platform === 'win32' ? 'junction' : 'dir');
+
+    await expect(registry.getInstalled(installed.manifest.id)).rejects.toMatchObject({
+      code: 'PLUGIN_INSTALLATION_TAMPERED',
+    });
+    expect(registry.listRecords()).toMatchObject([{ id: 'fixture.node', version: '1.0.0' }]);
+  });
 });
