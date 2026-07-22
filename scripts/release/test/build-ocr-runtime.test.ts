@@ -183,11 +183,12 @@ if [[ "\${OSTYPE:-}" == msys* ]]; then
   external_candidate=''
   external_target=''
   broken_candidate=''
+  broken_canonical=''
   canonical_path() {
     case "$1" in
       "$symlink_candidate") printf '%s\\n' "$symlink_target" ;;
       "$external_candidate") printf '%s\\n' "$external_target" ;;
-      "$broken_candidate") printf '%s\\n' "$root/missing/libsharpyuv.0.1.1.dylib" ;;
+      "$broken_candidate") printf '%s\\n' "$broken_canonical" ;;
       *) readlink -m "$1" ;;
     esac
   }
@@ -224,11 +225,16 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$external_cellar" 
 
 broken_cellar="$root/broken-Cellar"
 broken_candidate="$broken_cellar/libwebp/1.6.0/lib/libsharpyuv.0.dylib"
+broken_canonical="$broken_cellar/libwebp/1.6.0/lib/libsharpyuv.0.1.1.dylib"
 mkdir -p "$broken_cellar/libwebp/1.6.0/lib"
 mkdir -p "$root/missing"
 : > "$root/missing/libsharpyuv.0.1.1.dylib"
 ln -s "$root/missing/libsharpyuv.0.1.1.dylib" "$broken_candidate"
-if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$broken_cellar" "$root/broken"; then exit 1; fi
+rm "$root/missing/libsharpyuv.0.1.1.dylib"
+if broken_error="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$broken_cellar" "$root/broken" 2>&1)"; then exit 1; fi
+[[ "$broken_canonical" == "$broken_cellar/"* && ! -f "$broken_canonical" ]]
+[[ "$broken_error" == *'does not resolve inside the Homebrew Cellar'* && "$broken_error" == *"$broken_candidate"* ]]
+printf '%s\\n' 'OCR_RUNTIME_TEST_BROKEN_CELLAR_TARGET_REJECTED' >&2
 
 mkdir -p "$root/empty"
 if zero_error="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$root/empty" "$root/zero" 2>&1)"; then exit 1; fi
@@ -266,6 +272,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
 
     expect(stderr).toContain('did not resolve to exactly one byte-identical Cellar file');
     expect(stderr).toContain('does not resolve inside the Homebrew Cellar');
+    expect(stderr).toContain('OCR_RUNTIME_TEST_BROKEN_CELLAR_TARGET_REJECTED');
     expect(stderr).toContain('Unable to compare Homebrew library');
     expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
     expect(builder).toContain(
