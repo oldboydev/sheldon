@@ -1,4 +1,4 @@
-import { cp, lstat, mkdir, rm } from 'node:fs/promises';
+import { cp, lstat, mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -8,6 +8,8 @@ import { prepareOcrRuntime } from './prepare-ocr-runtime.mjs';
 const PACKAGE_FILES = ['package.json', 'sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'];
 
 export async function stageOfficialArtifacts(source, output, runtimeArtifacts) {
+  await assertNoStageInputSymlinks(source);
+  if (runtimeArtifacts) await assertNoStageInputSymlinks(runtimeArtifacts);
   await rm(output, { recursive: true, force: true });
   await mkdir(output, { recursive: true });
   for (const id of OFFICIAL_PLUGIN_IDS) {
@@ -27,6 +29,25 @@ export async function stageOfficialArtifacts(source, output, runtimeArtifacts) {
       await copyRequired(join(pluginSource, 'runtime'), join(pluginOutput, 'runtime'), true);
       if (runtimeArtifacts) await mergeOcrRuntimeArtifacts(runtimeArtifacts, pluginOutput);
     }
+  }
+}
+
+export async function assertNoStageInputSymlinks(root, readDirectory = readdir) {
+  let entries;
+  try {
+    entries = await readDirectory(root, { withFileTypes: true });
+  } catch (error) {
+    throw releaseError(
+      'OFFICIAL_RELEASE_STAGE_INPUT_MISSING',
+      `A staged package input is missing: ${root}. ${error instanceof Error ? error.message : ''}`.trim(),
+    );
+  }
+  for (const entry of entries) {
+    const path = join(root, entry.name);
+    if (entry.isSymbolicLink()) {
+      throw releaseError('OFFICIAL_RELEASE_STAGE_SYMLINK', `A staged package input is a symbolic link: ${path}.`);
+    }
+    if (entry.isDirectory()) await assertNoStageInputSymlinks(path, readDirectory);
   }
 }
 

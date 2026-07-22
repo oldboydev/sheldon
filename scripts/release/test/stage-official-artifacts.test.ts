@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { stageOfficialArtifacts } from '../stage-official-artifacts.mjs';
+import { assertNoStageInputSymlinks, stageOfficialArtifacts } from '../stage-official-artifacts.mjs';
 
 const temporaryRoots: string[] = [];
 
@@ -15,6 +15,21 @@ afterEach(async () => {
 });
 
 describe('official release staging', () => {
+  it('rejects a symlink nested in a staging input before copying it', async () => {
+    const root = 'fixture';
+    const directory = (name: string) => ({ name, isDirectory: () => true, isSymbolicLink: () => false });
+    const link = (name: string) => ({ name, isDirectory: () => false, isSymbolicLink: () => true });
+    const entries = new Map([
+      [root, [directory('source.image')]],
+      [join(root, 'source.image'), [directory('dist')]],
+      [join(root, 'source.image', 'dist'), [link('index.js')]],
+    ]);
+
+    await expect(
+      assertNoStageInputSymlinks(root, async (path: string) => entries.get(path) ?? []),
+    ).rejects.toThrow('OFFICIAL_RELEASE_STAGE_SYMLINK');
+  });
+
   it('copies built package payloads and image runtime assets without source or tests', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-release-stage-'));
     temporaryRoots.push(root);

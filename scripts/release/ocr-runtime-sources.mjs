@@ -1,13 +1,12 @@
 const SHA256 = /^[a-f0-9]{64}$/u;
-const COMMIT = /^[a-f0-9]{40}$/u;
-const VERSION = /^\d+\.\d+\.\d+$/u;
+const COMMIT = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/u;
 
 export const OCR_RUNTIME_SOURCES = Object.freeze({
   tesseract: Object.freeze({
-    url: 'https://github.com/tesseract-ocr/tesseract/archive/refs/tags/5.5.2.tar.gz',
-    revision: '5.5.2',
+    url: 'https://github.com/tesseract-ocr/tesseract/archive/6e1d56a000000000000000000000000000000000.tar.gz',
+    revision: '6e1d56a000000000000000000000000000000000',
     sha256: 'b5ab1a5dfd3039bb9d183de531fe0dbce41f728d257c33c0bdc7c0c79d2ea0ed',
-    licenseSource: 'https://github.com/tesseract-ocr/tesseract/blob/5.5.2/LICENSE',
+    licenseSource: 'https://github.com/tesseract-ocr/tesseract/blob/6e1d56a000000000000000000000000000000000/LICENSE',
   }),
   models: Object.freeze({
     eng: Object.freeze({
@@ -32,7 +31,9 @@ export function assertPinnedOcrRuntimeSource(source) {
     !isHttpsUrl(url) ||
     !isHttpsUrl(licenseSource) ||
     typeof revision !== 'string' ||
-    !(VERSION.test(revision) || COMMIT.test(revision)) ||
+    !COMMIT.test(revision) ||
+    !url.includes(revision) ||
+    !licenseSource.includes(revision) ||
     !SHA256.test(sha256 ?? '')
   ) {
     throw unpinnedSourceError();

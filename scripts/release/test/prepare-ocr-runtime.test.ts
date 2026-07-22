@@ -73,13 +73,18 @@ describe('OCR runtime preparation', () => {
     ).rejects.toThrow('OCR_RUNTIME_MODEL_INVALID');
   });
 
-  it('rejects an unpinned download source before invoking the downloader', async () => {
-    const unpinned = { ...OCR_RUNTIME_SOURCES.models.eng, revision: 'main' };
-    const download = async () => {
-      throw new Error('the downloader must not run');
-    };
+  it('rejects a source record pinned to a mutable release tag', () => {
+    const unpinned = { ...OCR_RUNTIME_SOURCES.models.eng, revision: '5.5.2' };
 
-    expect(() => assertPinnedOcrRuntimeSource(unpinned, download)).toThrow(
+    expect(() => assertPinnedOcrRuntimeSource(unpinned)).toThrow(
+      'OCR_RUNTIME_SOURCE_UNPINNED',
+    );
+  });
+
+  it('rejects a source URL that does not embed its immutable revision', () => {
+    const unpinned = { ...OCR_RUNTIME_SOURCES.models.eng, url: 'https://example.test/download' };
+
+    expect(() => assertPinnedOcrRuntimeSource(unpinned)).toThrow(
       'OCR_RUNTIME_SOURCE_UNPINNED',
     );
   });
