@@ -101,16 +101,26 @@ resolve_cellar_library_path() {
     return 1
   fi
 
-  local cellar_candidate cmp_status
+  local cellar_candidate canonical_candidate cmp_status
   local -a cellar_matches=()
   while IFS= read -r -d '' cellar_candidate; do
-    if cmp -s "$library_source" "$cellar_candidate"; then
-      cellar_matches+=("$cellar_candidate")
+    if ! canonical_candidate="$(canonical_path "$cellar_candidate")"; then
+      printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to canonicalize Homebrew Cellar candidate %s.\n' \
+        "$cellar_candidate" >&2
+      return 1
+    fi
+    if [[ "$canonical_candidate" != "$cellar/"* || ! -f "$canonical_candidate" ]]; then
+      printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew Cellar candidate does not resolve inside the Homebrew Cellar: %s.\n' \
+        "$cellar_candidate" >&2
+      return 1
+    fi
+    if cmp -s "$library_source" "$canonical_candidate"; then
+      cellar_matches+=("$canonical_candidate")
     else
       cmp_status=$?
       if (( cmp_status > 1 )); then
         printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to compare Homebrew library %s with Cellar file %s.\n' \
-          "$library_source" "$cellar_candidate" >&2
+          "$library_source" "$canonical_candidate" >&2
         return 1
       fi
     fi

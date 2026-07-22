@@ -167,7 +167,7 @@ describe('Native OCR runtime workflow', () => {
   it('fails closed while resolving prefix-linked macOS dylibs to Cellar files', async () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
     const resolverMatch = builder.match(
-      /resolve_cellar_library_path\(\) \{[\s\S]*?\n\}\n(?=\nvisited=)/u,
+      /canonical_path\(\) \{[\s\S]*?resolve_cellar_library_path\(\) \{[\s\S]*?\n\}\n(?=\nvisited=)/u,
     );
     if (!resolverMatch) throw new Error('The prefix-linked dylib resolver is missing.');
     const root = await temporaryRoot();
@@ -177,6 +177,21 @@ describe('Native OCR runtime workflow', () => {
       `#!/usr/bin/env bash
 set -euo pipefail
 ${resolverMatch[0]}
+if [[ "\${OSTYPE:-}" == msys* ]]; then
+  symlink_candidate=''
+  symlink_target=''
+  external_candidate=''
+  external_target=''
+  broken_candidate=''
+  canonical_path() {
+    case "$1" in
+      "$symlink_candidate") printf '%s\\n' "$symlink_target" ;;
+      "$external_candidate") printf '%s\\n' "$external_target" ;;
+      "$broken_candidate") printf '%s\\n' "$root/missing/libsharpyuv.0.1.1.dylib" ;;
+      *) readlink -m "$1" ;;
+    esac
+  }
+fi
 
 root="$(mktemp -d)"
 trap 'rm -rf "$root"' EXIT
@@ -191,13 +206,29 @@ resolved="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" 
 [[ "$resolved" == "$candidate" ]]
 
 symlink_cellar="$root/symlink-Cellar"
-symlink_target="$root/symlink-target/libsharpyuv.0.1.1.dylib"
+symlink_target="$symlink_cellar/libwebp/1.6.0/lib/libsharpyuv.0.1.1.dylib"
 symlink_candidate="$symlink_cellar/libwebp/1.6.0/lib/libsharpyuv.0.dylib"
 mkdir -p "$(dirname "$symlink_target")" "$(dirname "$symlink_candidate")"
 printf 'same' > "$symlink_target"
 ln -s "$symlink_target" "$symlink_candidate"
 resolved="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$symlink_cellar" "$root/symlink")"
-[[ "$resolved" == "$symlink_candidate" ]]
+[[ "$resolved" == "$(canonical_path "$symlink_target")" ]]
+
+external_cellar="$root/external-Cellar"
+external_target="$root/external-target/libsharpyuv.0.1.1.dylib"
+external_candidate="$external_cellar/libwebp/1.6.0/lib/libsharpyuv.0.dylib"
+mkdir -p "$(dirname "$external_target")" "$(dirname "$external_candidate")"
+printf 'same' > "$external_target"
+ln -s "$external_target" "$external_candidate"
+if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$external_cellar" "$root/external"; then exit 1; fi
+
+broken_cellar="$root/broken-Cellar"
+broken_candidate="$broken_cellar/libwebp/1.6.0/lib/libsharpyuv.0.dylib"
+mkdir -p "$broken_cellar/libwebp/1.6.0/lib"
+mkdir -p "$root/missing"
+: > "$root/missing/libsharpyuv.0.1.1.dylib"
+ln -s "$root/missing/libsharpyuv.0.1.1.dylib" "$broken_candidate"
+if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$broken_cellar" "$root/broken"; then exit 1; fi
 
 mkdir -p "$root/empty"
 if zero_error="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$root/empty" "$root/zero" 2>&1)"; then exit 1; fi
@@ -223,15 +254,25 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     );
 
     const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
-    const { stderr } = await execFileAsync(bash, [harness], { shell: false });
+    let stderr: string;
+    try {
+      ({ stderr } = await execFileAsync(bash, [harness], { shell: false }));
+    } catch (error) {
+      const result = error as { stderr?: string; stdout?: string };
+      throw new Error(`Resolver harness failed:\n${result.stdout ?? ''}\n${result.stderr ?? ''}`, {
+        cause: error,
+      });
+    }
 
     expect(stderr).toContain('did not resolve to exactly one byte-identical Cellar file');
+    expect(stderr).toContain('does not resolve inside the Homebrew Cellar');
     expect(stderr).toContain('Unable to compare Homebrew library');
     expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
     expect(builder).toContain(
       'find "$cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
     );
-    expect(builder).toContain('if cmp -s "$library_source" "$cellar_candidate"; then');
+    expect(builder).toContain('if cmp -s "$library_source" "$canonical_candidate"; then');
+    expect(builder).toContain('canonical_path "$cellar_candidate"');
     expect(builder).toContain('if (( cmp_status > 1 )); then');
     expect(builder).not.toContain('done < <(find "$cellar"');
   });
