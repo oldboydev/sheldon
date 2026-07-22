@@ -66,6 +66,73 @@ try {
     }
   }
 
+  function Get-PinnedDependency([string]$Provider, [string]$Name, [string]$Version) {
+    Write-Host "OCR_RUNTIME_DEPENDENCY: provider=$Provider name=$Name version=$Version"
+    Push-Location $repositoryRoot
+    try {
+      $dependencyJson = node --input-type=module --eval `
+        'import { findOcrRuntimeDependency } from "./scripts/release/ocr-runtime-dependency-inventory.mjs"; process.stdout.write(JSON.stringify(findOcrRuntimeDependency(process.argv[1], process.argv[2], process.argv[3])));' `
+        $Provider $Name $Version
+      $lookupExitCode = $LASTEXITCODE
+    } finally {
+      Pop-Location
+    }
+    if ($lookupExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($dependencyJson)) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: No pinned dependency record for $Provider/$Name@$Version."
+    }
+    return $dependencyJson | ConvertFrom-Json
+  }
+
+  function Get-VerifiedDependencyNotice(
+    [object]$dependency,
+    [string[]]$PrivateDlls,
+    [int]$Index
+  ) {
+    $dependencyArchive = Join-Path $workRoot "dependency-$Index.source"
+    $dependencyRoot = Join-Path $workRoot "dependency-$Index"
+    New-Item -ItemType Directory -Path $dependencyRoot | Out-Null
+    Get-PinnedFile $dependency.sourceUrl $dependencyArchive $dependency.sourceSha256
+    tar --extract --file $dependencyArchive --directory $dependencyRoot
+    if ($LASTEXITCODE -ne 0) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: Unable to extract pinned source for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+    }
+
+    $licensePath = $dependency.licensePath -replace '\\', '/'
+    $licenseFiles = @(
+      Get-ChildItem -Path $dependencyRoot -Recurse -File | Where-Object {
+        $relativePath = [System.IO.Path]::GetRelativePath($dependencyRoot, $_.FullName) -replace '\\', '/'
+        $relativePath -eq $licensePath -or $relativePath.EndsWith("/$licensePath", [System.StringComparison]::Ordinal)
+      }
+    )
+    if ($licenseFiles.Count -ne 1) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: Pinned license path $licensePath did not resolve uniquely for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+    }
+    $licenseHash = (Get-FileHash -Path $licenseFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($licenseHash -ne $dependency.licenseSha256.ToLowerInvariant()) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: License SHA-256 mismatch for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+    }
+    $licenseText = Get-Content -Raw $licenseFiles[0].FullName
+    if ([string]::IsNullOrWhiteSpace($licenseText)) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: Verified license text is empty for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+    }
+
+    return @(
+      "== $($dependency.provider) package: $($dependency.name)@$($dependency.version) ==",
+      "Provider: $($dependency.provider)",
+      "Package: $($dependency.name)",
+      "Version: $($dependency.version)",
+      "SPDX: $($dependency.spdx)",
+      "Source: $($dependency.sourceUrl)",
+      "Source SHA-256: $($dependency.sourceSha256)",
+      "License path: $($dependency.licensePath)",
+      "License SHA-256: $($dependency.licenseSha256)",
+      "Private DLLs: $(($PrivateDlls | Sort-Object) -join ', ')",
+      '',
+      $licenseText,
+      ''
+    )
+  }
+
   Get-PinnedFile $sources.tesseract.url $sourceArchive $sources.tesseract.sha256
   Get-PinnedFile $sources.models.eng.url (Join-Path $modelsRoot 'eng.traineddata') $sources.models.eng.sha256
   Get-PinnedFile $sources.models.por.url (Join-Path $modelsRoot 'por.traineddata') $sources.models.por.sha256
@@ -152,32 +219,18 @@ try {
   }
 
   $msys2LicenseNotices = [System.Collections.Generic.List[string]]::new()
+  $dependencyIndex = 0
   foreach ($packageName in ($privateDllProviders.Keys | Sort-Object)) {
-    $licenseFiles = @(
-      & $pacman -Qql $packageName 2>$null |
-        Where-Object { $_ -match '/share/licenses/.+' -and $_ -notmatch '/$' } |
-        ForEach-Object { Join-Path $msysRoot ($_.TrimStart('/') -replace '/', '\\') } |
-        Where-Object { Test-Path $_ }
-    )
-    if ($LASTEXITCODE -ne 0 -or $licenseFiles.Count -eq 0) {
-      throw "OCR_RUNTIME_NOTICES_INVALID: MSYS2 package $packageName provides bundled private DLLs but no license text was found."
+    $packageQuery = & $pacman -Q $packageName 2>$null
+    if ($LASTEXITCODE -ne 0 -or $packageQuery -notmatch '^([^\s]+)\s+([^\s]+)$') {
+      throw "OCR_RUNTIME_NOTICES_INVALID: Unable to determine the installed MSYS2 version for $packageName."
     }
-    $licenseTexts = @(
-      foreach ($licenseFile in ($licenseFiles | Sort-Object -Unique)) {
-        $licenseText = Get-Content -Raw $licenseFile
-        if ([string]::IsNullOrWhiteSpace($licenseText)) {
-          throw "OCR_RUNTIME_NOTICES_INVALID: MSYS2 license file is empty: $licenseFile"
-        }
-        "License file: $licenseFile", $licenseText
-      }
-    )
-    if ($licenseTexts.Count -eq 0) {
-      throw "OCR_RUNTIME_NOTICES_INVALID: MSYS2 package $packageName has no readable license text."
-    }
-    [void]$msys2LicenseNotices.Add("== MSYS2 package: $packageName ==")
-    [void]$msys2LicenseNotices.Add("Private DLLs: $(($privateDllProviders[$packageName] | Sort-Object) -join ', ')")
-    $licenseTexts | ForEach-Object { [void]$msys2LicenseNotices.Add($_) }
-    [void]$msys2LicenseNotices.Add('')
+    $installedName = $Matches[1]
+    $installedVersion = $Matches[2]
+    $dependency = Get-PinnedDependency 'msys2' $installedName $installedVersion
+    $noticeLines = Get-VerifiedDependencyNotice $dependency @($privateDllProviders[$packageName]) $dependencyIndex
+    $noticeLines | ForEach-Object { [void]$msys2LicenseNotices.Add($_) }
+    $dependencyIndex++
   }
 
   $modelLicense = Join-Path $workRoot 'tessdata-LICENSE'
@@ -200,13 +253,13 @@ try {
     "tessdata license source: $modelLicenseUrl", "tessdata license SHA-256: $($sources.models.eng.licenseSha256)",
     (Get-Content -Raw $modelLicense),
     '', '== Bundled MSYS2 DLLs ==', ($copied | Sort-Object | ForEach-Object { "- $_" }),
-    '', '== MSYS2 package licenses ==', $msys2LicenseNotices
+    '', '== Verified MSYS2 package licenses ==', $msys2LicenseNotices
   ) -join [Environment]::NewLine
   $noticesPath = Join-Path $runtimeRoot 'THIRD_PARTY_NOTICES'
   [System.IO.File]::WriteAllText($noticesPath, $notices + [Environment]::NewLine)
   if ((Get-Item $noticesPath).Length -eq 0) { throw 'OCR_RUNTIME_NOTICES_INVALID: Notices are empty.' }
   foreach ($packageName in $privateDllProviders.Keys) {
-    if ($notices -notmatch [regex]::Escape("== MSYS2 package: $packageName ==")) {
+    if ($notices -notmatch [regex]::Escape("Package: $packageName")) {
       throw "OCR_RUNTIME_NOTICES_INVALID: Notices are missing the MSYS2 package section for $packageName."
     }
   }

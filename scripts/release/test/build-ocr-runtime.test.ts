@@ -160,6 +160,30 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('\\( -type f -o -type l \\) -name "$dependency_name"');
     expect(builder).toContain("url.hostname = 'raw.githubusercontent.com';");
   });
+
+  it('builds native dependency notices from verified pinned source records', async () => {
+    const [windowsBuilder, macosBuilder] = await Promise.all([
+      readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8'),
+      readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8'),
+    ]);
+
+    expect(windowsBuilder).toContain('findOcrRuntimeDependency');
+    expect(windowsBuilder).toContain('& $pacman -Q $packageName');
+    expect(windowsBuilder).toContain('$dependency.sourceUrl');
+    expect(windowsBuilder).toContain('$dependency.sourceSha256');
+    expect(windowsBuilder).toContain('$dependency.licensePath');
+    expect(windowsBuilder).toContain('$dependency.licenseSha256');
+    expect(windowsBuilder).not.toContain('/share/licenses/');
+
+    expect(macosBuilder).toContain('findOcrRuntimeDependency');
+    expect(macosBuilder).toContain('brew which-formula');
+    expect(macosBuilder).toContain('brew info --json=v2 --installed');
+    expect(macosBuilder).toContain('sourceUrl');
+    expect(macosBuilder).toContain('sourceSha256');
+    expect(macosBuilder).toContain('licensePath');
+    expect(macosBuilder).toContain('licenseSha256');
+    expect(macosBuilder).not.toContain("-iname 'LICENSE*'");
+  });
 });
 
 async function temporaryRoot(): Promise<string> {

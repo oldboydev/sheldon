@@ -122,6 +122,62 @@ while ((${#queue[@]} > 0)); do
 done
 (( ${#library_names[@]} > 0 )) || { printf '%s\n' 'OCR_RUNTIME_DEPENDENCY_INVALID: No private dylibs were packaged.' >&2; exit 1; }
 
+dependency_names=()
+dependency_versions=()
+dependency_libraries=()
+for index in "${!library_names[@]}"; do
+  library_name="${library_names[$index]}"
+  library_source="${library_paths[$index]}"
+  [[ "$library_source" == "$work_root/build/"* ]] && continue
+
+  if ! formula_name="$(brew which-formula "$library_source")" || [[ -z "$formula_name" || "$formula_name" == *$'\n'* ]]; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to determine the Homebrew formula for %s.\n' "$library_source" >&2
+    exit 1
+  fi
+  if ! formula_info="$(brew info --json=v2 --installed "$formula_name")"; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to read installed Homebrew metadata for %s.\n' "$formula_name" >&2
+    exit 1
+  fi
+  if ! formula_identity="$(
+    node --input-type=module --eval '
+      const info = JSON.parse(process.argv[1]);
+      const requested = process.argv[2];
+      const source = process.argv[3].replaceAll("\\\\", "/");
+      const formula = info.formulae?.find(
+        (candidate) => candidate.name === requested || candidate.full_name === requested,
+      );
+      const installed = formula?.installed ?? [];
+      const pathMatches = installed.filter(({ version }) => source.includes(`/${version}/`));
+      const selected = pathMatches.length === 1 ? pathMatches[0] : installed.length === 1 ? installed[0] : undefined;
+      if (!formula?.name || typeof selected?.version !== "string" || selected.version.length === 0) process.exit(1);
+      process.stdout.write(`${formula.name}\t${selected.version}`);
+    ' "$formula_info" "$formula_name" "$library_source"
+  )"; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Installed Homebrew version is ambiguous for %s.\n' "$library_source" >&2
+    exit 1
+  fi
+  IFS=$'\t' read -r installed_name installed_version <<<"$formula_identity"
+
+  dependency_index=-1
+  for candidate_index in "${!dependency_names[@]}"; do
+    if [[ "${dependency_names[$candidate_index]}" == "$installed_name" && "${dependency_versions[$candidate_index]}" == "$installed_version" ]]; then
+      dependency_index="$candidate_index"
+      break
+    fi
+  done
+  if (( dependency_index < 0 )); then
+    dependency_names+=("$installed_name")
+    dependency_versions+=("$installed_version")
+    dependency_libraries+=("$library_name")
+  else
+    dependency_libraries[$dependency_index]="${dependency_libraries[$dependency_index]}, $library_name"
+  fi
+done
+(( ${#dependency_names[@]} > 0 )) || {
+  printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: No Homebrew ownership was found for bundled private dylibs.' >&2
+  exit 1
+}
+
 for candidate in "$executable" "$library_root"/*; do
   while IFS= read -r dependency; do
     is_system_library "$dependency" && continue
@@ -153,6 +209,86 @@ download_pinned "$model_license_url" "$work_root/tessdata-LICENSE" "$model_licen
   printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Required upstream license text is missing.' >&2
   exit 1
 }
+
+homebrew_notices="$work_root/homebrew-notices"
+: > "$homebrew_notices"
+for dependency_index in "${!dependency_names[@]}"; do
+  installed_name="${dependency_names[$dependency_index]}"
+  installed_version="${dependency_versions[$dependency_index]}"
+  printf 'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=%s version=%s\n' "$installed_name" "$installed_version" >&2
+  if ! dependency_json="$(
+    cd "$repository_root" && node --input-type=module --eval '
+      import { findOcrRuntimeDependency } from "./scripts/release/ocr-runtime-dependency-inventory.mjs";
+      process.stdout.write(JSON.stringify(findOcrRuntimeDependency(process.argv[1], process.argv[2], process.argv[3])));
+    ' homebrew "$installed_name" "$installed_version"
+  )"; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: No pinned dependency record for homebrew/%s@%s.\n' "$installed_name" "$installed_version" >&2
+    exit 1
+  fi
+
+  dependency_values=()
+  while IFS= read -r value; do
+    dependency_values+=("$value")
+  done < <(
+    node --input-type=module --eval '
+      const dependency = JSON.parse(process.argv[1]);
+      for (const key of ["provider", "name", "version", "spdx", "sourceUrl", "sourceSha256", "licensePath", "licenseSha256"])
+        console.log(dependency[key]);
+    ' "$dependency_json"
+  )
+  (( ${#dependency_values[@]} == 8 )) || {
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Pinned dependency record is incomplete for homebrew/%s@%s.\n' "$installed_name" "$installed_version" >&2
+    exit 1
+  }
+  provider="${dependency_values[0]}"; dependency_name="${dependency_values[1]}"; dependency_version="${dependency_values[2]}"
+  dependency_spdx="${dependency_values[3]}"; source_url="${dependency_values[4]}"; source_sha256="${dependency_values[5]}"
+  license_path="${dependency_values[6]}"; license_sha256="${dependency_values[7]}"
+
+  dependency_archive="$work_root/dependency-$dependency_index.source"
+  dependency_root="$work_root/dependency-$dependency_index"
+  mkdir -p "$dependency_root"
+  download_pinned "$source_url" "$dependency_archive" "$source_sha256"
+  tar --extract --file "$dependency_archive" --directory "$dependency_root" || {
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to extract pinned source for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
+    exit 1
+  }
+  if ! license_file="$(python3 -c '
+import os, sys
+root, expected = sys.argv[1], sys.argv[2].replace("\\\\", "/")
+matches = []
+for directory, _, files in os.walk(root):
+    for filename in files:
+        path = os.path.join(directory, filename)
+        relative = os.path.relpath(path, root).replace("\\\\", "/")
+        if relative == expected or relative.endswith("/" + expected):
+            matches.append(path)
+if len(matches) != 1:
+    sys.exit(1)
+print(matches[0])
+' "$dependency_root" "$license_path")"; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Pinned license path %s did not resolve uniquely for %s/%s@%s.\n' \
+      "$license_path" "$provider" "$dependency_name" "$dependency_version" >&2
+    exit 1
+  fi
+  [[ "$(shasum -a 256 "$license_file" | awk '{print $1}')" == "$license_sha256" ]] || {
+    printf 'OCR_RUNTIME_NOTICES_INVALID: License SHA-256 mismatch for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
+    exit 1
+  }
+  [[ -s "$license_file" ]] || {
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Verified license text is empty for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
+    exit 1
+  }
+  {
+    printf '== %s package: %s@%s ==\n' "$provider" "$dependency_name" "$dependency_version"
+    printf 'Provider: %s\nPackage: %s\nVersion: %s\nSPDX: %s\n' "$provider" "$dependency_name" "$dependency_version" "$dependency_spdx"
+    printf 'Source: %s\nSource SHA-256: %s\nLicense path: %s\nLicense SHA-256: %s\n' \
+      "$source_url" "$source_sha256" "$license_path" "$license_sha256"
+    printf 'Private dylibs: %s\n\n' "${dependency_libraries[$dependency_index]}"
+    cat "$license_file"
+    printf '\n\n'
+  } >> "$homebrew_notices"
+done
+
 {
   printf 'Sheldon OCR runtime third-party notices\n\nPlatform: %s\n' "$platform"
   printf 'Tesseract source: %s\nRevision: %s\nSHA-256: %s\n\n== Tesseract OCR ==\n' "$tesseract_url" "$tesseract_revision" "$tesseract_sha"
@@ -160,21 +296,10 @@ download_pinned "$model_license_url" "$work_root/tessdata-LICENSE" "$model_licen
   printf '\n\n== tessdata_fast base models ==\neng source: %s\npor source: %s\nlicense source: %s\nlicense SHA-256: %s\n' \
     "$eng_url" "$por_url" "$model_license_url" "$model_license_sha"
   cat "$work_root/tessdata-LICENSE"
-  for index in "${!library_names[@]}"; do
-    name="${library_names[$index]}"
-    library_source="${library_paths[$index]}"
-    if [[ "$library_source" == "$work_root/build/"* ]]; then
-      license_file="$source_root/LICENSE"
-    else
-      license_file="$(find "$(dirname "$(dirname "$library_source")")" -maxdepth 2 -type f \( -iname 'LICENSE*' -o -iname 'COPYING*' -o -iname 'NOTICE*' \) -print -quit)"
-    fi
-    [[ -n "$license_file" && -s "$license_file" ]] || {
-      printf 'OCR_RUNTIME_NOTICES_INVALID: License text is missing for %s.\n' "$library_source" >&2
-      exit 1
-    }
-    printf '\n\n== %s ==\n' "$name"
-    cat "$license_file"
-  done
+  printf '\n\n== Bundled macOS dylibs ==\n'
+  printf -- '- %s\n' "${library_names[@]}"
+  printf '\n== Verified Homebrew package licenses ==\n'
+  cat "$homebrew_notices"
 } > "$runtime_root/THIRD_PARTY_NOTICES"
 [[ -s "$runtime_root/THIRD_PARTY_NOTICES" ]] || { printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Notices are empty.' >&2; exit 1; }
 
