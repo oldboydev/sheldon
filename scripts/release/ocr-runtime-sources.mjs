@@ -5,7 +5,7 @@ export const OCR_RUNTIME_SOURCES = Object.freeze({
   tesseract: Object.freeze({
     url: 'https://github.com/tesseract-ocr/tesseract/archive/6e1d56a847e697de07b38619356550e5cf4e8633.tar.gz',
     revision: '6e1d56a847e697de07b38619356550e5cf4e8633',
-    sha256: '6235ea0dae45ea137f59c09320406f5888383741924d98855bd2ce0d16b54f21',
+    sha256: '51342815a262a5c1d000bab44503ddbf71ef210053375d504f619ca7a3b381bd',
     licenseSource: 'https://github.com/tesseract-ocr/tesseract/blob/6e1d56a847e697de07b38619356550e5cf4e8633/LICENSE',
   }),
   models: Object.freeze({
