@@ -30,6 +30,7 @@ jobs:
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
           node-version: 24.13.0
+      - run: npm ci
       - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.27.0
         if: matrix.platform == 'win32-x64'
         with:
@@ -46,8 +47,8 @@ jobs:
         shell: pwsh
         run: >-
           scripts/release/build-native-ocr-runtime.ps1
-          --platform ${{ matrix.platform }}
-          --output "$env:RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
+          -Platform ${{ matrix.platform }}
+          -Output "$env:RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
       - name: Build macOS runtime
         if: startsWith(matrix.platform, 'darwin-')
         shell: bash
