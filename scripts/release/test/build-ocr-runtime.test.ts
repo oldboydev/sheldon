@@ -190,7 +190,9 @@ printf 'same' > "$candidate"
 resolved="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/unique")"
 [[ "$resolved" == "$candidate" ]]
 
-if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$root/empty" "$root/zero"; then exit 1; fi
+mkdir -p "$root/empty"
+if zero_error="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$root/empty" "$root/zero" 2>&1)"; then exit 1; fi
+[[ "$zero_error" == *'did not resolve to exactly one byte-identical Cellar file'* ]]
 
 printf 'different' > "$candidate"
 if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/nonidentical"; then exit 1; fi
