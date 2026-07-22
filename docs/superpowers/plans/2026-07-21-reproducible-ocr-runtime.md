@@ -11,7 +11,8 @@
 ## Global Constraints
 
 - Tesseract source, model revisions, and every downloaded file must have fixed SHA-256 values checked before use.
-- Runtime layout is `runtime/<platform>/tesseract[.exe]`, `data/tessdata/{por,eng}.traineddata`, and notices.
+- Runtime layout is `runtime/<platform>/tesseract[.exe]`, optional regular files under
+  `runtime/<platform>/lib/`, `data/tessdata/{por,eng}.traineddata`, and notices.
 - Each native runtime must pass `--tessdata-dir <dir> --list-langs` before use by release.
 - The private Ed25519 key remains only in `SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM`.
 - A tag push is the only production publication path; `workflow_dispatch` validates without upload.
@@ -46,15 +47,27 @@
 - Create: `scripts/release/build-ocr-runtime.mjs`
 - Create: `scripts/release/test/build-ocr-runtime.test.ts`
 - Modify: `package.json`
+- Modify: `scripts/release/prepare-ocr-runtime.mjs`
+- Modify: `scripts/release/test/prepare-ocr-runtime.test.ts`
+- Modify: `packages/plugins/official/source.image/src/runtime.ts`
+- Modify: `packages/plugins/official/source.image/src/plugin.ts`
+- Modify: `packages/plugins/official/source.image/test/runtime.test.ts`
 
 **Interfaces:**
 
 - Produces `npm run build:ocr-runtime -- --platform linux-x64 --output <dir>`.
-- Docker builder produces `runtime/linux-x64/tesseract`, both base models, and notices.
+- Docker builder produces `runtime/linux-x64/tesseract`, required private runtime libraries under
+  `runtime/linux-x64/lib/`, both base models, and notices.
 
 - [ ] Write a test for command arguments and strict output-layout validation; run it red.
-- [ ] Implement a Docker image that downloads pinned source inputs, builds a relocatable Linux executable, copies model/notices, and runs `--tessdata-dir /output/data/tessdata --list-langs`.
+- [ ] Write tests that accept regular private runtime libraries, reject links or directories in
+  `lib/`, and prove the plugin's child-only environment points at its packaged library directory.
+- [ ] Implement a Docker image that downloads pinned source inputs, builds Tesseract, copies its
+  required non-system shared libraries into `lib/`, copies model/notices, and runs
+  `--tessdata-dir /output/data/tessdata --list-langs` with the private library directory.
 - [ ] Implement the Node wrapper that invokes Docker only for `linux-x64`, rejects unrecognized platforms, and validates the output before returning.
+- [ ] Extend runtime preparation to copy the validated `lib/` tree and make image OCR invoke only
+  its child process with the matching platform loader environment.
 - [ ] Run the focused tests, execute the Docker build, and verify it lists `eng` and `por`; commit `feat(release): build Linux OCR runtime in Docker`.
 
 ### Task 3: Native GitHub Actions runtime matrix

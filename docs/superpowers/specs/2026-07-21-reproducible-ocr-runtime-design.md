@@ -20,6 +20,7 @@ installers to the repository.
 
   ```text
   runtime/<platform>/tesseract[.exe]
+  runtime/<platform>/lib/<third-party-runtime-files>
   runtime/<platform>/THIRD_PARTY_NOTICES
   data/tessdata/por.traineddata
   data/tessdata/eng.traineddata
@@ -28,6 +29,11 @@ installers to the repository.
 - A runner must execute `tesseract --tessdata-dir <data/tessdata> --list-langs` before uploading
   its artifact. Linux also checks runtime linker dependencies; macOS checks that no Homebrew path
   is embedded; Windows includes every non-system DLL required by the executable.
+- Each runtime library is a regular file under the platform's `lib` directory; links and paths
+  outside that directory are rejected. The image plugin adds this directory to the child
+  Tesseract process's platform loader environment only (`PATH` on Windows, `LD_LIBRARY_PATH` on
+  Linux, and `DYLD_FALLBACK_LIBRARY_PATH` on macOS). It never changes the parent environment or
+  the user PATH.
 - The release workflow downloads all four runtime artifacts into `release/stage/source.image`
   before running the existing deterministic archive builder, catalog signer, and independent
   verifier. A missing, extra, or malformed runtime artifact fails the release before upload.
