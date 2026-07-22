@@ -50,7 +50,7 @@ The intended behavior is:
   `DYLD_FALLBACK_LIBRARY_PATH` on macOS. It must preserve any existing value and never mutate
   `process.env`.
 - `build-ocr-runtime.mjs` is a Node wrapper for `npm run build:ocr-runtime -- --platform
-  linux-x64 --output <dir>`. It invokes Docker without a shell and validates the output with
+linux-x64 --output <dir>`. It invokes Docker without a shell and validates the output with
   `prepareOcrRuntime`.
 
 Run focused release/source-image tests and `npm run typecheck` before committing this work.

@@ -61,13 +61,13 @@
 
 - [ ] Write a test for command arguments and strict output-layout validation; run it red.
 - [ ] Write tests that accept regular private runtime libraries, reject links or directories in
-  `lib/`, and prove the plugin's child-only environment points at its packaged library directory.
+      `lib/`, and prove the plugin's child-only environment points at its packaged library directory.
 - [ ] Implement a Docker image that downloads pinned source inputs, builds Tesseract, copies its
-  required non-system shared libraries into `lib/`, copies model/notices, and runs
-  `--tessdata-dir /output/data/tessdata --list-langs` with the private library directory.
+      required non-system shared libraries into `lib/`, copies model/notices, and runs
+      `--tessdata-dir /output/data/tessdata --list-langs` with the private library directory.
 - [ ] Implement the Node wrapper that invokes Docker only for `linux-x64`, rejects unrecognized platforms, and validates the output before returning.
 - [ ] Extend runtime preparation to copy the validated `lib/` tree and make image OCR invoke only
-  its child process with the matching platform loader environment.
+      its child process with the matching platform loader environment.
 - [ ] Run the focused tests, execute the Docker build, and verify it lists `eng` and `por`; commit `feat(release): build Linux OCR runtime in Docker`.
 
 ### Task 3: Native GitHub Actions runtime matrix

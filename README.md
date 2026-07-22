@@ -69,6 +69,14 @@ Não há plugin público `ocr.tesseract`, alteração de `PATH` ou instalação 
 
 As releases oficiais são construídas de um estágio explícito (`release/stage`) e contêm ZIPs por plataforma, `catalog.json`, assinatura, SBOM e notices. O catálogo é assinado apenas em CI pela variável secreta `SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM`; a chave privada não é gravada no repositório nem nos artefatos.
 
+O runtime privado de OCR do `source.image` é compilado de fontes e modelos com URLs, revisões imutáveis e SHA-256 fixados em [`scripts/release/ocr-runtime-sources.mjs`](scripts/release/ocr-runtime-sources.mjs). Para reproduzir localmente apenas o artefato Linux x64 (não substitui as verificações nativas de Windows e macOS), é necessário Docker com BuildKit e o comando é:
+
+```powershell
+npm run build:ocr-runtime -- --platform linux-x64 --output .\release\ocr-runtime-linux-x64
+```
+
+O workflow **Release official plugin catalog** sempre executa a matriz nativa, baixa e valida os quatro artefatos `ocr-runtime-*`, e então executa o build, a assinatura e a verificação offline do catálogo. `workflow_dispatch` é um dry run: ele jamais executa o upload de GitHub Release. Somente um push de tag `v*` pode publicar a release `official-catalog`. Ambos os caminhos que chegam à assinatura exigem o secret de Actions `SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM`; mantenha a chave privada somente nesse secret.
+
 Plugins locais são instalados exclusivamente a partir de um diretório local. Sheldon valida o manifesto e todos os links, copia os links sem segui-los para uma área privada de staging, valida novamente a árvore copiada e confirma que a identidade dessa raiz não mudou durante a publicação em `%APPDATA%\Sheldon\plugins\<id>`, antes de persistir o registro YAML atômico. Identificadores já usados por plugins oficiais ou instalados são rejeitados, sem opção de sobrescrita no M1.
 
 A instalação apenas copia arquivos: não executa código ou scripts de pacote, não instala dependências, não faz downloads e não acessa a rede. Instalações e remoções concorrentes são serializadas por processo e por um lock exclusivo no diretório da aplicação para impedir perda de registros. O lock registra token de propriedade, PID e horário, preserva locks de processos ativos e recupera com segurança locks abandonados por processos encerrados. A remoção aceita somente um identificador registrado e apaga apenas o filho exato correspondente dentro do diretório de plugins, respeitando a comparação de caminhos sem distinção entre maiúsculas e minúsculas no Windows.

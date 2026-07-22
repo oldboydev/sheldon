@@ -4,7 +4,11 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { assertNoStageInputSymlinks, stageOfficialArtifacts } from '../stage-official-artifacts.mjs';
+import {
+  assertNoStageInputSymlinks,
+  parseStageOfficialArtifactArguments,
+  stageOfficialArtifacts,
+} from '../stage-official-artifacts.mjs';
 
 const temporaryRoots: string[] = [];
 
@@ -15,9 +19,39 @@ afterEach(async () => {
 });
 
 describe('official release staging', () => {
+  it('accepts downloaded runtime artifacts only through an explicit staging input', () => {
+    expect(
+      parseStageOfficialArtifactArguments([
+        '--source',
+        'packages/plugins/official',
+        '--runtime-artifacts',
+        'release/runtime-artifacts',
+        '--output',
+        'release/stage',
+      ]),
+    ).toEqual({
+      source: 'packages/plugins/official',
+      runtimeArtifacts: 'release/runtime-artifacts',
+      output: 'release/stage',
+    });
+    expect(() =>
+      parseStageOfficialArtifactArguments([
+        '--source',
+        'packages/plugins/official',
+        '--output',
+        'release/stage',
+        '--runtime-artifacts',
+      ]),
+    ).toThrow('OFFICIAL_RELEASE_ARGUMENTS_INVALID');
+  });
+
   it('rejects a symlink nested in a staging input before copying it', async () => {
     const root = 'fixture';
-    const directory = (name: string) => ({ name, isDirectory: () => true, isSymbolicLink: () => false });
+    const directory = (name: string) => ({
+      name,
+      isDirectory: () => true,
+      isSymbolicLink: () => false,
+    });
     const link = (name: string) => ({ name, isDirectory: () => false, isSymbolicLink: () => true });
     const regularDirectory = { isDirectory: () => true, isSymbolicLink: () => false };
     const entries = new Map([
@@ -41,9 +75,9 @@ describe('official release staging', () => {
       throw new Error('directory discovery must not run');
     };
 
-    await expect(assertNoStageInputSymlinks('fixture', discover, async () => symlink)).rejects.toThrow(
-      'OFFICIAL_RELEASE_STAGE_SYMLINK',
-    );
+    await expect(
+      assertNoStageInputSymlinks('fixture', discover, async () => symlink),
+    ).rejects.toThrow('OFFICIAL_RELEASE_STAGE_SYMLINK');
   });
 
   it('copies built package payloads and image runtime assets without source or tests', async () => {
