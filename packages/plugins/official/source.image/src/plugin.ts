@@ -15,7 +15,11 @@ import {
 import type { OfficialPlatform } from '@sheldon/plugin-host';
 
 import { BASE_IMAGE_LANGUAGES, hasInstalledImageLanguage } from './languages.js';
-import { isUsablePluginAsset, resolveTesseractExecutable } from './runtime.js';
+import {
+  createTesseractChildEnvironment,
+  isUsablePluginAsset,
+  resolveTesseractExecutable,
+} from './runtime.js';
 
 const IMAGE_EXTENSIONS = new Set([
   '.png',
@@ -68,7 +72,7 @@ export interface OfficialSourceImageDependencies {
   readonly run?: (
     file: string,
     arguments_: readonly string[],
-    options: { readonly shell: false },
+    options: { readonly env: NodeJS.ProcessEnv; readonly shell: false },
   ) => Promise<string>;
 }
 
@@ -82,7 +86,7 @@ export function createOfficialSourceImagePlugin(
   return definePlugin({
     describe: async () => description,
     probe: async ({ input }) => probeImage(input.filePath),
-    ingest: async (request) => ingestImage(request, root, executable, run),
+    ingest: async (request) => ingestImage(request, root, platform, executable, run),
     healthcheck: async () => ({ checks: await healthChecks(root, executable) }),
     cancel: async () => undefined,
   });
@@ -107,6 +111,7 @@ async function probeImage(filePath: unknown) {
 async function ingestImage(
   request: Parameters<PluginImplementation['ingest']>[0],
   root: string,
+  platform: OfficialPlatform,
   executable: string,
   run: NonNullable<OfficialSourceImageDependencies['run']>,
 ): Promise<readonly SourceArtifact[]> {
@@ -147,7 +152,7 @@ async function ingestImage(
           '-l',
           requested,
         ],
-        { shell: false },
+        { env: createTesseractChildEnvironment(root, platform), shell: false },
       );
     } catch (error) {
       throw imageError(
@@ -302,7 +307,7 @@ async function writeArtifact(
 async function runTesseract(
   file: string,
   arguments_: readonly string[],
-  options: { readonly shell: false },
+  options: { readonly env: NodeJS.ProcessEnv; readonly shell: false },
 ): Promise<string> {
   const { stdout } = await promisify(execFile)(file, [...arguments_], options);
   return stdout;

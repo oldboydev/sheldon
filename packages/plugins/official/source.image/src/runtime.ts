@@ -12,6 +12,38 @@ export function resolveTesseractExecutable(root: string, platform: OfficialPlatf
   );
 }
 
+export function createTesseractChildEnvironment(
+  root: string,
+  platform: OfficialPlatform,
+  environment: Readonly<NodeJS.ProcessEnv> = process.env,
+): NodeJS.ProcessEnv {
+  const childEnvironment = { ...environment };
+  const variable = loaderVariable(platform);
+  const separator = platform.startsWith('win32-') ? ';' : ':';
+  let existingValue = environment[variable];
+  if (variable === 'PATH') {
+    for (const key of Object.keys(childEnvironment)) {
+      if (key.toUpperCase() !== variable) continue;
+      existingValue ??= childEnvironment[key];
+      delete childEnvironment[key];
+    }
+  }
+  const libraryDirectory = join(root, 'runtime', platform, 'lib');
+  childEnvironment[variable] =
+    existingValue === undefined || existingValue.length === 0
+      ? libraryDirectory
+      : `${libraryDirectory}${separator}${existingValue}`;
+  return childEnvironment;
+}
+
+function loaderVariable(
+  platform: OfficialPlatform,
+): 'PATH' | 'LD_LIBRARY_PATH' | 'DYLD_FALLBACK_LIBRARY_PATH' {
+  if (platform.startsWith('win32-')) return 'PATH';
+  if (platform.startsWith('darwin-')) return 'DYLD_FALLBACK_LIBRARY_PATH';
+  return 'LD_LIBRARY_PATH';
+}
+
 export async function isRegularNonEmptyFile(path: string): Promise<boolean> {
   try {
     const details = await lstat(path);

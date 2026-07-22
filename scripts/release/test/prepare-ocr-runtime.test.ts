@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { access, mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -39,11 +39,86 @@ describe('OCR runtime preparation', () => {
       sources: testSources(),
     });
 
-    await expect(access(join(output, 'runtime', 'linux-x64', 'tesseract'))).resolves.toBeUndefined();
-    await expect(access(join(output, 'data', 'tessdata', 'eng.traineddata'))).resolves.toBeUndefined();
-    await expect(access(join(output, 'data', 'tessdata', 'por.traineddata'))).resolves.toBeUndefined();
-    await expect(access(join(output, 'runtime', 'linux-x64', 'THIRD_PARTY_NOTICES'))).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'runtime', 'linux-x64', 'tesseract')),
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'data', 'tessdata', 'eng.traineddata')),
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'data', 'tessdata', 'por.traineddata')),
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'runtime', 'linux-x64', 'THIRD_PARTY_NOTICES')),
+    ).resolves.toBeUndefined();
     await expect(access(join(output, 'unrelated.txt'))).rejects.toThrow();
+  });
+
+  it('copies regular private runtime libraries recursively', async () => {
+    const root = await temporaryRoot();
+    const input = join(root, 'artifact');
+    const output = join(root, 'source.image');
+    await writeArtifact(input, 'linux-x64');
+    await mkdir(join(input, 'runtime', 'linux-x64', 'lib', 'codec'), { recursive: true });
+    await writeFile(join(input, 'runtime', 'linux-x64', 'lib', 'liblept.so.6'), 'leptonica');
+    await writeFile(join(input, 'runtime', 'linux-x64', 'lib', 'codec', 'libjpeg.so.62'), 'jpeg');
+
+    await prepareOcrRuntime({
+      platform: 'linux-x64',
+      input,
+      output,
+      download: noDownload,
+      sources: testSources(),
+    });
+
+    await expect(
+      access(join(output, 'runtime', 'linux-x64', 'lib', 'liblept.so.6')),
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'runtime', 'linux-x64', 'lib', 'codec', 'libjpeg.so.62')),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects a symbolic link in the private runtime library tree', async () => {
+    const root = await temporaryRoot();
+    const input = join(root, 'artifact');
+    await writeArtifact(input, 'linux-x64');
+    await mkdir(join(input, 'runtime', 'linux-x64', 'lib'), { recursive: true });
+    const outside = join(root, 'outside-libraries');
+    await mkdir(outside);
+    await writeFile(join(outside, 'liblept.so.6'), 'outside');
+    await symlink(
+      outside,
+      join(input, 'runtime', 'linux-x64', 'lib', 'linked-libraries'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+
+    await expect(
+      prepareOcrRuntime({
+        platform: 'linux-x64',
+        input,
+        output: join(root, 'out'),
+        download: noDownload,
+        sources: testSources(),
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_LIBRARY_INVALID');
+  });
+
+  it('rejects an empty directory in the private runtime library tree', async () => {
+    const root = await temporaryRoot();
+    const input = join(root, 'artifact');
+    await writeArtifact(input, 'linux-x64');
+    await mkdir(join(input, 'runtime', 'linux-x64', 'lib', 'empty'), { recursive: true });
+
+    await expect(
+      prepareOcrRuntime({
+        platform: 'linux-x64',
+        input,
+        output: join(root, 'out'),
+        download: noDownload,
+        sources: testSources(),
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_LIBRARY_INVALID');
   });
 
   it('rejects an artifact missing the platform executable', async () => {
@@ -84,17 +159,13 @@ describe('OCR runtime preparation', () => {
   it('rejects a source record pinned to a mutable release tag', () => {
     const unpinned = { ...OCR_RUNTIME_SOURCES.models.eng, revision: '5.5.2' };
 
-    expect(() => assertPinnedOcrRuntimeSource(unpinned)).toThrow(
-      'OCR_RUNTIME_SOURCE_UNPINNED',
-    );
+    expect(() => assertPinnedOcrRuntimeSource(unpinned)).toThrow('OCR_RUNTIME_SOURCE_UNPINNED');
   });
 
   it('rejects a source URL that does not embed its immutable revision', () => {
     const unpinned = { ...OCR_RUNTIME_SOURCES.models.eng, url: 'https://example.test/download' };
 
-    expect(() => assertPinnedOcrRuntimeSource(unpinned)).toThrow(
-      'OCR_RUNTIME_SOURCE_UNPINNED',
-    );
+    expect(() => assertPinnedOcrRuntimeSource(unpinned)).toThrow('OCR_RUNTIME_SOURCE_UNPINNED');
   });
 
   it('rejects an artifact with extra top-level entries', async () => {
@@ -113,7 +184,6 @@ describe('OCR runtime preparation', () => {
       }),
     ).rejects.toThrow('OCR_RUNTIME_ARTIFACT_LAYOUT_INVALID');
   });
-
 });
 
 async function temporaryRoot(): Promise<string> {

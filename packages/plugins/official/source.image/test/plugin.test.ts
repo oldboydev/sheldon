@@ -27,8 +27,19 @@ describe('official source image plugin', () => {
     const output = await temporaryDirectory();
     await writeFile(input, Uint8Array.from([0x89, 0x50, 0x4e, 0x47]));
     await writeFile(markdown, '# Evidence\n');
-    const run = vi.fn(async () => 'recognized text\n');
+    let observedChildEnvironment: NodeJS.ProcessEnv | undefined;
+    const run = vi.fn(
+      async (
+        _file: string,
+        _arguments: readonly string[],
+        options: { readonly env: NodeJS.ProcessEnv; readonly shell: false },
+      ) => {
+        observedChildEnvironment = options.env;
+        return 'recognized text\n';
+      },
+    );
     const executable = join(root, 'runtime', 'win32-x64', 'tesseract.exe');
+    const parentPath = process.env.PATH;
     const plugin = createOfficialSourceImagePlugin({
       pluginRoot: root,
       platform: 'win32-x64',
@@ -55,8 +66,17 @@ describe('official source image plugin', () => {
     expect(run).toHaveBeenCalledWith(
       executable,
       expect.arrayContaining(['--tessdata-dir', join(root, 'data', 'tessdata'), '-l', 'por+eng']),
-      expect.objectContaining({ shell: false }),
+      expect.objectContaining({
+        env: expect.objectContaining({
+          PATH: `${join(root, 'runtime', 'win32-x64', 'lib')}${
+            parentPath === undefined ? '' : `;${parentPath}`
+          }`,
+        }),
+        shell: false,
+      }),
     );
+    expect(observedChildEnvironment).not.toBe(process.env);
+    expect(process.env.PATH).toBe(parentPath);
     await expect(readFile(join(output, 'content.md'), 'utf8')).resolves.toBe('recognized text\n');
   });
 
@@ -114,7 +134,7 @@ describe('official source image plugin', () => {
 async function pluginRoot(): Promise<string> {
   const root = await temporaryDirectory();
   await mkdir(join(root, 'data', 'tessdata'), { recursive: true });
-  await mkdir(join(root, 'runtime', 'win32-x64'), { recursive: true });
+  await mkdir(join(root, 'runtime', 'win32-x64', 'lib'), { recursive: true });
   await Promise.all([
     writeFile(join(root, 'data', 'tessdata', 'por.traineddata'), 'por'),
     writeFile(join(root, 'data', 'tessdata', 'eng.traineddata'), 'eng'),
