@@ -25,6 +25,19 @@ describe('OCR runtime preparation', () => {
     });
   });
 
+  it('pins the separately downloaded tessdata license checksum', () => {
+    expect(OCR_RUNTIME_SOURCES.models.eng.licenseSha256).toMatch(/^[a-f0-9]{64}$/u);
+    expect(OCR_RUNTIME_SOURCES.models.por.licenseSha256).toBe(
+      OCR_RUNTIME_SOURCES.models.eng.licenseSha256,
+    );
+    expect(() =>
+      assertPinnedOcrRuntimeSource({
+        ...OCR_RUNTIME_SOURCES.models.eng,
+        licenseSha256: undefined,
+      }),
+    ).toThrow('OCR_RUNTIME_SOURCE_UNPINNED');
+  });
+
   it('copies only the canonical runtime and base model paths', async () => {
     const root = await temporaryRoot();
     const input = join(root, 'artifact');

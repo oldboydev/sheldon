@@ -32,10 +32,10 @@ sources_json="$(cd "$repository_root" && node --input-type=module --eval "import
 source_values=()
 while IFS= read -r value; do
   source_values+=("$value")
-done < <(node --input-type=module --eval "const s=JSON.parse(process.argv[1]); for (const x of [s.tesseract.url,s.tesseract.revision,s.tesseract.sha256,s.models.eng.url,s.models.eng.sha256,s.models.eng.licenseSource,s.models.por.url,s.models.por.sha256]) console.log(x);" "$sources_json")
+done < <(node --input-type=module --eval "const s=JSON.parse(process.argv[1]); for (const x of [s.tesseract.url,s.tesseract.revision,s.tesseract.sha256,s.models.eng.url,s.models.eng.sha256,s.models.eng.licenseSource,s.models.eng.licenseSha256,s.models.por.url,s.models.por.sha256]) console.log(x);" "$sources_json")
 tesseract_url="${source_values[0]}"; tesseract_revision="${source_values[1]}"; tesseract_sha="${source_values[2]}"
-eng_url="${source_values[3]}"; eng_sha="${source_values[4]}"; model_license_url="${source_values[5]}"
-por_url="${source_values[6]}"; por_sha="${source_values[7]}"
+eng_url="${source_values[3]}"; eng_sha="${source_values[4]}"; model_license_url="${source_values[5]}"; model_license_sha="${source_values[6]}"
+por_url="${source_values[7]}"; por_sha="${source_values[8]}"
 
 output="$(python3 -c 'import os,sys; print(os.path.abspath(sys.argv[1]))' "$output")"
 if [[ -e "$output" ]] && [[ -n "$(find "$output" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
@@ -141,7 +141,7 @@ fi
 
 model_license_url="${model_license_url/https:\/\/github.com\//https:\/\/raw.githubusercontent.com\/}"
 model_license_url="${model_license_url/\/blob\//\/}"
-curl --fail --location --proto '=https' --retry 5 --show-error "$model_license_url" --output "$work_root/tessdata-LICENSE"
+download_pinned "$model_license_url" "$work_root/tessdata-LICENSE" "$model_license_sha"
 [[ -s "$source_root/LICENSE" && -s "$work_root/tessdata-LICENSE" ]] || {
   printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Required upstream license text is missing.' >&2
   exit 1
@@ -150,7 +150,8 @@ curl --fail --location --proto '=https' --retry 5 --show-error "$model_license_u
   printf 'Sheldon OCR runtime third-party notices\n\nPlatform: %s\n' "$platform"
   printf 'Tesseract source: %s\nRevision: %s\nSHA-256: %s\n\n== Tesseract OCR ==\n' "$tesseract_url" "$tesseract_revision" "$tesseract_sha"
   cat "$source_root/LICENSE"
-  printf '\n\n== tessdata_fast base models ==\neng source: %s\npor source: %s\n' "$eng_url" "$por_url"
+  printf '\n\n== tessdata_fast base models ==\neng source: %s\npor source: %s\nlicense source: %s\nlicense SHA-256: %s\n' \
+    "$eng_url" "$por_url" "$model_license_url" "$model_license_sha"
   cat "$work_root/tessdata-LICENSE"
   for index in "${!library_names[@]}"; do
     name="${library_names[$index]}"

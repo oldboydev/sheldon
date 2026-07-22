@@ -27,10 +27,14 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($sourcesJson)) {
 $sources = $sourcesJson | ConvertFrom-Json
 
 $mingwBin = 'C:\msys64\mingw64\bin'
+$pacman = 'C:\msys64\usr\bin\pacman.exe'
 foreach ($tool in @('cmake.exe', 'ninja.exe', 'g++.exe', 'objdump.exe')) {
   if (-not (Test-Path (Join-Path $mingwBin $tool))) {
     throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 MINGW64 tool $tool."
   }
+}
+if (-not (Test-Path $pacman)) {
+  throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 package manager $pacman."
 }
 
 $outputRoot = [System.IO.Path]::GetFullPath($Output)
@@ -101,6 +105,7 @@ try {
   $queue.Enqueue($builtExecutable.FullName)
   $visited = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
   $copied = [System.Collections.Generic.List[string]]::new()
+  $privateDllProviders = @{}
   while ($queue.Count -gt 0) {
     $candidate = $queue.Dequeue()
     $resolvedCandidate = [System.IO.Path]::GetFullPath($candidate)
@@ -122,15 +127,55 @@ try {
       if (-not (Test-Path $destinationDll)) {
         Copy-Item $sourceDll.FullName $destinationDll
         $copied.Add($dependency)
+        $ownership = & $pacman -Qo $sourceDll.FullName 2>$null
+        if ($LASTEXITCODE -eq 0 -and $ownership -match '\s+is owned by\s+([^\s]+)\s+') {
+          $packageName = $Matches[1]
+          if (-not $privateDllProviders.ContainsKey($packageName)) {
+            $privateDllProviders[$packageName] = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+          }
+          [void]$privateDllProviders[$packageName].Add($dependency)
+        }
       }
       $queue.Enqueue($sourceDll.FullName)
     }
   }
   if ($copied.Count -eq 0) { throw 'OCR_RUNTIME_DEPENDENCY_INVALID: No private DLL dependencies were packaged.' }
+  if ($privateDllProviders.Count -eq 0) {
+    throw 'OCR_RUNTIME_NOTICES_INVALID: No MSYS2 package ownership was found for bundled private DLLs.'
+  }
+
+  $msys2LicenseNotices = [System.Collections.Generic.List[string]]::new()
+  foreach ($packageName in ($privateDllProviders.Keys | Sort-Object)) {
+    $licenseFiles = @(
+      & $pacman -Qql $packageName 2>$null |
+        Where-Object { $_ -match '/share/licenses/.+' -and $_ -notmatch '/$' } |
+        ForEach-Object { Join-Path 'C:\msys64' ($_.TrimStart('/') -replace '/', '\\') } |
+        Where-Object { Test-Path $_ }
+    )
+    if ($LASTEXITCODE -ne 0 -or $licenseFiles.Count -eq 0) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: MSYS2 package $packageName provides bundled private DLLs but no license text was found."
+    }
+    $licenseTexts = @(
+      foreach ($licenseFile in ($licenseFiles | Sort-Object -Unique)) {
+        $licenseText = Get-Content -Raw $licenseFile
+        if ([string]::IsNullOrWhiteSpace($licenseText)) {
+          throw "OCR_RUNTIME_NOTICES_INVALID: MSYS2 license file is empty: $licenseFile"
+        }
+        "License file: $licenseFile", $licenseText
+      }
+    )
+    if ($licenseTexts.Count -eq 0) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: MSYS2 package $packageName has no readable license text."
+    }
+    [void]$msys2LicenseNotices.Add("== MSYS2 package: $packageName ==")
+    [void]$msys2LicenseNotices.Add("Private DLLs: $(($privateDllProviders[$packageName] | Sort-Object) -join ', ')")
+    $licenseTexts | ForEach-Object { [void]$msys2LicenseNotices.Add($_) }
+    [void]$msys2LicenseNotices.Add('')
+  }
 
   $modelLicense = Join-Path $workRoot 'tessdata-LICENSE'
   $modelLicenseUrl = $sources.models.eng.licenseSource -replace 'https://github.com/', 'https://raw.githubusercontent.com/' -replace '/blob/', '/'
-  Invoke-WebRequest -Uri $modelLicenseUrl -OutFile $modelLicense -MaximumRedirection 0
+  Get-PinnedFile $modelLicenseUrl $modelLicense $sources.models.eng.licenseSha256
   $sourceLicense = Join-Path $sourceRoot 'LICENSE'
   if (-not (Test-Path $sourceLicense) -or -not (Test-Path $modelLicense)) {
     throw 'OCR_RUNTIME_NOTICES_INVALID: Required upstream license text is missing.'
@@ -145,12 +190,19 @@ try {
     '', '== Tesseract OCR ==', (Get-Content -Raw $sourceLicense),
     '', '== tessdata_fast base models ==',
     "eng source: $($sources.models.eng.url)", "por source: $($sources.models.por.url)",
+    "tessdata license source: $modelLicenseUrl", "tessdata license SHA-256: $($sources.models.eng.licenseSha256)",
     (Get-Content -Raw $modelLicense),
-    '', '== Bundled MSYS2 DLLs ==', ($copied | Sort-Object | ForEach-Object { "- $_" })
+    '', '== Bundled MSYS2 DLLs ==', ($copied | Sort-Object | ForEach-Object { "- $_" }),
+    '', '== MSYS2 package licenses ==', $msys2LicenseNotices
   ) -join [Environment]::NewLine
   $noticesPath = Join-Path $runtimeRoot 'THIRD_PARTY_NOTICES'
   [System.IO.File]::WriteAllText($noticesPath, $notices + [Environment]::NewLine)
   if ((Get-Item $noticesPath).Length -eq 0) { throw 'OCR_RUNTIME_NOTICES_INVALID: Notices are empty.' }
+  foreach ($packageName in $privateDllProviders.Keys) {
+    if ($notices -notmatch [regex]::Escape("== MSYS2 package: $packageName ==")) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: Notices are missing the MSYS2 package section for $packageName."
+    }
+  }
 
   $previousPath = $env:PATH
   $env:PATH = "$libraryRoot;$env:PATH"

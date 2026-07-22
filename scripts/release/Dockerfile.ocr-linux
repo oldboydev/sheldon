@@ -15,6 +15,7 @@ ARG POR_MODEL_REVISION
 ARG POR_MODEL_SHA256
 ARG POR_MODEL_LICENSE_SOURCE
 ARG TESSDATA_LICENSE_URL
+ARG TESSDATA_LICENSE_SHA256
 
 ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8 \
@@ -42,7 +43,7 @@ for value in \
   "$TESSERACT_LICENSE_SOURCE" "$ENG_MODEL_URL" "$ENG_MODEL_REVISION" \
   "$ENG_MODEL_SHA256" "$ENG_MODEL_LICENSE_SOURCE" "$POR_MODEL_URL" \
   "$POR_MODEL_REVISION" "$POR_MODEL_SHA256" "$POR_MODEL_LICENSE_SOURCE" \
-  "$TESSDATA_LICENSE_URL"
+  "$TESSDATA_LICENSE_URL" "$TESSDATA_LICENSE_SHA256"
 do
   test -n "$value"
 done
@@ -61,6 +62,7 @@ printf '%s  %s\n' "$ENG_MODEL_SHA256" /work/models/eng.traineddata | sha256sum -
 printf '%s  %s\n' "$POR_MODEL_SHA256" /work/models/por.traineddata | sha256sum --check --strict
 curl --fail --location --proto '=https' --retry 5 --show-error \
   "$TESSDATA_LICENSE_URL" --output /work/tessdata-LICENSE
+printf '%s  %s\n' "$TESSDATA_LICENSE_SHA256" /work/tessdata-LICENSE | sha256sum --check --strict
 install -m 0644 /work/models/eng.traineddata /output/data/tessdata/eng.traineddata
 install -m 0644 /work/models/por.traineddata /output/data/tessdata/por.traineddata
 BASH
@@ -159,7 +161,8 @@ done < <(find "$runtime/lib" -type f -print)
     "$ENG_MODEL_URL" "$ENG_MODEL_REVISION" "$ENG_MODEL_SHA256" "$ENG_MODEL_LICENSE_SOURCE"
   printf 'por source: %s\npor revision: %s\npor SHA-256: %s\npor license source: %s\n' \
     "$POR_MODEL_URL" "$POR_MODEL_REVISION" "$POR_MODEL_SHA256" "$POR_MODEL_LICENSE_SOURCE"
-  printf 'Canonical license URL: %s\n\n' "$TESSDATA_LICENSE_URL"
+  printf 'Canonical license URL: %s\nCanonical license SHA-256: %s\n\n' \
+    "$TESSDATA_LICENSE_URL" "$TESSDATA_LICENSE_SHA256"
   cat /work/tessdata-LICENSE
   printf '\n\n== Bundled shared-library packages ==\n'
   while IFS= read -r package; do

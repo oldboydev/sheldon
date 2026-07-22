@@ -57,6 +57,7 @@ describe('Linux OCR runtime builder', () => {
     expect(arguments_).toContain(
       `TESSDATA_LICENSE_URL=https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/${sources.models.eng.revision}/LICENSE`,
     );
+    expect(arguments_).toContain(`TESSDATA_LICENSE_SHA256=${sources.models.eng.licenseSha256}`);
   });
 
   it('rejects unsupported platforms before invoking Docker', async () => {
@@ -131,9 +132,18 @@ describe('Native OCR runtime workflow', () => {
     ]);
     expect(workflow.jobs?.build?.steps).toContainEqual(
       expect.objectContaining({
-        uses: 'actions/upload-artifact@v4',
+        uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
         with: expect.objectContaining({ name: 'ocr-runtime-${{ matrix.platform }}' }),
       }),
+    );
+    expect(workflow.jobs?.build?.steps?.map((step) => step.uses).filter(Boolean)).toEqual([
+      'actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8',
+      'actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444',
+      'msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
+      'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
+    ]);
+    expect(workflow.jobs?.build?.steps).toContainEqual(
+      expect.objectContaining({ with: expect.objectContaining({ 'node-version': '24.13.0' }) }),
     );
   });
 });

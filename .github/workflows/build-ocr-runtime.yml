@@ -24,15 +24,15 @@ jobs:
             runner: ubuntu-22.04
         platform: [win32-x64, darwin-arm64, darwin-x64, linux-x64]
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v5
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
         with:
-          node-version: 24
-      - uses: msys2/setup-msys2@v2
+          node-version: 24.13.0
+      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.27.0
         if: matrix.platform == 'win32-x64'
         with:
           msystem: MINGW64
-          update: true
+          update: false
           install: >-
             mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-leptonica
             mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf
@@ -60,7 +60,7 @@ jobs:
           node scripts/release/build-ocr-runtime.mjs
           --platform ${{ matrix.platform }}
           --output "$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ocr-runtime-${{ matrix.platform }}
           path: ${{ runner.temp }}/ocr-runtime-${{ matrix.platform }}

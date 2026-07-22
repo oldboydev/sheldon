@@ -96,6 +96,7 @@ function sourceBuildArguments(sources) {
     POR_MODEL_SHA256: sources.models.por.sha256,
     POR_MODEL_LICENSE_SOURCE: sources.models.por.licenseSource,
     TESSDATA_LICENSE_URL: rawGithubUrl(sources.models.eng.licenseSource),
+    TESSDATA_LICENSE_SHA256: sources.models.eng.licenseSha256,
   };
   return Object.entries(values).flatMap(([name, value]) => ['--build-arg', `${name}=${value}`]);
 }
