@@ -6,20 +6,23 @@ export const OCR_RUNTIME_SOURCES = Object.freeze({
     url: 'https://github.com/tesseract-ocr/tesseract/archive/6e1d56a847e697de07b38619356550e5cf4e8633.tar.gz',
     revision: '6e1d56a847e697de07b38619356550e5cf4e8633',
     sha256: '51342815a262a5c1d000bab44503ddbf71ef210053375d504f619ca7a3b381bd',
-    licenseSource: 'https://github.com/tesseract-ocr/tesseract/blob/6e1d56a847e697de07b38619356550e5cf4e8633/LICENSE',
+    licenseSource:
+      'https://github.com/tesseract-ocr/tesseract/blob/6e1d56a847e697de07b38619356550e5cf4e8633/LICENSE',
   }),
   models: Object.freeze({
     eng: Object.freeze({
-      url: 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4f18b9c1cb7d0a4a2c9d9ccf21835a2f9997ad50/eng.traineddata',
-      revision: '4f18b9c1cb7d0a4a2c9d9ccf21835a2f9997ad50',
-      sha256: '7d432f94c52e4cf4bcba738dee407dc782b4e0a1e086d1d20b2aab6ef5ec0b6d',
-      licenseSource: 'https://github.com/tesseract-ocr/tessdata_fast/blob/4f18b9c1cb7d0a4a2c9d9ccf21835a2f9997ad50/LICENSE',
+      url: 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/27cfc71a8874cce2483679eea010e391bb38c2ae/eng.traineddata',
+      revision: '27cfc71a8874cce2483679eea010e391bb38c2ae',
+      sha256: '7d4322bd2a7749724879683fc3912cb542f19906c83bcc1a52132556427170b2',
+      licenseSource:
+        'https://github.com/tesseract-ocr/tessdata_fast/blob/27cfc71a8874cce2483679eea010e391bb38c2ae/LICENSE',
     }),
     por: Object.freeze({
-      url: 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/4f18b9c1cb7d0a4a2c9d9ccf21835a2f9997ad50/por.traineddata',
-      revision: '4f18b9c1cb7d0a4a2c9d9ccf21835a2f9997ad50',
-      sha256: '2981d3251f184f9d86fa882be9f9c6aa47bdbf39e1e16b302ed9c4cfd43f4f49',
-      licenseSource: 'https://github.com/tesseract-ocr/tessdata_fast/blob/4f18b9c1cb7d0a4a2c9d9ccf21835a2f9997ad50/LICENSE',
+      url: 'https://raw.githubusercontent.com/tesseract-ocr/tessdata_fast/27cfc71a8874cce2483679eea010e391bb38c2ae/por.traineddata',
+      revision: '27cfc71a8874cce2483679eea010e391bb38c2ae',
+      sha256: 'c4932b937207a9514b7514d518b931a99938c02a28a5a5a553f8599ed58b7deb',
+      licenseSource:
+        'https://github.com/tesseract-ocr/tessdata_fast/blob/27cfc71a8874cce2483679eea010e391bb38c2ae/LICENSE',
     }),
   }),
 });
@@ -41,7 +44,12 @@ export function assertPinnedOcrRuntimeSource(source) {
 }
 
 export function assertPinnedOcrRuntimeSources(sources = OCR_RUNTIME_SOURCES) {
-  if (!sources || typeof sources !== 'object' || !sources.models || typeof sources.models !== 'object') {
+  if (
+    !sources ||
+    typeof sources !== 'object' ||
+    !sources.models ||
+    typeof sources.models !== 'object'
+  ) {
     throw unpinnedSourceError();
   }
   assertPinnedOcrRuntimeSource(sources.tesseract);

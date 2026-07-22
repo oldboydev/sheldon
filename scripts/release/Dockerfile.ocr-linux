@@ -1,0 +1,209 @@
+# syntax=docker/dockerfile:1.7
+
+FROM debian:bookworm-slim@sha256:7b140f374b289a7c2befc338f42ebe6441b7ea838a042bbd5acbfca6ec875818 AS builder
+
+ARG TESSERACT_URL
+ARG TESSERACT_REVISION
+ARG TESSERACT_SHA256
+ARG TESSERACT_LICENSE_SOURCE
+ARG ENG_MODEL_URL
+ARG ENG_MODEL_REVISION
+ARG ENG_MODEL_SHA256
+ARG ENG_MODEL_LICENSE_SOURCE
+ARG POR_MODEL_URL
+ARG POR_MODEL_REVISION
+ARG POR_MODEL_SHA256
+ARG POR_MODEL_LICENSE_SOURCE
+ARG TESSDATA_LICENSE_URL
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    LC_ALL=C.UTF-8 \
+    SOURCE_DATE_EPOCH=0 \
+    TZ=UTC
+
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends \
+      build-essential \
+      ca-certificates \
+      cmake \
+      curl \
+      libleptonica-dev \
+      ninja-build \
+      patchelf \
+      pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
+
+RUN <<'BASH'
+set -euo pipefail
+for value in \
+  "$TESSERACT_URL" "$TESSERACT_REVISION" "$TESSERACT_SHA256" \
+  "$TESSERACT_LICENSE_SOURCE" "$ENG_MODEL_URL" "$ENG_MODEL_REVISION" \
+  "$ENG_MODEL_SHA256" "$ENG_MODEL_LICENSE_SOURCE" "$POR_MODEL_URL" \
+  "$POR_MODEL_REVISION" "$POR_MODEL_SHA256" "$POR_MODEL_LICENSE_SOURCE" \
+  "$TESSDATA_LICENSE_URL"
+do
+  test -n "$value"
+done
+
+mkdir -p /work/source /work/models /output/data/tessdata /output/runtime/linux-x64/lib
+curl --fail --location --proto '=https' --retry 5 --show-error \
+  "$TESSERACT_URL" --output /work/tesseract.tar.gz
+printf '%s  %s\n' "$TESSERACT_SHA256" /work/tesseract.tar.gz | sha256sum --check --strict
+tar --extract --gzip --file /work/tesseract.tar.gz --directory /work/source --strip-components=1
+
+curl --fail --location --proto '=https' --retry 5 --show-error \
+  "$ENG_MODEL_URL" --output /work/models/eng.traineddata
+curl --fail --location --proto '=https' --retry 5 --show-error \
+  "$POR_MODEL_URL" --output /work/models/por.traineddata
+printf '%s  %s\n' "$ENG_MODEL_SHA256" /work/models/eng.traineddata | sha256sum --check --strict
+printf '%s  %s\n' "$POR_MODEL_SHA256" /work/models/por.traineddata | sha256sum --check --strict
+curl --fail --location --proto '=https' --retry 5 --show-error \
+  "$TESSDATA_LICENSE_URL" --output /work/tessdata-LICENSE
+install -m 0644 /work/models/eng.traineddata /output/data/tessdata/eng.traineddata
+install -m 0644 /work/models/por.traineddata /output/data/tessdata/por.traineddata
+BASH
+
+RUN cmake -S /work/source -B /work/build -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_C_FLAGS_RELEASE='-O2 -DNDEBUG -ffile-prefix-map=/work/source=.' \
+      -DCMAKE_CXX_FLAGS_RELEASE='-O2 -DNDEBUG -ffile-prefix-map=/work/source=.' \
+      -DCMAKE_EXE_LINKER_FLAGS='-Wl,--build-id=sha1' \
+      -DCMAKE_SHARED_LINKER_FLAGS='-Wl,--build-id=sha1' \
+      -DBUILD_SHARED_LIBS=ON \
+      -DBUILD_TESTS=OFF \
+      -DBUILD_TRAINING_TOOLS=OFF \
+      -DDISABLE_ARCHIVE=ON \
+      -DDISABLE_CURL=ON \
+      -DENABLE_NATIVE=OFF \
+      -DGRAPHICS_DISABLED=ON \
+      -DOPENMP_BUILD=OFF \
+    && cmake --build /work/build --target tesseract --parallel
+
+RUN <<'BASH'
+set -euo pipefail
+runtime=/output/runtime/linux-x64
+executable="$runtime/tesseract"
+built_executable="$(find /work/build -type f -name tesseract -perm /111 -print -quit)"
+test -n "$built_executable"
+install -m 0755 "$built_executable" "$executable"
+
+declare -A visited
+declare -a queue=("$built_executable")
+: > /work/runtime-packages
+
+is_system_library() {
+  case "$1" in
+    ld-linux-x86-64.so.*|libc.so.*|libdl.so.*|libm.so.*|libpthread.so.*|libresolv.so.*|librt.so.*)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+while ((${#queue[@]} > 0)); do
+  candidate="${queue[0]}"
+  queue=("${queue[@]:1}")
+  canonical="$(readlink -f "$candidate")"
+  if [[ -n "${visited[$canonical]:-}" ]]; then
+    continue
+  fi
+  visited[$canonical]=1
+
+  while read -r soname dependency; do
+    if is_system_library "$soname"; then
+      continue
+    fi
+    test -f "$dependency"
+    install -m 0644 -D "$dependency" "$runtime/lib/$soname"
+    queue+=("$dependency")
+
+    resolved="$(readlink -f "$dependency")"
+    if owner_record="$(dpkg-query --search "$resolved" 2>/dev/null | head -n 1)"; then
+      package="${owner_record%%:*}"
+      printf '%s\n' "$package" >> /work/runtime-packages
+    fi
+  done < <(
+    ldd "$candidate" | awk '
+      $2 == "=>" && $3 ~ /^\// { print $1, $3 }
+      $1 ~ /^\// {
+        count = split($1, parts, "/")
+        print parts[count], $1
+      }
+    '
+  )
+done
+
+patchelf --set-rpath '$ORIGIN/lib' "$executable"
+while IFS= read -r library; do
+  patchelf --set-rpath '$ORIGIN' "$library"
+done < <(find "$runtime/lib" -type f -print)
+
+strip --strip-unneeded "$executable"
+while IFS= read -r library; do
+  strip --strip-unneeded "$library" || true
+done < <(find "$runtime/lib" -type f -print)
+
+{
+  printf 'Sheldon OCR runtime third-party notices\n\n'
+  printf 'Platform: linux/amd64\nCompiler: %s\n\n' "$(gcc --version | head -n 1)"
+  printf '== Tesseract OCR ==\n'
+  printf 'Source: %s\nRevision: %s\nSHA-256: %s\nLicense source: %s\n\n' \
+    "$TESSERACT_URL" "$TESSERACT_REVISION" "$TESSERACT_SHA256" "$TESSERACT_LICENSE_SOURCE"
+  cat /work/source/LICENSE
+  printf '\n\n== tessdata_fast base models ==\n'
+  printf 'eng source: %s\neng revision: %s\neng SHA-256: %s\neng license source: %s\n' \
+    "$ENG_MODEL_URL" "$ENG_MODEL_REVISION" "$ENG_MODEL_SHA256" "$ENG_MODEL_LICENSE_SOURCE"
+  printf 'por source: %s\npor revision: %s\npor SHA-256: %s\npor license source: %s\n' \
+    "$POR_MODEL_URL" "$POR_MODEL_REVISION" "$POR_MODEL_SHA256" "$POR_MODEL_LICENSE_SOURCE"
+  printf 'Canonical license URL: %s\n\n' "$TESSDATA_LICENSE_URL"
+  cat /work/tessdata-LICENSE
+  printf '\n\n== Bundled shared-library packages ==\n'
+  while IFS= read -r package; do
+    version="$(dpkg-query --show --showformat='${Version}' "$package")"
+    printf '\n-- %s %s --\n' "$package" "$version"
+    copyright="/usr/share/doc/$package/copyright"
+    if [[ ! -f "$copyright" ]]; then
+      printf 'ERROR: package copyright file is missing: %s\n' "$copyright" >&2
+      exit 1
+    fi
+    cat "$copyright"
+  done < <(sort -u /work/runtime-packages)
+} > "$runtime/THIRD_PARTY_NOTICES"
+
+test -s "$runtime/THIRD_PARTY_NOTICES"
+dependency_report="$(LD_LIBRARY_PATH="$runtime/lib" ldd "$executable")"
+if grep -q 'not found' <<<"$dependency_report"; then
+  printf '%s\n' "$dependency_report" >&2
+  exit 1
+fi
+while read -r soname dependency; do
+  if is_system_library "$soname"; then
+    continue
+  fi
+  case "$dependency" in
+    "$runtime/lib/"*) ;;
+    *)
+      printf 'Dependency escaped the private runtime library directory: %s => %s\n' \
+        "$soname" "$dependency" >&2
+      exit 1
+      ;;
+  esac
+done < <(
+  awk '$2 == "=>" && $3 ~ /^\// { print $1, $3 }' <<<"$dependency_report"
+)
+
+healthcheck="$(
+  LD_LIBRARY_PATH="$runtime/lib" \
+    "$executable" --tessdata-dir /output/data/tessdata --list-langs
+)"
+printf '%s\n' "$healthcheck"
+grep -qx 'eng' <<<"$healthcheck"
+grep -qx 'por' <<<"$healthcheck"
+BASH
+
+FROM scratch AS runtime
+COPY --from=builder /output/ /
