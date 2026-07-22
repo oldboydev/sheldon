@@ -129,7 +129,12 @@ try {
       if (-not (Test-Path $destinationDll)) {
         Copy-Item $sourceDll.FullName $destinationDll
         $copied.Add($dependency)
-        $ownership = & $pacman -Qo $sourceDll.FullName 2>$null
+        $packagePath = if ($sourceDll.FullName.StartsWith($msysRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+          '/' + ($sourceDll.FullName.Substring($msysRoot.Length).TrimStart('\') -replace '\\', '/')
+        } else {
+          $sourceDll.FullName
+        }
+        $ownership = & $pacman -Qo $packagePath 2>$null
         if ($LASTEXITCODE -eq 0 -and $ownership -match '\s+is owned by\s+([^\s]+)\s+') {
           $packageName = $Matches[1]
           if (-not $privateDllProviders.ContainsKey($packageName)) {

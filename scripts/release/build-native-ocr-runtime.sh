@@ -139,8 +139,15 @@ if otool -L "$executable" "$library_root"/* | grep -E '/(opt/homebrew|usr/local)
   exit 1
 fi
 
-model_license_url="${model_license_url/https:\/\/github.com\//https:\/\/raw.githubusercontent.com\/}"
-model_license_url="${model_license_url/\/blob\//\/}"
+model_license_url="$(
+  node --input-type=module --eval "
+    const url = new URL(process.argv[1]);
+    if (url.protocol !== 'https:' || url.hostname !== 'github.com') process.exit(1);
+    url.hostname = 'raw.githubusercontent.com';
+    url.pathname = url.pathname.replace('/blob/', '/');
+    process.stdout.write(url.href);
+  " "$model_license_url"
+)"
 download_pinned "$model_license_url" "$work_root/tessdata-LICENSE" "$model_license_sha"
 [[ -s "$source_root/LICENSE" && -s "$work_root/tessdata-LICENSE" ]] || {
   printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Required upstream license text is missing.' >&2

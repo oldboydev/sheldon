@@ -151,12 +151,14 @@ describe('Native OCR runtime workflow', () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
 
     expect(builder).toContain('-DSW_BUILD=OFF');
+    expect(builder).toContain('& $pacman -Qo $packagePath');
   });
 
   it('resolves macOS dylib compatibility symlinks while bundling dependencies', async () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
 
     expect(builder).toContain('\\( -type f -o -type l \\) -name "$dependency_name"');
+    expect(builder).toContain("url.hostname = 'raw.githubusercontent.com';");
   });
 });
 
