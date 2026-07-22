@@ -146,6 +146,18 @@ describe('Native OCR runtime workflow', () => {
       expect.objectContaining({ with: expect.objectContaining({ 'node-version': '24.13.0' }) }),
     );
   });
+
+  it("uses the MSYS2 Leptonica installation instead of Tesseract's unavailable SW path", async () => {
+    const builder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
+
+    expect(builder).toContain('-DSW_BUILD=OFF');
+  });
+
+  it('resolves macOS dylib compatibility symlinks while bundling dependencies', async () => {
+    const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
+
+    expect(builder).toContain('\\( -type f -o -type l \\) -name "$dependency_name"');
+  });
 });
 
 async function temporaryRoot(): Promise<string> {

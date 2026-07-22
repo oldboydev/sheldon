@@ -105,7 +105,7 @@ while ((${#queue[@]} > 0)); do
     if [[ "$dependency" == /* ]] && [[ -f "$dependency" ]]; then
       resolved_dependency="$(canonical_path "$dependency")"
     else
-      resolved_dependency="$(find "$work_root/build" "$(brew --prefix)" -type f -name "$dependency_name" -print -quit)"
+      resolved_dependency="$(find "$work_root/build" "$(brew --prefix)" \( -type f -o -type l \) -name "$dependency_name" -print -quit)"
     fi
     [[ -n "${resolved_dependency:-}" && -f "$resolved_dependency" ]] || {
       printf 'OCR_RUNTIME_DEPENDENCY_INVALID: Unable to resolve %s used by %s.\n' "$dependency" "$candidate" >&2
