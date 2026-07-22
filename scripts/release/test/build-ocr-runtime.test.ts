@@ -1,7 +1,9 @@
 import { createHash } from 'node:crypto';
+import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parse } from 'yaml';
@@ -10,6 +12,7 @@ import { buildOcrRuntime, parseBuildOcrRuntimeArguments } from '../build-ocr-run
 import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
+const execFileAsync = promisify(execFile);
 
 afterEach(async () => {
   await Promise.all(
@@ -161,13 +164,63 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain("url.hostname = 'raw.githubusercontent.com';");
   });
 
-  it('maps a prefix-linked macOS dylib to one byte-identical Cellar file', async () => {
+  it('fails closed while resolving prefix-linked macOS dylibs to Cellar files', async () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
+    const resolverMatch = builder.match(
+      /resolve_cellar_library_path\(\) \{[\s\S]*?\n\}\n(?=\nvisited=)/u,
+    );
+    if (!resolverMatch) throw new Error('The prefix-linked dylib resolver is missing.');
+    const root = await temporaryRoot();
+    const harness = join(root, 'resolver-harness.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash
+set -euo pipefail
+${resolverMatch[0]}
 
-    expect(builder).toContain('find "$cellar" -type f -name "$library_name" -print0');
+root="$(mktemp -d)"
+trap 'rm -rf "$root"' EXIT
+cellar="$root/Cellar"
+source="$root/prefix/libsharpyuv.0.dylib"
+candidate="$cellar/libwebp/1.6.0/lib/libsharpyuv.0.dylib"
+mkdir -p "$(dirname "$source")" "$(dirname "$candidate")"
+printf 'same' > "$source"
+printf 'same' > "$candidate"
+
+resolved="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/unique")"
+[[ "$resolved" == "$candidate" ]]
+
+if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$root/empty" "$root/zero"; then exit 1; fi
+
+printf 'different' > "$candidate"
+if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/nonidentical"; then exit 1; fi
+
+printf 'same' > "$candidate"
+duplicate="$cellar/another/1.0.0/lib/libsharpyuv.0.dylib"
+mkdir -p "$(dirname "$duplicate")"
+printf 'same' > "$duplicate"
+if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/multiple"; then exit 1; fi
+
+cmp() { return 2; }
+if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/cmp-error"; then exit 1; fi
+unset -f cmp
+
+find() { return 1; }
+if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/find-error"; then exit 1; fi
+`,
+      'utf8',
+    );
+
+    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+    const { stderr } = await execFileAsync(bash, [harness], { shell: false });
+
+    expect(stderr).toContain('did not resolve to exactly one byte-identical Cellar file');
+    expect(stderr).toContain('Unable to compare Homebrew library');
+    expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
+    expect(builder).toContain('find "$cellar" -type f -name "$library_name" -print0 >');
     expect(builder).toContain('if cmp -s "$library_source" "$cellar_candidate"; then');
-    expect(builder).toContain('(( ${#cellar_matches[@]} == 1 ))');
-    expect(builder).toContain('library_source="${cellar_matches[0]}"');
+    expect(builder).toContain('if (( cmp_status > 1 )); then');
+    expect(builder).not.toContain('done < <(find "$cellar"');
   });
 
   it('builds native dependency notices from verified pinned source records', async () => {

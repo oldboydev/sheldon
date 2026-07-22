@@ -89,6 +89,41 @@ is_system_library() {
 canonical_path() {
   python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$1"
 }
+resolve_cellar_library_path() {
+  local library_source="$1" library_name="$2" cellar="$3" candidate_file="$4"
+  [[ "$library_source" == "$cellar/"* ]] && {
+    printf '%s\n' "$library_source"
+    return
+  }
+
+  if ! find "$cellar" -type f -name "$library_name" -print0 > "$candidate_file"; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to traverse the Homebrew Cellar for %s.\n' "$library_source" >&2
+    return 1
+  fi
+
+  local cellar_candidate cmp_status
+  local -a cellar_matches=()
+  while IFS= read -r -d '' cellar_candidate; do
+    if cmp -s "$library_source" "$cellar_candidate"; then
+      cellar_matches+=("$cellar_candidate")
+    else
+      cmp_status=$?
+      if (( cmp_status > 1 )); then
+        printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to compare Homebrew library %s with Cellar file %s.\n' \
+          "$library_source" "$cellar_candidate" >&2
+        return 1
+      fi
+    fi
+  done < "$candidate_file"
+
+  (( ${#cellar_matches[@]} == 1 )) || {
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew library did not resolve to exactly one byte-identical Cellar file: %s.\n' \
+      "$library_source" >&2
+    return 1
+  }
+  printf '%s\n' "${cellar_matches[0]}"
+}
+
 visited=$'\n'
 library_names=()
 library_paths=()
@@ -139,19 +174,8 @@ for index in "${!library_names[@]}"; do
   library_source="${library_paths[$index]}"
   [[ "$library_source" == "$work_root/build/"* ]] && continue
 
-  if [[ "$library_source" != "$cellar/"* ]]; then
-    cellar_matches=()
-    while IFS= read -r -d '' cellar_candidate; do
-      if cmp -s "$library_source" "$cellar_candidate"; then
-        cellar_matches+=("$cellar_candidate")
-      fi
-    done < <(find "$cellar" -type f -name "$library_name" -print0)
-    (( ${#cellar_matches[@]} == 1 )) || {
-      printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew library did not resolve to exactly one byte-identical Cellar file: %s.\n' \
-        "$library_source" >&2
-      exit 1
-    }
-    library_source="${cellar_matches[0]}"
+  if ! library_source="$(resolve_cellar_library_path "$library_source" "$library_name" "$cellar" "$work_root/cellar-candidates-$index")"; then
+    exit 1
   fi
   cellar_relative="${library_source#"$cellar/"}"
   formula_name="${cellar_relative%%/*}"
