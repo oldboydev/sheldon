@@ -3,10 +3,11 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { OFFICIAL_PLUGIN_IDS, releaseError } from './build-official-artifacts.mjs';
+import { prepareOcrRuntime } from './prepare-ocr-runtime.mjs';
 
 const PACKAGE_FILES = ['package.json', 'sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'];
 
-export async function stageOfficialArtifacts(source, output) {
+export async function stageOfficialArtifacts(source, output, runtimeArtifacts) {
   await rm(output, { recursive: true, force: true });
   await mkdir(output, { recursive: true });
   for (const id of OFFICIAL_PLUGIN_IDS) {
@@ -24,8 +25,26 @@ export async function stageOfficialArtifacts(source, output) {
     if (id === 'source.image') {
       await copyRequired(join(pluginSource, 'data'), join(pluginOutput, 'data'), true);
       await copyRequired(join(pluginSource, 'runtime'), join(pluginOutput, 'runtime'), true);
+      if (runtimeArtifacts) await mergeOcrRuntimeArtifacts(runtimeArtifacts, pluginOutput);
     }
   }
+}
+
+async function mergeOcrRuntimeArtifacts(artifacts, output) {
+  await rm(join(output, 'runtime'), { recursive: true, force: true });
+  await rm(join(output, 'data', 'tessdata'), { recursive: true, force: true });
+  for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64']) {
+    await prepareOcrRuntime({
+      platform,
+      input: join(artifacts, `ocr-runtime-${platform}`),
+      output,
+      download: noDownload,
+    });
+  }
+}
+
+async function noDownload() {
+  throw releaseError('OCR_RUNTIME_DOWNLOAD_INVALID', 'Staging accepts only already-downloaded OCR runtime artifacts.');
 }
 
 async function copyRequired(source, destination, recursive = false) {
