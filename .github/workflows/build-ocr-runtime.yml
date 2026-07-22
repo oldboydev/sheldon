@@ -1,3 +1,4 @@
+# Discovery marker: changing this workflow forces GitHub Actions to re-index the default branch.
 name: Build OCR runtime artifacts
 
 on:
