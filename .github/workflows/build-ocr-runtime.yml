@@ -31,7 +31,8 @@ jobs:
         with:
           node-version: 24.13.0
       - run: npm ci
-      - uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.27.0
+      - id: msys2
+        uses: msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884 # v2.27.0
         if: matrix.platform == 'win32-x64'
         with:
           msystem: MINGW64
@@ -45,6 +46,8 @@ jobs:
       - name: Build Windows runtime
         if: matrix.platform == 'win32-x64'
         shell: pwsh
+        env:
+          MSYS2_ROOT: ${{ steps.msys2.outputs.msys2-location }}
         run: >-
           scripts/release/build-native-ocr-runtime.ps1
           -Platform ${{ matrix.platform }}
@@ -53,7 +56,7 @@ jobs:
         if: startsWith(matrix.platform, 'darwin-')
         shell: bash
         run: >-
-          scripts/release/build-native-ocr-runtime.sh
+          bash scripts/release/build-native-ocr-runtime.sh
           --platform ${{ matrix.platform }}
           --output "$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
       - name: Build Linux runtime

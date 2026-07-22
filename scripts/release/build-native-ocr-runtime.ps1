@@ -26,8 +26,9 @@ if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($sourcesJson)) {
 }
 $sources = $sourcesJson | ConvertFrom-Json
 
-$mingwBin = 'C:\msys64\mingw64\bin'
-$pacman = 'C:\msys64\usr\bin\pacman.exe'
+$msysRoot = if ([string]::IsNullOrWhiteSpace($env:MSYS2_ROOT)) { 'C:\msys64' } else { $env:MSYS2_ROOT }
+$mingwBin = Join-Path $msysRoot 'mingw64\bin'
+$pacman = Join-Path $msysRoot 'usr\bin\pacman.exe'
 foreach ($tool in @('cmake.exe', 'ninja.exe', 'g++.exe', 'objdump.exe')) {
   if (-not (Test-Path (Join-Path $mingwBin $tool))) {
     throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 MINGW64 tool $tool."
@@ -149,7 +150,7 @@ try {
     $licenseFiles = @(
       & $pacman -Qql $packageName 2>$null |
         Where-Object { $_ -match '/share/licenses/.+' -and $_ -notmatch '/$' } |
-        ForEach-Object { Join-Path 'C:\msys64' ($_.TrimStart('/') -replace '/', '\\') } |
+        ForEach-Object { Join-Path $msysRoot ($_.TrimStart('/') -replace '/', '\\') } |
         Where-Object { Test-Path $_ }
     )
     if ($LASTEXITCODE -ne 0 -or $licenseFiles.Count -eq 0) {
