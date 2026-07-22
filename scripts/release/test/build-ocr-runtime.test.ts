@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { parse } from 'yaml';
 
 import { buildOcrRuntime, parseBuildOcrRuntimeArguments } from '../build-ocr-runtime.mjs';
 import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
@@ -105,6 +106,34 @@ describe('Linux OCR runtime builder', () => {
     ).toThrow('OCR_RUNTIME_ARGUMENTS_INVALID');
     expect(() => parseBuildOcrRuntimeArguments(['--platform', 'linux-x64'])).toThrow(
       'OCR_RUNTIME_ARGUMENTS_INVALID',
+    );
+  });
+});
+
+describe('Native OCR runtime workflow', () => {
+  it('builds and names an artifact for every supported native platform', async () => {
+    const workflow = parse(await readFile('.github/workflows/build-ocr-runtime.yml', 'utf8')) as {
+      on?: { workflow_dispatch?: unknown };
+      jobs?: {
+        build?: {
+          strategy?: { matrix?: { platform?: unknown } };
+          steps?: Array<{ uses?: string; with?: { name?: string } }>;
+        };
+      };
+    };
+
+    expect(workflow.on?.workflow_dispatch).toEqual({});
+    expect(workflow.jobs?.build?.strategy?.matrix?.platform).toEqual([
+      'win32-x64',
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64',
+    ]);
+    expect(workflow.jobs?.build?.steps).toContainEqual(
+      expect.objectContaining({
+        uses: 'actions/upload-artifact@v4',
+        with: expect.objectContaining({ name: 'ocr-runtime-${{ matrix.platform }}' }),
+      }),
     );
   });
 });

@@ -1,0 +1,67 @@
+name: Build OCR runtime artifacts
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win32-x64
+            runner: windows-2022
+          - platform: darwin-arm64
+            runner: macos-14
+          - platform: darwin-x64
+            runner: macos-13
+          - platform: linux-x64
+            runner: ubuntu-22.04
+        platform: [win32-x64, darwin-arm64, darwin-x64, linux-x64]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - uses: msys2/setup-msys2@v2
+        if: matrix.platform == 'win32-x64'
+        with:
+          msystem: MINGW64
+          update: true
+          install: >-
+            mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-leptonica
+            mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf
+      - name: Install macOS build dependencies
+        if: startsWith(matrix.platform, 'darwin-')
+        run: brew install cmake leptonica ninja pkg-config
+      - name: Build Windows runtime
+        if: matrix.platform == 'win32-x64'
+        shell: pwsh
+        run: >-
+          scripts/release/build-native-ocr-runtime.ps1
+          --platform ${{ matrix.platform }}
+          --output "$env:RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
+      - name: Build macOS runtime
+        if: startsWith(matrix.platform, 'darwin-')
+        shell: bash
+        run: >-
+          scripts/release/build-native-ocr-runtime.sh
+          --platform ${{ matrix.platform }}
+          --output "$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
+      - name: Build Linux runtime
+        if: matrix.platform == 'linux-x64'
+        shell: bash
+        run: >-
+          node scripts/release/build-ocr-runtime.mjs
+          --platform ${{ matrix.platform }}
+          --output "$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ocr-runtime-${{ matrix.platform }}
+          path: ${{ runner.temp }}/ocr-runtime-${{ matrix.platform }}
+          if-no-files-found: error
