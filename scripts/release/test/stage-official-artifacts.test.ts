@@ -19,6 +19,7 @@ describe('official release staging', () => {
     const root = 'fixture';
     const directory = (name: string) => ({ name, isDirectory: () => true, isSymbolicLink: () => false });
     const link = (name: string) => ({ name, isDirectory: () => false, isSymbolicLink: () => true });
+    const regularDirectory = { isDirectory: () => true, isSymbolicLink: () => false };
     const entries = new Map([
       [root, [directory('source.image')]],
       [join(root, 'source.image'), [directory('dist')]],
@@ -26,8 +27,23 @@ describe('official release staging', () => {
     ]);
 
     await expect(
-      assertNoStageInputSymlinks(root, async (path: string) => entries.get(path) ?? []),
+      assertNoStageInputSymlinks(
+        root,
+        async (path: string) => entries.get(path) ?? [],
+        async () => regularDirectory,
+      ),
     ).rejects.toThrow('OFFICIAL_RELEASE_STAGE_SYMLINK');
+  });
+
+  it('rejects a staging input root that is a symlink before directory discovery', async () => {
+    const symlink = { isDirectory: () => false, isSymbolicLink: () => true };
+    const discover = async () => {
+      throw new Error('directory discovery must not run');
+    };
+
+    await expect(assertNoStageInputSymlinks('fixture', discover, async () => symlink)).rejects.toThrow(
+      'OFFICIAL_RELEASE_STAGE_SYMLINK',
+    );
   });
 
   it('copies built package payloads and image runtime assets without source or tests', async () => {

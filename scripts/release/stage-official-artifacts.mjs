@@ -32,7 +32,22 @@ export async function stageOfficialArtifacts(source, output, runtimeArtifacts) {
   }
 }
 
-export async function assertNoStageInputSymlinks(root, readDirectory = readdir) {
+export async function assertNoStageInputSymlinks(root, readDirectory = readdir, statPath = lstat) {
+  let rootEntry;
+  try {
+    rootEntry = await statPath(root);
+  } catch (error) {
+    throw releaseError(
+      'OFFICIAL_RELEASE_STAGE_INPUT_MISSING',
+      `A staged package input is missing: ${root}. ${error instanceof Error ? error.message : ''}`.trim(),
+    );
+  }
+  if (rootEntry.isSymbolicLink()) {
+    throw releaseError('OFFICIAL_RELEASE_STAGE_SYMLINK', `A staged package input is a symbolic link: ${root}.`);
+  }
+  if (!rootEntry.isDirectory()) {
+    throw releaseError('OFFICIAL_RELEASE_STAGE_INPUT_MISSING', `A staged package input is not a directory: ${root}.`);
+  }
   let entries;
   try {
     entries = await readDirectory(root, { withFileTypes: true });
@@ -47,7 +62,7 @@ export async function assertNoStageInputSymlinks(root, readDirectory = readdir) 
     if (entry.isSymbolicLink()) {
       throw releaseError('OFFICIAL_RELEASE_STAGE_SYMLINK', `A staged package input is a symbolic link: ${path}.`);
     }
-    if (entry.isDirectory()) await assertNoStageInputSymlinks(path, readDirectory);
+    if (entry.isDirectory()) await assertNoStageInputSymlinks(path, readDirectory, statPath);
   }
 }
 
