@@ -140,8 +140,18 @@ for index in "${!library_names[@]}"; do
   [[ "$library_source" == "$work_root/build/"* ]] && continue
 
   if [[ "$library_source" != "$cellar/"* ]]; then
-    printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew library is outside the Cellar: %s.\n' "$library_source" >&2
-    exit 1
+    cellar_matches=()
+    while IFS= read -r -d '' cellar_candidate; do
+      if cmp -s "$library_source" "$cellar_candidate"; then
+        cellar_matches+=("$cellar_candidate")
+      fi
+    done < <(find "$cellar" -type f -name "$library_name" -print0)
+    (( ${#cellar_matches[@]} == 1 )) || {
+      printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew library did not resolve to exactly one byte-identical Cellar file: %s.\n' \
+        "$library_source" >&2
+      exit 1
+    }
+    library_source="${cellar_matches[0]}"
   fi
   cellar_relative="${library_source#"$cellar/"}"
   formula_name="${cellar_relative%%/*}"

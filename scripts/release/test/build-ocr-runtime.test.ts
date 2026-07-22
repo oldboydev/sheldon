@@ -161,6 +161,15 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain("url.hostname = 'raw.githubusercontent.com';");
   });
 
+  it('maps a prefix-linked macOS dylib to one byte-identical Cellar file', async () => {
+    const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
+
+    expect(builder).toContain('find "$cellar" -type f -name "$library_name" -print0');
+    expect(builder).toContain('if cmp -s "$library_source" "$cellar_candidate"; then');
+    expect(builder).toContain('(( ${#cellar_matches[@]} == 1 ))');
+    expect(builder).toContain('library_source="${cellar_matches[0]}"');
+  });
+
   it('builds native dependency notices from verified pinned source records', async () => {
     const [windowsBuilder, macosBuilder] = await Promise.all([
       readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8'),
@@ -179,7 +188,9 @@ describe('Native OCR runtime workflow', () => {
     expect(macosBuilder).toContain('brew --cellar');
     expect(macosBuilder).toContain('if ! cellar="$(brew --cellar)"; then');
     expect(macosBuilder).toContain('brew info --json=v2 --installed');
-    expect(macosBuilder).toContain('Homebrew library is outside the Cellar');
+    expect(macosBuilder).toContain(
+      'Homebrew library did not resolve to exactly one byte-identical Cellar file',
+    );
     expect(macosBuilder).not.toContain('brew which-formula');
     expect(macosBuilder).toContain('sourceUrl');
     expect(macosBuilder).toContain('sourceSha256');
