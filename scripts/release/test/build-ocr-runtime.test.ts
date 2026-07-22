@@ -190,6 +190,15 @@ printf 'same' > "$candidate"
 resolved="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/unique")"
 [[ "$resolved" == "$candidate" ]]
 
+symlink_cellar="$root/symlink-Cellar"
+symlink_target="$root/symlink-target/libsharpyuv.0.1.1.dylib"
+symlink_candidate="$symlink_cellar/libwebp/1.6.0/lib/libsharpyuv.0.dylib"
+mkdir -p "$(dirname "$symlink_target")" "$(dirname "$symlink_candidate")"
+printf 'same' > "$symlink_target"
+ln -s "$symlink_target" "$symlink_candidate"
+resolved="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$symlink_cellar" "$root/symlink")"
+[[ "$resolved" == "$symlink_candidate" ]]
+
 mkdir -p "$root/empty"
 if zero_error="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$root/empty" "$root/zero" 2>&1)"; then exit 1; fi
 [[ "$zero_error" == *'did not resolve to exactly one byte-identical Cellar file'* ]]
@@ -219,7 +228,9 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     expect(stderr).toContain('did not resolve to exactly one byte-identical Cellar file');
     expect(stderr).toContain('Unable to compare Homebrew library');
     expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
-    expect(builder).toContain('find "$cellar" -type f -name "$library_name" -print0 >');
+    expect(builder).toContain(
+      'find "$cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
+    );
     expect(builder).toContain('if cmp -s "$library_source" "$cellar_candidate"; then');
     expect(builder).toContain('if (( cmp_status > 1 )); then');
     expect(builder).not.toContain('done < <(find "$cellar"');

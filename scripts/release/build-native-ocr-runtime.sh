@@ -96,7 +96,7 @@ resolve_cellar_library_path() {
     return
   }
 
-  if ! find "$cellar" -type f -name "$library_name" -print0 > "$candidate_file"; then
+  if ! find "$cellar" \( -type f -o -type l \) -name "$library_name" -print0 > "$candidate_file"; then
     printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to traverse the Homebrew Cellar for %s.\n' "$library_source" >&2
     return 1
   fi
