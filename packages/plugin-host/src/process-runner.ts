@@ -89,7 +89,9 @@ interface Conversation {
 const forwardedEnvironmentKeys = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR'] as const;
 const recordedErrorMessage =
   'Plugin operation failed. Inspect the stable error code and retained stderr.';
-const protocolFailureExitGraceMilliseconds = 50;
+// Let a plugin that has already closed its protocol stream drain through a supervised process
+// before forcing termination. This remains bounded for plugins that keep running after a fault.
+const protocolFailureExitGraceMilliseconds = 250;
 const fileDiagnosticCodes = new Set([
   'FILE_INPUT_INVALID',
   'FILE_FORMAT_UNSUPPORTED',

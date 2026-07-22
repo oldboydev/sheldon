@@ -1,6 +1,9 @@
+import type { ChildProcessWithoutNullStreams, spawn } from 'node:child_process';
+import { EventEmitter } from 'node:events';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PassThrough } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 
 import { PluginStateDatabase } from '@sheldon/persistence';
@@ -26,6 +29,35 @@ const supervisorPath = fileURLToPath(new URL('../dist/windows-supervisor.js', im
 const processLauncher = { supervisorPath } as const;
 const temporaryRoots: string[] = [];
 const databases: PluginStateDatabase[] = [];
+
+function delayedMalformedProcessLauncher(): {
+  readonly platform: 'linux';
+  readonly spawn: typeof spawn;
+} {
+  const child = new EventEmitter() as ChildProcessWithoutNullStreams;
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  Object.assign(child, {
+    pid: 99_998,
+    stdin,
+    stdout,
+    stderr,
+    stdio: [stdin, stdout, stderr],
+    kill: () => {
+      child.emit('close', null, 'SIGKILL');
+      return true;
+    },
+  });
+  stdin.once('data', () => {
+    stdout.end('not-json\n');
+    setTimeout(() => child.emit('close', 0, null), 100);
+  });
+  return {
+    platform: 'linux',
+    spawn: (() => child) as unknown as typeof spawn,
+  };
+}
 
 function manifest(mode = 'success'): PluginManifest {
   return {
@@ -217,7 +249,10 @@ describe('PluginProcessRunner', () => {
 
   it('records a numeric process exit after a framing violation when available', async () => {
     const state = stateDatabase();
-    const runner = new PluginProcessRunner({ state, processLauncher });
+    const runner = new PluginProcessRunner({
+      state,
+      processLauncher: delayedMalformedProcessLauncher(),
+    });
 
     await expect(runner.describe(await pluginFor('malformed'))).rejects.toMatchObject({
       code: 'PLUGIN_PROTOCOL_INVALID_JSON',

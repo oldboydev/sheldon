@@ -136,8 +136,26 @@ beforeEach(async () => {
 afterEach(async () => {
   vi.restoreAllMocks();
   while (databases.length > 0) databases.pop()?.close();
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(roots.splice(0).map(removeRootWhenUnlocked));
 });
+
+async function removeRootWhenUnlocked(root: string): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rm(root, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
+      return;
+    } catch (error: unknown) {
+      if (attempt === 4 || !isBusy(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+}
+
+function isBusy(error: unknown): error is NodeJS.ErrnoException {
+  return (
+    typeof error === 'object' && error !== null && (error as NodeJS.ErrnoException).code === 'EBUSY'
+  );
+}
 
 describe('PluginProcessRunner lifecycle', () => {
   it('validates all artifacts before granting an ingest lease and removes it afterward', async () => {

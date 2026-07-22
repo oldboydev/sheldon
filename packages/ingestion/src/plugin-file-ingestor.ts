@@ -120,6 +120,7 @@ export class PluginFileIngestionError extends Error {
 }
 
 const sourceClaimRetryMilliseconds = 25;
+const sourceClaimTransientAccessRetries = 3;
 const defaultSourceClaimHeartbeatMilliseconds = 1_000;
 const defaultSourceClaimStaleMilliseconds = 30_000;
 
@@ -424,6 +425,7 @@ async function acquireSourceClaim(
   const processAlive = dependencies.processAlive ?? defaultProcessAlive;
   const heartbeatMilliseconds = claimHeartbeatMilliseconds(dependencies);
   const staleMilliseconds = claimStaleMilliseconds(dependencies);
+  let transientAccessFailures = 0;
 
   while (true) {
     if (await sourceReclaimGateBlocks(claimPath, rawPath, processAlive, staleMilliseconds)) {
@@ -434,6 +436,16 @@ async function acquireSourceClaim(
     try {
       claim = await open(claimPath, 'wx', 0o600);
     } catch (error) {
+      if (isNodeError(error, 'EPERM')) {
+        // Windows can reject exclusive creation while another publisher renames or removes the
+        // claim. Re-observe the exact path and bound retries so a persistent access denial
+        // still propagates.
+        await observeSourceClaim(claimPath, rawPath);
+        transientAccessFailures += 1;
+        if (transientAccessFailures > sourceClaimTransientAccessRetries) throw error;
+        await delay(sourceClaimRetryMilliseconds);
+        continue;
+      }
       if (!isNodeError(error, 'EEXIST')) throw error;
       const observed = await observeSourceClaim(claimPath, rawPath);
       if (observed === undefined) continue;

@@ -23,6 +23,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Lock do registro de plugins reforçado com propriedade por token, recuperação de processos encerrados e liberação que nunca remove propriedade substituta nem mascara o erro primário.
 - Publicação de plugins reforçada com verificação da identidade da raiz de staging após o rename e rollback que preserva raízes substituídas por outro proprietário.
 - Runner de plugins reforçado com códigos de erro controlados pelo host, captura do exit code após violações de protocolo e decodificação linear da cauda UTF-8 de stderr.
+- Após uma violação de protocolo, o host aguarda brevemente o encerramento natural do plugin para registrar o código de saída antes de recorrer ao término forçado.
+- A publicação concorrente de raws tolera contenção transitória do Windows ao criar claims exclusivos, sem ocultar falhas de acesso persistentes.
 - Verificação pública de contratos de plugins agora também valida o plugin oficial `sheldon.file` após o build.
 
 ### Added
