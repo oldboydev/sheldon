@@ -125,7 +125,10 @@ done
 dependency_names=()
 dependency_versions=()
 dependency_libraries=()
-cellar="$(brew --cellar)"
+if ! cellar="$(brew --cellar)"; then
+  printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Unable to determine the Homebrew Cellar.' >&2
+  exit 1
+fi
 [[ -n "$cellar" && -d "$cellar" ]] || {
   printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Homebrew Cellar is unavailable.' >&2
   exit 1

@@ -177,6 +177,7 @@ describe('Native OCR runtime workflow', () => {
 
     expect(macosBuilder).toContain('findOcrRuntimeDependency');
     expect(macosBuilder).toContain('brew --cellar');
+    expect(macosBuilder).toContain('if ! cellar="$(brew --cellar)"; then');
     expect(macosBuilder).toContain('brew info --json=v2 --installed');
     expect(macosBuilder).toContain('Homebrew library is outside the Cellar');
     expect(macosBuilder).not.toContain('brew which-formula');
