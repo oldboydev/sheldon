@@ -125,13 +125,29 @@ done
 dependency_names=()
 dependency_versions=()
 dependency_libraries=()
+cellar="$(brew --cellar)"
+[[ -n "$cellar" && -d "$cellar" ]] || {
+  printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Homebrew Cellar is unavailable.' >&2
+  exit 1
+}
+cellar="$(canonical_path "$cellar")"
 for index in "${!library_names[@]}"; do
   library_name="${library_names[$index]}"
   library_source="${library_paths[$index]}"
   [[ "$library_source" == "$work_root/build/"* ]] && continue
 
-  if ! formula_name="$(brew which-formula "$library_source")" || [[ -z "$formula_name" || "$formula_name" == *$'\n'* ]]; then
-    printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to determine the Homebrew formula for %s.\n' "$library_source" >&2
+  if [[ "$library_source" != "$cellar/"* ]]; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew library is outside the Cellar: %s.\n' "$library_source" >&2
+    exit 1
+  fi
+  cellar_relative="${library_source#"$cellar/"}"
+  formula_name="${cellar_relative%%/*}"
+  version_and_path="${cellar_relative#*/}"
+  installed_version="${version_and_path%%/*}"
+  nested_path="${version_and_path#*/}"
+  if [[ "$formula_name" == "$cellar_relative" || "$installed_version" == "$version_and_path" || -z "$nested_path" || \
+    ! "$formula_name" =~ ^[A-Za-z0-9][A-Za-z0-9@+_.-]*$ || ! "$installed_version" =~ ^[A-Za-z0-9][A-Za-z0-9+_.-]*$ ]]; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew Cellar path is invalid: %s.\n' "$library_source" >&2
     exit 1
   fi
   if ! formula_info="$(brew info --json=v2 --installed "$formula_name")"; then
@@ -142,16 +158,15 @@ for index in "${!library_names[@]}"; do
     node --input-type=module --eval '
       const info = JSON.parse(process.argv[1]);
       const requested = process.argv[2];
-      const source = process.argv[3].replaceAll("\\\\", "/");
+      const expectedVersion = process.argv[3];
       const formula = info.formulae?.find(
         (candidate) => candidate.name === requested || candidate.full_name === requested,
       );
       const installed = formula?.installed ?? [];
-      const pathMatches = installed.filter(({ version }) => source.includes(`/${version}/`));
-      const selected = pathMatches.length === 1 ? pathMatches[0] : installed.length === 1 ? installed[0] : undefined;
+      const selected = installed.find(({ version }) => version === expectedVersion);
       if (!formula?.name || typeof selected?.version !== "string" || selected.version.length === 0) process.exit(1);
       process.stdout.write(`${formula.name}\t${selected.version}`);
-    ' "$formula_info" "$formula_name" "$library_source"
+    ' "$formula_info" "$formula_name" "$installed_version"
   )"; then
     printf 'OCR_RUNTIME_NOTICES_INVALID: Installed Homebrew version is ambiguous for %s.\n' "$library_source" >&2
     exit 1

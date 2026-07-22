@@ -176,8 +176,10 @@ describe('Native OCR runtime workflow', () => {
     expect(windowsBuilder).not.toContain('/share/licenses/');
 
     expect(macosBuilder).toContain('findOcrRuntimeDependency');
-    expect(macosBuilder).toContain('brew which-formula');
+    expect(macosBuilder).toContain('brew --cellar');
     expect(macosBuilder).toContain('brew info --json=v2 --installed');
+    expect(macosBuilder).toContain('Homebrew library is outside the Cellar');
+    expect(macosBuilder).not.toContain('brew which-formula');
     expect(macosBuilder).toContain('sourceUrl');
     expect(macosBuilder).toContain('sourceSha256');
     expect(macosBuilder).toContain('licensePath');
