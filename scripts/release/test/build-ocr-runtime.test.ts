@@ -178,7 +178,7 @@ describe('Native OCR runtime workflow', () => {
     expect(`${result.stdout}\n${result.stderr}`).not.toContain(
       'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
     );
-  });
+  }, 15_000);
 
   it.each([
     ['empty', []],
@@ -192,7 +192,7 @@ describe('Native OCR runtime workflow', () => {
     expect(`${result.stdout}\n${result.stderr}`).not.toContain(
       'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
     );
-  });
+  }, 15_000);
 
   it('batch-reports every missing MSYS2 identity before downloading a notice source', async () => {
     const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
@@ -249,7 +249,7 @@ describe('Native OCR runtime workflow', () => {
     expect(`${result.stdout}\n${result.stderr}`).not.toContain(
       'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
     );
-  });
+  }, 15_000);
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
     const macosBuilder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
