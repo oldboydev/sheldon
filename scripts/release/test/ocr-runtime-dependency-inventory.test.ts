@@ -65,6 +65,22 @@ describe('OCR runtime dependency inventory', () => {
         spdx: 'IJG AND Zlib AND BSD-3-Clause',
       },
       {
+        provider: 'homebrew',
+        name: 'giflib',
+        version: '6.1.3',
+        sourceUrl:
+          'https://downloads.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz',
+        sourceSha256: 'b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e',
+        licenses: [
+          {
+            path: 'giflib-6.1.3/COPYING',
+            sha256: 'ed5d90cb4a041bddad679470a071302ab05ae5d0ec2cf8f9c97ad7b2708751e6',
+            spdx: 'MIT',
+          },
+        ],
+        spdx: 'MIT',
+      },
+      {
         provider: 'msys2',
         name: 'mingw-w64-x86_64-gcc-libs',
         version: '16.1.0-5',
@@ -84,6 +100,21 @@ describe('OCR runtime dependency inventory', () => {
           },
         ],
         spdx: 'GPL-3.0-or-later WITH GCC-exception-3.1 AND LGPL-2.1-or-later',
+      },
+      {
+        provider: 'msys2',
+        name: 'mingw-w64-x86_64-jbigkit',
+        version: '2.1-5',
+        sourceUrl: 'https://www.cl.cam.ac.uk/~mgk25/download/jbigkit-2.1.tar.gz',
+        sourceSha256: 'de7106b6bfaf495d6865c7dd7ac6ca1381bd12e0d81405ea81e7f2167263d932',
+        licenses: [
+          {
+            path: 'jbigkit-2.1/COPYING',
+            sha256: '91df39d1816bfb17a4dda2d3d2c83b1f6f2d38d53e53e41e8f97ad5ac46a0cad',
+            spdx: 'GPL-2.0-only',
+          },
+        ],
+        spdx: 'GPL-2.0-only',
       },
       {
         provider: 'msys2',
