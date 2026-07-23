@@ -210,48 +210,48 @@ describe('Native OCR runtime workflow', () => {
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
     const macosBuilder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
-    const discoveredDependencies = [
-      { provider: 'homebrew', name: 'zlib', version: '1.3.2' },
-      { provider: 'homebrew', name: 'brotli', version: '1.1.0' },
-      { provider: 'homebrew', name: 'libpng', version: '1.6.46' },
-    ];
-    const missingDependencies = discoveredDependencies.filter(
-      ({ provider, name, version }) =>
-        !findPinnedOcrRuntimeDependency(provider, name, version, OCR_RUNTIME_DEPENDENCY_INVENTORY),
+    const preflightOffset = macosBuilder.indexOf('lookup_exit_code=0');
+    if (preflightOffset < 0) throw new Error('The Homebrew dependency preflight is missing.');
+    const root = await temporaryRoot();
+    const harness = join(root, 'missing-homebrew-preflight-harness.sh');
+    await writeFile(
+      harness,
+      `#!/usr/bin/env bash
+set -euo pipefail
+repository_root=${JSON.stringify(process.cwd().replaceAll('\\\\', '/'))}
+dependency_names=(zlib brotli libpng)
+dependency_versions=(1.3.2 1.1.0 1.6.46)
+dependency_libraries=(libz.dylib libbrotli.dylib libpng.dylib)
+download_pinned() {
+  printf '%s\\n' 'OCR_RUNTIME_TEST_DOWNLOAD_CALLED' >&2
+  return 97
+}
+${macosBuilder.slice(preflightOffset)}`,
+      'utf8',
     );
 
-    expect(formatMissingOcrRuntimeDependencies(missingDependencies)).toBe(
+    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+    let result: { stdout?: string; stderr?: string; code?: number | null };
+    try {
+      await execFileAsync(bash, [harness], { shell: false });
+      throw new Error('The missing-Homebrew preflight unexpectedly succeeded.');
+    } catch (error) {
+      result = error as { stdout?: string; stderr?: string; code?: number | null };
+    }
+
+    expect(result.code).not.toBe(0);
+    expect(result.stderr).toContain(
       [
+        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=zlib version=1.3.2',
+        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=brotli version=1.1.0',
+        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=libpng version=1.6.46',
         'OCR_RUNTIME_MISSING_DEPENDENCIES:',
         'homebrew/brotli@1.1.0',
         'homebrew/libpng@1.6.46',
         'homebrew/zlib@1.3.2',
       ].join('\n'),
     );
-    expect(macosBuilder).toContain('findPinnedOcrRuntimeDependency');
-    expect(macosBuilder).toContain('OCR_RUNTIME_MISSING_DEPENDENCIES');
-    expect(macosBuilder.indexOf('OCR_RUNTIME_MISSING_DEPENDENCIES')).toBeLessThan(
-      macosBuilder.indexOf('download_pinned "$source_url"'),
-    );
-
-    const preflightMatch = macosBuilder.match(
-      /'import \{ findPinnedOcrRuntimeDependency,[\s\S]*?if \(missingReport\) process\.exitCode = 1;'/u,
-    );
-    if (!preflightMatch) throw new Error('The Homebrew dependency preflight is missing.');
-    const result = await executeNodeWithInput(
-      ['--input-type=module', '--eval', preflightMatch[0].slice(1, -1)],
-      JSON.stringify(discoveredDependencies),
-    );
-
-    expect(result.exitCode).toBe(1);
-    expect(JSON.parse(result.stdout)).toMatchObject({
-      diagnostics: [
-        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=zlib version=1.3.2',
-        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=brotli version=1.1.0',
-        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=libpng version=1.6.46',
-      ],
-      missingReport: formatMissingOcrRuntimeDependencies(missingDependencies),
-    });
+    expect(result.stderr).not.toContain('OCR_RUNTIME_TEST_DOWNLOAD_CALLED');
   });
 
   it('resolves macOS dylib compatibility symlinks while bundling dependencies', async () => {
