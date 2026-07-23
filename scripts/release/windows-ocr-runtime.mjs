@@ -20,6 +20,21 @@ const MAX_DOWNLOAD_REDIRECTS = 5;
 const MAX_REQUEST_TIMEOUT_MS = 30_000;
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRYABLE_NETWORK_ERROR_CODES = new Set([
+  'EAI_AGAIN',
+  'ECONNABORTED',
+  'ECONNREFUSED',
+  'ECONNRESET',
+  'EHOSTUNREACH',
+  'ENETDOWN',
+  'ENETUNREACH',
+  'ENOTFOUND',
+  'ETIMEDOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_SOCKET',
+]);
 const RETRY_DELAYS_MS = [250, 500];
 
 class RetryableDownloadError extends Error {
@@ -323,7 +338,10 @@ async function downloadPinnedFileAttempt({
         redirect: 'manual',
         signal: AbortSignal.timeout(requestTimeoutMs),
       });
-    } catch {
+    } catch (error) {
+      if (!isRetryableTransportError(error)) {
+        throw error;
+      }
       throw retryableDownloadError(
         'transport-error',
         'OCR_RUNTIME_DOWNLOAD_INVALID',
@@ -372,7 +390,10 @@ async function downloadPinnedFileAttempt({
     let bytes;
     try {
       bytes = Buffer.from(await response.arrayBuffer());
-    } catch {
+    } catch (error) {
+      if (!isRetryableTransportError(error)) {
+        throw error;
+      }
       throw retryableDownloadError(
         'transport-error',
         'OCR_RUNTIME_DOWNLOAD_INVALID',
@@ -518,6 +539,18 @@ function isFetchResponse(value) {
     typeof value.arrayBuffer === 'function' &&
     typeof value.headers?.get === 'function'
   );
+}
+
+function isRetryableTransportError(error) {
+  if (error === null || typeof error !== 'object') {
+    return false;
+  }
+
+  if (error.name === 'AbortError' || error.name === 'TimeoutError') {
+    return true;
+  }
+
+  return error instanceof TypeError && RETRYABLE_NETWORK_ERROR_CODES.has(error.cause?.code);
 }
 
 function defaultSleep(milliseconds) {

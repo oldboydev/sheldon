@@ -225,6 +225,24 @@ describe('pinned Windows download transport', () => {
     ).toEqual([]);
   });
 
+  it('replaces an existing destination only after successful checksum verification', async () => {
+    const destination = await temporaryDestination();
+    await writeFile(destination, 'existing destination');
+    const fetchImpl = vi.fn().mockResolvedValue(new Response('verified', { status: 200 }));
+
+    await downloadPinnedFile({
+      url: 'https://example.test/source',
+      destination,
+      expectedSha256: sha256('verified'),
+      fetchImpl,
+    });
+
+    await expect(readFile(destination, 'utf8')).resolves.toBe('verified');
+    expect(
+      (await readdir(join(destination, '..'))).filter((name) => name.endsWith('.partial')),
+    ).toEqual([]);
+  });
+
   it('follows one manual HTTPS redirect and emits one sanitized redirect diagnostic', async () => {
     const destination = await temporaryDestination();
     const fetchImpl = vi
@@ -404,6 +422,52 @@ describe('pinned Windows download transport', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(sleep.mock.calls).toEqual([[250], [500]]);
+  });
+
+  it('retries a recognized network failure', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new TypeError('fetch failed', {
+          cause: Object.assign(new Error('DNS lookup failed'), { code: 'ENOTFOUND' }),
+        }),
+      )
+      .mockResolvedValueOnce(new Response('verified', { status: 200 }));
+
+    await downloadPinnedFile({
+      url: 'https://example.test/source',
+      destination,
+      expectedSha256: sha256('verified'),
+      fetchImpl,
+      sleep: async () => {},
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    await expect(readFile(destination, 'utf8')).resolves.toBe('verified');
+  });
+
+  it('propagates unexpected fetch failures without retrying or emitting a diagnostic', async () => {
+    const destination = await temporaryDestination();
+    const error = new RangeError('fetch implementation defect');
+    const fetchImpl = vi.fn().mockRejectedValue(error);
+    const sleep = vi.fn(async () => {});
+    const onDiagnostic = vi.fn();
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+        sleep,
+        onDiagnostic,
+      }),
+    ).rejects.toBe(error);
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+    expect(onDiagnostic).not.toHaveBeenCalled();
   });
 
   it('sanitizes credentials, query strings, and fragments from every diagnostic', async () => {
