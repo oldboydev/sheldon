@@ -478,11 +478,15 @@ async function downloadPinnedFileAttempt({
 
   while (true) {
     let response;
+    const requestSignal = AbortSignal.timeout(requestTimeoutMs);
     try {
-      response = await fetchImpl(currentUrl.href, {
-        redirect: 'manual',
-        signal: AbortSignal.timeout(requestTimeoutMs),
-      });
+      response = await awaitRequestTimeout(
+        fetchImpl(currentUrl.href, {
+          redirect: 'manual',
+          signal: requestSignal,
+        }),
+        requestSignal,
+      );
     } catch (error) {
       if (!isRetryableTransportError(error)) {
         throw error;
@@ -534,7 +538,7 @@ async function downloadPinnedFileAttempt({
 
     let bytes;
     try {
-      bytes = Buffer.from(await response.arrayBuffer());
+      bytes = Buffer.from(await awaitRequestTimeout(response.arrayBuffer(), requestSignal));
     } catch (error) {
       if (!isRetryableTransportError(error)) {
         throw error;
@@ -684,6 +688,30 @@ function isFetchResponse(value) {
     typeof value.arrayBuffer === 'function' &&
     typeof value.headers?.get === 'function'
   );
+}
+
+function awaitRequestTimeout(operation, signal) {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (callback, value) => {
+      if (settled) return;
+      settled = true;
+      signal.removeEventListener('abort', onAbort);
+      callback(value);
+    };
+    const onAbort = () => finish(reject, signal.reason);
+
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+
+    signal.addEventListener('abort', onAbort, { once: true });
+    Promise.resolve(operation).then(
+      (value) => finish(resolve, value),
+      (error) => finish(reject, error),
+    );
+  });
 }
 
 function isRetryableTransportError(error) {

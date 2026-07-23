@@ -553,6 +553,35 @@ describe('pinned Windows download transport', () => {
     }
   });
 
+  it('allocates a distinct live abort signal for each manual redirect hop', async () => {
+    const destination = await temporaryDestination();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const signal = init.signal as AbortSignal;
+      signals.push(signal);
+      expect(signal.aborted).toBe(false);
+
+      return signals.length === 1
+        ? new Response(null, {
+            status: 302,
+            headers: { location: 'https://cdn.example.test/source' },
+          })
+        : new Response('verified', { status: 200 });
+    });
+
+    await downloadPinnedFile({
+      url: 'https://example.test/source',
+      destination,
+      expectedSha256: sha256('verified'),
+      fetchImpl,
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).not.toBe(signals[1]);
+    await expect(readFile(destination, 'utf8')).resolves.toBe('verified');
+  });
+
   it('rejects a sixth redirect within one attempt', async () => {
     const destination = await temporaryDestination();
     const fetchImpl = vi.fn(async (url: string) => {
@@ -697,6 +726,37 @@ describe('pinned Windows download transport', () => {
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(sleep.mock.calls).toEqual([[250], [500]]);
+  });
+
+  it('retries a body that ignores the request abort signal exactly three times', async () => {
+    const destination = await temporaryDestination();
+    const signals: AbortSignal[] = [];
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return {
+        status: 200,
+        ok: true,
+        headers: new Headers(),
+        arrayBuffer: () => new Promise<ArrayBuffer>(() => {}),
+      };
+    });
+    const sleep = vi.fn(async () => {});
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+        sleep,
+        requestTimeoutMs: 20,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_INVALID');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[250], [500]]);
+    expect(signals).toHaveLength(3);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
   });
 
   it('retries a recognized network failure', async () => {
