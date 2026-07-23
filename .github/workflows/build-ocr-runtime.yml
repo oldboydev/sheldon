@@ -36,7 +36,9 @@ jobs:
         if: matrix.platform == 'win32-x64'
         with:
           msystem: MINGW64
-          update: false
+          release: true # Use the release image represented by the graph lock.
+          update: false # Do not mutate the locked package graph.
+          cache: false # Do not restore mutable package state.
           install: >-
             mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-leptonica
             mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf

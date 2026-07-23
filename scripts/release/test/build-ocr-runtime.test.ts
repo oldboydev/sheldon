@@ -145,6 +145,19 @@ describe('Native OCR runtime workflow', () => {
       'msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
       'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
     ]);
+    expect(workflow.jobs?.build?.steps).toContainEqual({
+      id: 'msys2',
+      uses: 'msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
+      if: "matrix.platform == 'win32-x64'",
+      with: {
+        msystem: 'MINGW64',
+        release: true,
+        update: false,
+        cache: false,
+        install:
+          'mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-leptonica mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf',
+      },
+    });
     expect(workflow.jobs?.build?.steps).toContainEqual(
       expect.objectContaining({ with: expect.objectContaining({ 'node-version': '24.13.0' }) }),
     );
