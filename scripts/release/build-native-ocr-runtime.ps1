@@ -66,21 +66,41 @@ try {
     }
   }
 
-  function Get-PinnedDependency([string]$Provider, [string]$Name, [string]$Version) {
-    Write-Host "OCR_RUNTIME_DEPENDENCY: provider=$Provider name=$Name version=$Version"
+  function Get-PinnedDependencies([object[]]$Identities) {
+    $missingDependenciesError = 'OCR_RUNTIME_MISSING_DEPENDENCIES'
+    $identitiesJson = $Identities | ConvertTo-Json -Compress
     Push-Location $repositoryRoot
     try {
-      $dependencyJson = node --input-type=module --eval `
-        'import { findOcrRuntimeDependency } from "./scripts/release/ocr-runtime-dependency-inventory.mjs"; process.stdout.write(JSON.stringify(findOcrRuntimeDependency(process.argv[1], process.argv[2], process.argv[3])));' `
-        $Provider $Name $Version
+      $preflightJson = $identitiesJson | node --input-type=module --eval `
+        'import { findPinnedOcrRuntimeDependency, formatMissingOcrRuntimeDependencies, OCR_RUNTIME_DEPENDENCY_INVENTORY } from "./scripts/release/ocr-runtime-dependency-inventory.mjs";
+         const identities = JSON.parse(await new Promise((resolve, reject) => { let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => resolve(input)); process.stdin.on("error", reject); }));
+         const missing = [];
+         const diagnostics = [];
+         const dependencies = identities.map((identity) => {
+           diagnostics.push(`OCR_RUNTIME_DEPENDENCY: provider=${identity.provider} name=${identity.name} version=${identity.version}`);
+           const dependency = findPinnedOcrRuntimeDependency(identity.provider, identity.name, identity.version, OCR_RUNTIME_DEPENDENCY_INVENTORY);
+           if (!dependency) missing.push(identity);
+           return dependency;
+         });
+         const missingReport = missing.length > 0 ? formatMissingOcrRuntimeDependencies(missing) : null;
+         process.stdout.write(JSON.stringify({ dependencies, diagnostics, missingReport }));
+         if (missingReport) process.exitCode = 1;'
       $lookupExitCode = $LASTEXITCODE
     } finally {
       Pop-Location
     }
-    if ($lookupExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($dependencyJson)) {
-      throw "OCR_RUNTIME_NOTICES_INVALID: No pinned dependency record for $Provider/$Name@$Version."
+    if ([string]::IsNullOrWhiteSpace($preflightJson)) {
+      throw 'OCR_RUNTIME_NOTICES_INVALID: MSYS2 dependency inventory preflight failed.'
     }
-    return $dependencyJson | ConvertFrom-Json
+    $preflight = $preflightJson | ConvertFrom-Json
+    $preflight.diagnostics | ForEach-Object { Write-Host $_ }
+    if ($lookupExitCode -ne 0) {
+      if ([string]::IsNullOrWhiteSpace($preflight.missingReport)) {
+        throw "${missingDependenciesError}: MSYS2 dependency inventory preflight failed."
+      }
+      throw $preflight.missingReport
+    }
+    return @($preflight.dependencies)
   }
 
   function Get-VerifiedDependencyNotice(
@@ -227,8 +247,7 @@ try {
     throw 'OCR_RUNTIME_NOTICES_INVALID: No MSYS2 package ownership was found for bundled private DLLs.'
   }
 
-  $msys2LicenseNotices = [System.Collections.Generic.List[string]]::new()
-  $dependencyIndex = 0
+  $packageIdentities = [System.Collections.Generic.List[object]]::new()
   foreach ($packageName in ($privateDllProviders.Keys | Sort-Object)) {
     $packageQuery = & $pacman -Q $packageName 2>$null
     if ($LASTEXITCODE -ne 0 -or $packageQuery -notmatch '^([^\s]+)\s+([^\s]+)$') {
@@ -236,8 +255,18 @@ try {
     }
     $installedName = $Matches[1]
     $installedVersion = $Matches[2]
-    $dependency = Get-PinnedDependency 'msys2' $installedName $installedVersion
-    $noticeLines = Get-VerifiedDependencyNotice $dependency @($privateDllProviders[$packageName]) $dependencyIndex
+    [void]$packageIdentities.Add([pscustomobject]@{
+      provider = 'msys2'
+      name = $installedName
+      version = $installedVersion
+    })
+  }
+
+  $pinnedDependencies = @(Get-PinnedDependencies @($packageIdentities))
+  $msys2LicenseNotices = [System.Collections.Generic.List[string]]::new()
+  $dependencyIndex = 0
+  foreach ($dependency in $pinnedDependencies) {
+    $noticeLines = Get-VerifiedDependencyNotice $dependency @($privateDllProviders[$dependency.name]) $dependencyIndex
     $noticeLines | ForEach-Object { [void]$msys2LicenseNotices.Add($_) }
     $dependencyIndex++
   }

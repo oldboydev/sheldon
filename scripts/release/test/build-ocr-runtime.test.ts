@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -9,6 +9,11 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parse } from 'yaml';
 
 import { buildOcrRuntime, parseBuildOcrRuntimeArguments } from '../build-ocr-runtime.mjs';
+import {
+  findPinnedOcrRuntimeDependency,
+  formatMissingOcrRuntimeDependencies,
+  OCR_RUNTIME_DEPENDENCY_INVENTORY,
+} from '../ocr-runtime-dependency-inventory.mjs';
 import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
@@ -157,6 +162,57 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('& $pacman -Qo $packagePath');
   });
 
+  it('batch-reports every missing MSYS2 identity before downloading a notice source', async () => {
+    const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
+    const discoveredDependencies = [
+      { provider: 'msys2', name: 'mingw-w64-x86_64-zlib', version: '1.3.2-1' },
+      { provider: 'msys2', name: 'mingw-w64-x86_64-brotli', version: '1.1.0-2' },
+      { provider: 'msys2', name: 'mingw-w64-x86_64-libpng', version: '1.6.46-1' },
+    ];
+    const missingDependencies = discoveredDependencies.filter(
+      ({ provider, name, version }) =>
+        !findPinnedOcrRuntimeDependency(
+          provider,
+          name,
+          version,
+          OCR_RUNTIME_DEPENDENCY_INVENTORY,
+        ),
+    );
+
+    expect(formatMissingOcrRuntimeDependencies(missingDependencies)).toBe(
+      [
+        'OCR_RUNTIME_MISSING_DEPENDENCIES:',
+        'msys2/mingw-w64-x86_64-brotli@1.1.0-2',
+        'msys2/mingw-w64-x86_64-libpng@1.6.46-1',
+        'msys2/mingw-w64-x86_64-zlib@1.3.2-1',
+      ].join('\n'),
+    );
+    expect(windowsBuilder).toContain('findPinnedOcrRuntimeDependency');
+    expect(windowsBuilder).toContain('OCR_RUNTIME_MISSING_DEPENDENCIES');
+    expect(windowsBuilder.indexOf('OCR_RUNTIME_MISSING_DEPENDENCIES')).toBeLessThan(
+      windowsBuilder.indexOf('Get-VerifiedDependencyNotice'),
+    );
+
+    const preflightMatch = windowsBuilder.match(
+      /'import \{ findPinnedOcrRuntimeDependency,[\s\S]*?if \(missingReport\) process\.exitCode = 1;'/u,
+    );
+    if (!preflightMatch) throw new Error('The Windows MSYS2 dependency preflight is missing.');
+    const result = await executeNodeWithInput(
+      ['--input-type=module', '--eval', preflightMatch[0].slice(1, -1)],
+      JSON.stringify(discoveredDependencies),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      diagnostics: [
+        'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-zlib version=1.3.2-1',
+        'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-brotli version=1.1.0-2',
+        'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-libpng version=1.6.46-1',
+      ],
+      missingReport: formatMissingOcrRuntimeDependencies(missingDependencies),
+    });
+  });
+
   it('resolves macOS dylib compatibility symlinks while bundling dependencies', async () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
 
@@ -289,7 +345,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
       readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8'),
     ]);
 
-    expect(windowsBuilder).toContain('findOcrRuntimeDependency');
+    expect(windowsBuilder).toContain('findPinnedOcrRuntimeDependency');
     expect(windowsBuilder).toContain('& $pacman -Q $packageName');
     expect(windowsBuilder).toContain('$dependency.sourceUrl');
     expect(windowsBuilder).toContain('$dependency.sourceSha256');
@@ -342,4 +398,22 @@ function testSources() {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+async function executeNodeWithInput(
+  arguments_: string[],
+  input: string,
+): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn(process.execPath, arguments_, { cwd: process.cwd(), stdio: 'pipe' });
+    let stdout = '';
+    let stderr = '';
+    child.stdout.setEncoding('utf8');
+    child.stderr.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => (stdout += chunk));
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    child.on('error', reject);
+    child.on('close', (exitCode) => resolvePromise({ stdout, stderr, exitCode }));
+    child.stdin.end(input);
+  });
 }
