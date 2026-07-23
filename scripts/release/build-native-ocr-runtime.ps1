@@ -68,12 +68,15 @@ try {
 
   function Get-PinnedDependencies([object[]]$Identities) {
     $missingDependenciesError = 'OCR_RUNTIME_MISSING_DEPENDENCIES'
-    $identitiesJson = $Identities | ConvertTo-Json -Compress
+    $identitiesJson = ConvertTo-Json -InputObject @($Identities) -Compress
     Push-Location $repositoryRoot
     try {
       $preflightJson = $identitiesJson | node --input-type=module --eval `
-        'import { findPinnedOcrRuntimeDependency, formatMissingOcrRuntimeDependencies, OCR_RUNTIME_DEPENDENCY_INVENTORY } from "./scripts/release/ocr-runtime-dependency-inventory.mjs";
-         const identities = JSON.parse(await new Promise((resolve, reject) => { let input = ""; process.stdin.setEncoding("utf8"); process.stdin.on("data", (chunk) => input += chunk); process.stdin.on("end", () => resolve(input)); process.stdin.on("error", reject); }));
+        'import { findPinnedOcrRuntimeDependency, formatMissingOcrRuntimeDependencies, OCR_RUNTIME_DEPENDENCY_INVENTORY } from ''./scripts/release/ocr-runtime-dependency-inventory.mjs'';
+         const identities = JSON.parse(await new Promise((resolve, reject) => { let input = ``; process.stdin.setEncoding(`utf8`); process.stdin.on(`data`, (chunk) => input += chunk); process.stdin.on(`end`, () => resolve(input)); process.stdin.on(`error`, reject); }));
+         if (!Array.isArray(identities) || identities.length === 0 || identities.some((identity) => !identity || typeof identity !== `object` || identity.provider !== `msys2` || typeof identity.name !== `string` || identity.name.length === 0 || typeof identity.version !== `string` || identity.version.length === 0)) {
+           throw new Error(`OCR_RUNTIME_NOTICES_INVALID: MSYS2 dependency identities must be a non-empty array of complete records.`);
+         }
          const missing = [];
          const diagnostics = [];
          const dependencies = identities.map((identity) => {
