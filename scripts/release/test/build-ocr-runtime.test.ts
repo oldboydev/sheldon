@@ -121,7 +121,12 @@ describe('Native OCR runtime workflow', () => {
       jobs?: {
         build?: {
           strategy?: { matrix?: { platform?: unknown } };
-          steps?: Array<{ uses?: string; with?: { name?: string } }>;
+          steps?: Array<{
+            name?: string;
+            uses?: string;
+            with?: { name?: string };
+            env?: { MSYS2_ROOT?: string };
+          }>;
         };
       };
     };
@@ -158,6 +163,12 @@ describe('Native OCR runtime workflow', () => {
           'mingw-w64-x86_64-cmake mingw-w64-x86_64-gcc mingw-w64-x86_64-leptonica mingw-w64-x86_64-ninja mingw-w64-x86_64-pkgconf',
       },
     });
+    expect(workflow.jobs?.build?.steps).toContainEqual(
+      expect.objectContaining({
+        name: 'Build Windows runtime',
+        env: { MSYS2_ROOT: '${{ steps.msys2.outputs.msys2-location }}' },
+      }),
+    );
     expect(workflow.jobs?.build?.steps).toContainEqual(
       expect.objectContaining({ with: expect.objectContaining({ 'node-version': '24.13.0' }) }),
     );
