@@ -226,11 +226,10 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$external_cellar" 
 broken_cellar="$root/broken-Cellar"
 broken_candidate="$broken_cellar/libwebp/1.6.0/lib/libsharpyuv.0.dylib"
 broken_canonical="$broken_cellar/libwebp/1.6.0/lib/libsharpyuv.0.1.1.dylib"
-mkdir -p "$broken_cellar/libwebp/1.6.0/lib"
-mkdir -p "$root/missing"
-: > "$root/missing/libsharpyuv.0.1.1.dylib"
-ln -s "$root/missing/libsharpyuv.0.1.1.dylib" "$broken_candidate"
-rm "$root/missing/libsharpyuv.0.1.1.dylib"
+mkdir -p "$(dirname "$broken_canonical")"
+: > "$broken_canonical"
+ln -s "$broken_canonical" "$broken_candidate"
+rm "$broken_canonical"
 if broken_error="$(resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$broken_cellar" "$root/broken" 2>&1)"; then exit 1; fi
 [[ "$broken_canonical" == "$broken_cellar/"* && ! -f "$broken_canonical" ]]
 [[ "$broken_error" == *'does not resolve inside the Homebrew Cellar'* && "$broken_error" == *"$broken_candidate"* ]]
