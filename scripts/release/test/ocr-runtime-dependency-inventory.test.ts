@@ -28,6 +28,17 @@ describe('OCR runtime dependency inventory', () => {
         spdx: 'BSD-2-Clause',
       },
       {
+        provider: 'homebrew',
+        name: 'libpng',
+        version: '1.6.58',
+        sourceUrl:
+          'https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz',
+        sourceSha256: '28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775',
+        licensePath: 'libpng-1.6.58/LICENSE',
+        licenseSha256: 'bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526',
+        spdx: 'libpng-2.0',
+      },
+      {
         provider: 'msys2',
         name: 'mingw-w64-x86_64-gcc-libs',
         version: '16.1.0-5',
@@ -37,6 +48,17 @@ describe('OCR runtime dependency inventory', () => {
         licensePath: 'mingw64/share/licenses/gcc-libs/COPYING.RUNTIME',
         licenseSha256: '9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74',
         spdx: 'GPL-3.0-or-later WITH GCC-exception-3.1 AND LGPL-2.1-or-later',
+      },
+      {
+        provider: 'msys2',
+        name: 'mingw-w64-x86_64-giflib',
+        version: '6.1.3-1',
+        sourceUrl:
+          'https://downloads.sourceforge.net/sourceforge/giflib/giflib-6.x/giflib-6.1.3.tar.gz',
+        sourceSha256: 'b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e',
+        licensePath: 'giflib-6.1.3/COPYING',
+        licenseSha256: 'ed5d90cb4a041bddad679470a071302ab05ae5d0ec2cf8f9c97ad7b2708751e6',
+        spdx: 'MIT',
       },
     ]);
   });
