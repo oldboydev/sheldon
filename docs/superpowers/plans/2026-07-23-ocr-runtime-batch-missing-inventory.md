@@ -36,11 +36,13 @@
 
 ```ts
 expect(findPinnedOcrRuntimeDependency('homebrew', 'giflib', '6.1.3', [])).toBeUndefined();
-expect(formatMissingOcrRuntimeDependencies([
-  { provider: 'msys2', name: 'zlib', version: '1' },
-  { provider: 'homebrew', name: 'giflib', version: '6' },
-  { provider: 'msys2', name: 'zlib', version: '1' },
-])).toBe('OCR_RUNTIME_MISSING_DEPENDENCIES:\\nhomebrew/giflib@6\\nmsys2/zlib@1');
+expect(
+  formatMissingOcrRuntimeDependencies([
+    { provider: 'msys2', name: 'zlib', version: '1' },
+    { provider: 'homebrew', name: 'giflib', version: '6' },
+    { provider: 'msys2', name: 'zlib', version: '1' },
+  ]),
+).toBe('OCR_RUNTIME_MISSING_DEPENDENCIES:\\nhomebrew/giflib@6\\nmsys2/zlib@1');
 ```
 
 - [ ] **Step 2: Run the focused test (red)**
@@ -54,7 +56,9 @@ Expected: FAIL because the batch exports do not exist.
 ```js
 export function findPinnedOcrRuntimeDependency(provider, name, version, inventory) {
   assertPinnedOcrRuntimeDependencyInventory(inventory);
-  return inventory.find((entry) => entry.provider === provider && entry.name === name && entry.version === version);
+  return inventory.find(
+    (entry) => entry.provider === provider && entry.name === name && entry.version === version,
+  );
 }
 ```
 
