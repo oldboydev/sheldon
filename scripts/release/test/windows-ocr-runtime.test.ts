@@ -1,11 +1,25 @@
-import { describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertPinnedMsys2PackageGraph,
+  downloadPinnedFile,
   MSYS2_GRAPH_SCHEMA_VERSION,
   parseMsys2PackageGraph,
   validateMsys2GraphLock,
 } from '../windows-ocr-runtime.mjs';
+
+const temporaryRoots: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    temporaryRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+  );
+});
 
 const setup = {
   action: 'msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884',
@@ -165,3 +179,324 @@ describe('pinned MSYS2 package graph comparison', () => {
     );
   });
 });
+
+describe('pinned Windows download transport', () => {
+  it('retries a corrupt body but promotes only checksum-matching bytes', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('corrupt', { status: 200 }))
+      .mockResolvedValueOnce(new Response('verified', { status: 200 }));
+    const diagnostics: string[] = [];
+
+    await downloadPinnedFile({
+      url: 'https://example.test/source',
+      destination,
+      expectedSha256: sha256('verified'),
+      fetchImpl,
+      sleep: async () => {},
+      onDiagnostic: (line: string) => diagnostics.push(line),
+    });
+
+    await expect(readFile(destination, 'utf8')).resolves.toBe('verified');
+    expect(diagnostics).toContain(
+      'OCR_RUNTIME_DOWNLOAD_RETRY: attempt=1/3 reason=checksum-mismatch url=https://example.test/source',
+    );
+  });
+
+  it('preserves an existing destination and removes partial files after three corrupt bodies', async () => {
+    const destination = await temporaryDestination();
+    await writeFile(destination, 'existing destination');
+    const fetchImpl = vi.fn(async () => Promise.resolve(new Response('corrupt', { status: 200 })));
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+        sleep: async () => {},
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_CHECKSUM_INVALID');
+
+    await expect(readFile(destination, 'utf8')).resolves.toBe('existing destination');
+    expect(
+      (await readdir(join(destination, '..'))).filter((name) => name.endsWith('.partial')),
+    ).toEqual([]);
+  });
+
+  it('follows one manual HTTPS redirect and emits one sanitized redirect diagnostic', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://cdn.example.test/source' },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('verified', { status: 200 }));
+    const diagnostics: string[] = [];
+
+    const result = await downloadPinnedFile({
+      url: 'https://example.test/source',
+      destination,
+      expectedSha256: sha256('verified').toUpperCase(),
+      fetchImpl,
+      onDiagnostic: (line: string) => diagnostics.push(line),
+    });
+
+    expect(result).toEqual({
+      finalUrl: 'https://cdn.example.test/source',
+      sha256: sha256('verified'),
+      attempts: 1,
+    });
+    expect(diagnostics).toEqual([
+      'OCR_RUNTIME_DOWNLOAD_REDIRECT: attempt=1 hop=1/5 status=302 from=https://example.test/source to=https://cdn.example.test/source',
+    ]);
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const [, init] of fetchImpl.mock.calls) {
+      expect(init).toMatchObject({ redirect: 'manual', signal: expect.any(AbortSignal) });
+    }
+  });
+
+  it('rejects a sixth redirect within one attempt', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi.fn(async (url: string) => {
+      const parsed = new URL(url);
+      const hop = Number(parsed.searchParams.get('hop') ?? '0') + 1;
+      return new Response(null, {
+        status: 302,
+        headers: { location: `https://example.test/source?hop=${hop}` },
+      });
+    });
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID');
+    expect(fetchImpl).toHaveBeenCalledTimes(6);
+  });
+
+  it('rejects an HTTP source before fetch even if it would redirect to HTTPS', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi.fn(async () =>
+      Promise.resolve(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://example.test/source' },
+        }),
+      ),
+    );
+
+    await expect(
+      downloadPinnedFile({
+        url: 'http://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_INVALID');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('rejects an HTTPS-to-HTTP redirect without fetching the target', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi.fn(async () =>
+      Promise.resolve(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'http://cdn.example.test/source' },
+        }),
+      ),
+    );
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects missing and invalid redirect locations', async () => {
+    for (const location of [undefined, 'https://[invalid']) {
+      const destination = await temporaryDestination();
+      const headers = location === undefined ? undefined : { location };
+      const fetchImpl = vi.fn(async () =>
+        Promise.resolve(new Response(null, { status: 302, headers })),
+      );
+
+      await expect(
+        downloadPinnedFile({
+          url: 'https://example.test/source',
+          destination,
+          expectedSha256: sha256('verified'),
+          fetchImpl,
+        }),
+      ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID');
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it.each([408, 429, 500, 502, 503, 504])('retries HTTP %i', async (status) => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status }))
+      .mockResolvedValueOnce(new Response('verified', { status: 200 }));
+    const diagnostics: string[] = [];
+
+    await downloadPinnedFile({
+      url: 'https://example.test/source',
+      destination,
+      expectedSha256: sha256('verified'),
+      fetchImpl,
+      sleep: async () => {},
+      onDiagnostic: (line: string) => diagnostics.push(line),
+    });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(diagnostics).toContain(
+      `OCR_RUNTIME_DOWNLOAD_RETRY: attempt=1/3 reason=http-${status} url=https://example.test/source`,
+    );
+  });
+
+  it.each([400, 401, 403, 404])('does not retry HTTP %i', async (status) => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status }))
+      .mockResolvedValueOnce(new Response('verified', { status: 200 }));
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_INVALID');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries an injected abort or transport failure exactly three times with bounded delays', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError'));
+    const sleep = vi.fn(async () => {});
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+        sleep,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_INVALID');
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[250], [500]]);
+  });
+
+  it('sanitizes credentials, query strings, and fragments from every diagnostic', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: {
+            location:
+              'https://cdn-user:cdn-pass@cdn.example.test/source?mirror=secret#cdn-fragment',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(null, { status: 503 }))
+      .mockResolvedValueOnce(new Response('verified', { status: 200 }));
+    const diagnostics: string[] = [];
+
+    await downloadPinnedFile({
+      url: 'https://source-user:source-pass@example.test/source?token=secret#source-fragment',
+      destination,
+      expectedSha256: sha256('verified'),
+      fetchImpl,
+      sleep: async () => {},
+      onDiagnostic: (line: string) => diagnostics.push(line),
+    });
+
+    expect(diagnostics).toEqual([
+      'OCR_RUNTIME_DOWNLOAD_REDIRECT: attempt=1 hop=1/5 status=302 from=https://example.test/source to=https://cdn.example.test/source',
+      'OCR_RUNTIME_DOWNLOAD_RETRY: attempt=1/3 reason=http-503 url=https://example.test/source',
+    ]);
+    expect(diagnostics.join('\n')).not.toMatch(
+      /source-user|source-pass|token|secret|source-fragment|cdn-user|cdn-pass|mirror|cdn-fragment/u,
+    );
+  });
+
+  it('restarts every retry from the original URL and rechecks the original checksum', async () => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: 'https://cdn.example.test/source' },
+        }),
+      )
+      .mockResolvedValueOnce(new Response('corrupt', { status: 200 }))
+      .mockResolvedValueOnce(new Response('verified', { status: 200 }));
+
+    await downloadPinnedFile({
+      url: 'https://example.test/source',
+      destination,
+      expectedSha256: sha256('verified'),
+      fetchImpl,
+      sleep: async () => {},
+    });
+
+    expect(fetchImpl.mock.calls.map(([url]) => url)).toEqual([
+      'https://example.test/source',
+      'https://cdn.example.test/source',
+      'https://example.test/source',
+    ]);
+    await expect(readFile(destination, 'utf8')).resolves.toBe('verified');
+  });
+
+  it.each([
+    ['maxAttempts', 4],
+    ['maxRedirects', 6],
+    ['requestTimeoutMs', 30_001],
+  ])('rejects caller-unlimited %s before fetch', async (name, value) => {
+    const destination = await temporaryDestination();
+    const fetchImpl = vi.fn();
+
+    await expect(
+      downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+        [name]: value,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_INVALID');
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+});
+
+async function temporaryDestination(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'sheldon-windows-download-test-'));
+  temporaryRoots.push(root);
+  return join(root, 'source.bin');
+}
+
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}

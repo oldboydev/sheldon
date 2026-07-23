@@ -1,3 +1,7 @@
+import { createHash, randomUUID } from 'node:crypto';
+import { rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join } from 'node:path';
+
 export const MSYS2_GRAPH_SCHEMA_VERSION = 1;
 
 const MSYS2_SETUP_ACTION = 'msys2/setup-msys2@66cd2cce69caa17b53920067426061ca1de3a884';
@@ -10,6 +14,21 @@ const MSYS2_SETUP_INSTALL = Object.freeze([
   'mingw-w64-x86_64-pkgconf',
 ]);
 const PACKAGE_NAME_PATTERN = /^[A-Za-z0-9@._+:-]+$/u;
+const SHA256_PATTERN = /^[a-f0-9]{64}$/iu;
+const MAX_DOWNLOAD_ATTEMPTS = 3;
+const MAX_DOWNLOAD_REDIRECTS = 5;
+const MAX_REQUEST_TIMEOUT_MS = 30_000;
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const RETRYABLE_HTTP_STATUSES = new Set([408, 429, 500, 502, 503, 504]);
+const RETRY_DELAYS_MS = [250, 500];
+
+class RetryableDownloadError extends Error {
+  constructor(reason, finalError) {
+    super(reason);
+    this.reason = reason;
+    this.finalError = finalError;
+  }
+}
 
 function comparePackageNames(left, right) {
   return left.name.localeCompare(right.name, 'en');
@@ -225,4 +244,284 @@ export function assertPinnedMsys2PackageGraph(installed, lock) {
   }
 
   throw new Error(lines.join('\n'));
+}
+
+export async function downloadPinnedFile({
+  url,
+  destination,
+  expectedSha256,
+  fetchImpl = globalThis.fetch,
+  sleep = defaultSleep,
+  onDiagnostic = () => {},
+  maxAttempts = MAX_DOWNLOAD_ATTEMPTS,
+  maxRedirects = MAX_DOWNLOAD_REDIRECTS,
+  requestTimeoutMs = MAX_REQUEST_TIMEOUT_MS,
+}) {
+  const originalUrl = validateDownloadOptions({
+    url,
+    destination,
+    expectedSha256,
+    fetchImpl,
+    sleep,
+    onDiagnostic,
+    maxAttempts,
+    maxRedirects,
+    requestTimeoutMs,
+  });
+  const normalizedExpectedSha256 = expectedSha256.toLowerCase();
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (attempt > 1) {
+      await sleep(RETRY_DELAYS_MS[attempt - 2]);
+    }
+
+    try {
+      return await downloadPinnedFileAttempt({
+        originalUrl,
+        destination,
+        expectedSha256: normalizedExpectedSha256,
+        fetchImpl,
+        onDiagnostic,
+        attempt,
+        maxRedirects,
+        requestTimeoutMs,
+      });
+    } catch (error) {
+      if (!(error instanceof RetryableDownloadError)) {
+        throw error;
+      }
+      if (attempt === maxAttempts) {
+        throw error.finalError;
+      }
+
+      onDiagnostic(
+        `OCR_RUNTIME_DOWNLOAD_RETRY: attempt=${attempt}/${maxAttempts} reason=${error.reason} url=${sanitizeUrl(originalUrl)}`,
+      );
+    }
+  }
+
+  throw downloadError('OCR_RUNTIME_DOWNLOAD_INVALID', 'Download attempts were exhausted.');
+}
+
+async function downloadPinnedFileAttempt({
+  originalUrl,
+  destination,
+  expectedSha256,
+  fetchImpl,
+  onDiagnostic,
+  attempt,
+  maxRedirects,
+  requestTimeoutMs,
+}) {
+  let currentUrl = originalUrl;
+  let redirectCount = 0;
+
+  while (true) {
+    let response;
+    try {
+      response = await fetchImpl(currentUrl.href, {
+        redirect: 'manual',
+        signal: AbortSignal.timeout(requestTimeoutMs),
+      });
+    } catch {
+      throw retryableDownloadError(
+        'transport-error',
+        'OCR_RUNTIME_DOWNLOAD_INVALID',
+        `Transport failed for ${sanitizeUrl(originalUrl)}.`,
+      );
+    }
+
+    if (!isFetchResponse(response)) {
+      throw downloadError(
+        'OCR_RUNTIME_DOWNLOAD_INVALID',
+        `Transport returned an invalid response for ${sanitizeUrl(originalUrl)}.`,
+      );
+    }
+
+    if (REDIRECT_STATUSES.has(response.status)) {
+      redirectCount += 1;
+      if (redirectCount > maxRedirects) {
+        throw downloadError(
+          'OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID',
+          `Redirect limit exceeded for ${sanitizeUrl(originalUrl)}.`,
+        );
+      }
+
+      const targetUrl = resolveHttpsRedirect(response.headers.get('location'), currentUrl);
+      onDiagnostic(
+        `OCR_RUNTIME_DOWNLOAD_REDIRECT: attempt=${attempt} hop=${redirectCount}/${maxRedirects} status=${response.status} from=${sanitizeUrl(currentUrl)} to=${sanitizeUrl(targetUrl)}`,
+      );
+      currentUrl = targetUrl;
+      continue;
+    }
+
+    if (RETRYABLE_HTTP_STATUSES.has(response.status)) {
+      throw retryableDownloadError(
+        `http-${response.status}`,
+        'OCR_RUNTIME_DOWNLOAD_INVALID',
+        `HTTP ${response.status} for ${sanitizeUrl(originalUrl)}.`,
+      );
+    }
+    if (!response.ok) {
+      throw downloadError(
+        'OCR_RUNTIME_DOWNLOAD_INVALID',
+        `HTTP ${response.status} for ${sanitizeUrl(originalUrl)}.`,
+      );
+    }
+
+    let bytes;
+    try {
+      bytes = Buffer.from(await response.arrayBuffer());
+    } catch {
+      throw retryableDownloadError(
+        'transport-error',
+        'OCR_RUNTIME_DOWNLOAD_INVALID',
+        `Transport failed for ${sanitizeUrl(originalUrl)}.`,
+      );
+    }
+
+    const actualSha256 = createHash('sha256').update(bytes).digest('hex');
+    const partialPath = join(
+      dirname(destination),
+      `${basename(destination)}.${randomUUID()}.partial`,
+    );
+    try {
+      await writeFile(partialPath, bytes);
+      if (actualSha256 !== expectedSha256) {
+        throw retryableDownloadError(
+          'checksum-mismatch',
+          'OCR_RUNTIME_CHECKSUM_INVALID',
+          `SHA-256 mismatch for ${sanitizeUrl(originalUrl)}.`,
+        );
+      }
+      await rename(partialPath, destination);
+    } finally {
+      await rm(partialPath, { force: true });
+    }
+
+    return {
+      finalUrl: currentUrl.href,
+      sha256: actualSha256,
+      attempts: attempt,
+    };
+  }
+}
+
+function validateDownloadOptions({
+  url,
+  destination,
+  expectedSha256,
+  fetchImpl,
+  sleep,
+  onDiagnostic,
+  maxAttempts,
+  maxRedirects,
+  requestTimeoutMs,
+}) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url);
+  } catch {
+    throw downloadError('OCR_RUNTIME_DOWNLOAD_INVALID', 'Source URL must be a valid HTTPS URL.');
+  }
+
+  if (parsedUrl.protocol !== 'https:') {
+    throw downloadError('OCR_RUNTIME_DOWNLOAD_INVALID', 'Source URL must use HTTPS.');
+  }
+  if (typeof destination !== 'string' || destination.length === 0) {
+    throw downloadError('OCR_RUNTIME_DOWNLOAD_INVALID', 'Destination must be a nonempty path.');
+  }
+  if (typeof expectedSha256 !== 'string' || !SHA256_PATTERN.test(expectedSha256)) {
+    throw downloadError(
+      'OCR_RUNTIME_DOWNLOAD_INVALID',
+      'Expected SHA-256 must be exactly 64 hexadecimal characters.',
+    );
+  }
+  if (
+    typeof fetchImpl !== 'function' ||
+    typeof sleep !== 'function' ||
+    typeof onDiagnostic !== 'function'
+  ) {
+    throw downloadError('OCR_RUNTIME_DOWNLOAD_INVALID', 'Download callbacks must be functions.');
+  }
+  if (!isBoundedInteger(maxAttempts, 1, MAX_DOWNLOAD_ATTEMPTS)) {
+    throw downloadError(
+      'OCR_RUNTIME_DOWNLOAD_INVALID',
+      `maxAttempts must be between 1 and ${MAX_DOWNLOAD_ATTEMPTS}.`,
+    );
+  }
+  if (!isBoundedInteger(maxRedirects, 0, MAX_DOWNLOAD_REDIRECTS)) {
+    throw downloadError(
+      'OCR_RUNTIME_DOWNLOAD_INVALID',
+      `maxRedirects must be between 0 and ${MAX_DOWNLOAD_REDIRECTS}.`,
+    );
+  }
+  if (!isBoundedInteger(requestTimeoutMs, 1, MAX_REQUEST_TIMEOUT_MS)) {
+    throw downloadError(
+      'OCR_RUNTIME_DOWNLOAD_INVALID',
+      `requestTimeoutMs must be between 1 and ${MAX_REQUEST_TIMEOUT_MS}.`,
+    );
+  }
+
+  return parsedUrl;
+}
+
+function resolveHttpsRedirect(location, currentUrl) {
+  let targetUrl;
+  try {
+    if (location === null || location.length === 0) {
+      throw new Error('missing redirect');
+    }
+    targetUrl = new URL(location, currentUrl);
+  } catch {
+    throw downloadError(
+      'OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID',
+      `Redirect target is invalid for ${sanitizeUrl(currentUrl)}.`,
+    );
+  }
+  if (targetUrl.protocol !== 'https:') {
+    throw downloadError(
+      'OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID',
+      `Redirect target must use HTTPS for ${sanitizeUrl(currentUrl)}.`,
+    );
+  }
+  return targetUrl;
+}
+
+function sanitizeUrl(url) {
+  const sanitized = new URL(url);
+  sanitized.username = '';
+  sanitized.password = '';
+  sanitized.search = '';
+  sanitized.hash = '';
+  return sanitized.href;
+}
+
+function retryableDownloadError(reason, code, message) {
+  return new RetryableDownloadError(reason, downloadError(code, message));
+}
+
+function downloadError(code, message) {
+  return new Error(`${code}: ${message}`);
+}
+
+function isBoundedInteger(value, minimum, maximum) {
+  return Number.isInteger(value) && value >= minimum && value <= maximum;
+}
+
+function isFetchResponse(value) {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    Number.isInteger(value.status) &&
+    typeof value.ok === 'boolean' &&
+    typeof value.arrayBuffer === 'function' &&
+    typeof value.headers?.get === 'function'
+  );
+}
+
+function defaultSleep(milliseconds) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, milliseconds);
+  });
 }
