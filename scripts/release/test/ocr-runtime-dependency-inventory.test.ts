@@ -46,6 +46,15 @@ describe('OCR runtime dependency inventory', () => {
     const homebrew = findOcrRuntimeDependency('homebrew', 'libtiff', '4.7.1_1');
     const msys2 = findOcrRuntimeDependency('msys2', 'mingw-w64-x86_64-libtiff', '4.7.1-1');
 
+    expect(homebrew.licenses).toEqual([
+      {
+        path: 'tiff-4.7.1/LICENSE.md',
+        sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
+        spdx: 'libtiff AND BSD-4-Clause',
+      },
+    ]);
+    expect(homebrew.spdx).toBe('libtiff AND BSD-4-Clause');
+
     expect(msys2).toMatchObject({
       sourceUrl: homebrew.sourceUrl,
       sourceSha256: homebrew.sourceSha256,
@@ -158,10 +167,10 @@ describe('OCR runtime dependency inventory', () => {
           {
             path: 'tiff-4.7.1/LICENSE.md',
             sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
-            spdx: 'libtiff',
+            spdx: 'libtiff AND BSD-4-Clause',
           },
         ],
-        spdx: 'libtiff',
+        spdx: 'libtiff AND BSD-4-Clause',
       },
       {
         provider: 'homebrew',
@@ -384,10 +393,10 @@ describe('OCR runtime dependency inventory', () => {
           {
             path: 'tiff-4.7.1/LICENSE.md',
             sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
-            spdx: 'libtiff',
+            spdx: 'libtiff AND BSD-4-Clause',
           },
         ],
-        spdx: 'libtiff',
+        spdx: 'libtiff AND BSD-4-Clause',
       },
       {
         provider: 'msys2',

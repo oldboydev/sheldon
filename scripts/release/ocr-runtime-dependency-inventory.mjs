@@ -75,10 +75,10 @@ const inventory = [
       {
         path: 'tiff-4.7.1/LICENSE.md',
         sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
-        spdx: 'libtiff',
+        spdx: 'libtiff AND BSD-4-Clause',
       },
     ],
-    spdx: 'libtiff',
+    spdx: 'libtiff AND BSD-4-Clause',
   },
   {
     provider: 'homebrew',
@@ -301,10 +301,10 @@ const inventory = [
       {
         path: 'tiff-4.7.1/LICENSE.md',
         sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
-        spdx: 'libtiff',
+        spdx: 'libtiff AND BSD-4-Clause',
       },
     ],
-    spdx: 'libtiff',
+    spdx: 'libtiff AND BSD-4-Clause',
   },
   {
     provider: 'msys2',
