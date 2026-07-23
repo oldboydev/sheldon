@@ -354,23 +354,26 @@ describe('verified MSYS2 dependency notice rendering', () => {
     ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
   });
 
-  it.each(['../LICENSE', 'package/../../LICENSE', '/package/LICENSE', 'C:\\package\\LICENSE'])(
-    'rejects a traversing or absolute license path: %s',
-    async (path) => {
-      const extractedRoot = await temporaryExtractedRoot();
-      const dependency = pinnedDependency({
-        licenses: [{ path, sha256: sha256('verified license text'), spdx: 'Zlib' }],
-      });
+  it.each([
+    '../LICENSE',
+    'package/../../LICENSE',
+    '/package/LICENSE',
+    'C:\\package\\LICENSE',
+    'C:LICENSE',
+  ])('rejects a traversing, absolute, or drive-relative license path: %s', async (path) => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const dependency = pinnedDependency({
+      licenses: [{ path, sha256: sha256('verified license text'), spdx: 'Zlib' }],
+    });
 
-      await expect(
-        renderVerifiedMsys2DependencyNotice({
-          dependency,
-          privateDlls: ['zlib1.dll'],
-          extractedRoot,
-        }),
-      ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
-    },
-  );
+    await expect(
+      renderVerifiedMsys2DependencyNotice({
+        dependency,
+        privateDlls: ['zlib1.dll'],
+        extractedRoot,
+      }),
+    ).rejects.toThrow('Pinned license path is not a normalized relative path');
+  });
 
   it('rejects a license hash mismatch', async () => {
     const extractedRoot = await temporaryExtractedRoot();
