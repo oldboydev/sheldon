@@ -171,12 +171,7 @@ describe('Native OCR runtime workflow', () => {
     ];
     const missingDependencies = discoveredDependencies.filter(
       ({ provider, name, version }) =>
-        !findPinnedOcrRuntimeDependency(
-          provider,
-          name,
-          version,
-          OCR_RUNTIME_DEPENDENCY_INVENTORY,
-        ),
+        !findPinnedOcrRuntimeDependency(provider, name, version, OCR_RUNTIME_DEPENDENCY_INVENTORY),
     );
 
     expect(formatMissingOcrRuntimeDependencies(missingDependencies)).toBe(
@@ -208,6 +203,52 @@ describe('Native OCR runtime workflow', () => {
         'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-zlib version=1.3.2-1',
         'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-brotli version=1.1.0-2',
         'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-libpng version=1.6.46-1',
+      ],
+      missingReport: formatMissingOcrRuntimeDependencies(missingDependencies),
+    });
+  });
+
+  it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
+    const macosBuilder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
+    const discoveredDependencies = [
+      { provider: 'homebrew', name: 'zlib', version: '1.3.2' },
+      { provider: 'homebrew', name: 'brotli', version: '1.1.0' },
+      { provider: 'homebrew', name: 'libpng', version: '1.6.46' },
+    ];
+    const missingDependencies = discoveredDependencies.filter(
+      ({ provider, name, version }) =>
+        !findPinnedOcrRuntimeDependency(provider, name, version, OCR_RUNTIME_DEPENDENCY_INVENTORY),
+    );
+
+    expect(formatMissingOcrRuntimeDependencies(missingDependencies)).toBe(
+      [
+        'OCR_RUNTIME_MISSING_DEPENDENCIES:',
+        'homebrew/brotli@1.1.0',
+        'homebrew/libpng@1.6.46',
+        'homebrew/zlib@1.3.2',
+      ].join('\n'),
+    );
+    expect(macosBuilder).toContain('findPinnedOcrRuntimeDependency');
+    expect(macosBuilder).toContain('OCR_RUNTIME_MISSING_DEPENDENCIES');
+    expect(macosBuilder.indexOf('OCR_RUNTIME_MISSING_DEPENDENCIES')).toBeLessThan(
+      macosBuilder.indexOf('download_pinned "$source_url"'),
+    );
+
+    const preflightMatch = macosBuilder.match(
+      /'import \{ findPinnedOcrRuntimeDependency,[\s\S]*?if \(missingReport\) process\.exitCode = 1;'/u,
+    );
+    if (!preflightMatch) throw new Error('The Homebrew dependency preflight is missing.');
+    const result = await executeNodeWithInput(
+      ['--input-type=module', '--eval', preflightMatch[0].slice(1, -1)],
+      JSON.stringify(discoveredDependencies),
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      diagnostics: [
+        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=zlib version=1.3.2',
+        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=brotli version=1.1.0',
+        'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=libpng version=1.6.46',
       ],
       missingReport: formatMissingOcrRuntimeDependencies(missingDependencies),
     });
@@ -354,7 +395,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     expect(windowsBuilder).toContain('$license.sha256');
     expect(windowsBuilder).not.toContain('/share/licenses/');
 
-    expect(macosBuilder).toContain('findOcrRuntimeDependency');
+    expect(macosBuilder).toContain('findPinnedOcrRuntimeDependency');
     expect(macosBuilder).toContain('brew --cellar');
     expect(macosBuilder).toContain('if ! cellar="$(brew --cellar)"; then');
     expect(macosBuilder).toContain('brew info --json=v2 --installed');

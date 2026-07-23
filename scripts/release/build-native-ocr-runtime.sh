@@ -240,6 +240,76 @@ done
   exit 1
 }
 
+lookup_exit_code=0
+preflight_json="$(
+  {
+    separator=''
+    printf '['
+    for dependency_index in "${!dependency_names[@]}"; do
+      printf '%s{"provider":"homebrew","name":"%s","version":"%s"}' \
+        "$separator" "${dependency_names[$dependency_index]}" "${dependency_versions[$dependency_index]}"
+      separator=','
+    done
+    printf ']'
+  } | (
+    cd "$repository_root"
+    node --input-type=module --eval 'import { findPinnedOcrRuntimeDependency, formatMissingOcrRuntimeDependencies, OCR_RUNTIME_DEPENDENCY_INVENTORY } from "./scripts/release/ocr-runtime-dependency-inventory.mjs";
+      const identities = JSON.parse(await new Promise((resolve, reject) => {
+        let value = "";
+        process.stdin.setEncoding("utf8");
+        process.stdin.on("data", (chunk) => value += chunk);
+        process.stdin.on("end", () => resolve(value));
+        process.stdin.on("error", reject);
+      }));
+      const missing = [];
+      const diagnostics = [];
+      const dependencies = identities.map((identity) => {
+        diagnostics.push(`OCR_RUNTIME_DEPENDENCY: provider=${identity.provider} name=${identity.name} version=${identity.version}`);
+        const dependency = findPinnedOcrRuntimeDependency(identity.provider, identity.name, identity.version, OCR_RUNTIME_DEPENDENCY_INVENTORY);
+        if (!dependency) missing.push(identity);
+        return dependency;
+      });
+      const missingReport = missing.length > 0 ? formatMissingOcrRuntimeDependencies(missing) : null;
+      process.stdout.write(JSON.stringify({ dependencies, diagnostics, missingReport }));
+      if (missingReport) process.exitCode = 1;'
+  )
+)" || lookup_exit_code=$?
+[[ -n "$preflight_json" ]] || {
+  printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Homebrew dependency inventory preflight failed.' >&2
+  exit 1
+}
+while IFS= read -r diagnostic; do
+  printf '%s\n' "$diagnostic" >&2
+done < <(
+  node --input-type=module --eval '
+    for (const diagnostic of JSON.parse(process.argv[1]).diagnostics) console.log(diagnostic);
+  ' "$preflight_json"
+)
+missing_report="$(node --input-type=module --eval '
+  const { missingReport } = JSON.parse(process.argv[1]);
+  if (missingReport) process.stdout.write(missingReport);
+' "$preflight_json")"
+if (( lookup_exit_code != 0 )); then
+  if [[ -z "$missing_report" ]]; then
+    printf '%s\n' 'OCR_RUNTIME_MISSING_DEPENDENCIES: Homebrew dependency inventory preflight failed.' >&2
+  else
+    printf '%s\n' "$missing_report" >&2
+  fi
+  exit 1
+fi
+pinned_dependencies=()
+while IFS= read -r dependency_json; do
+  pinned_dependencies+=("$dependency_json")
+done < <(
+  node --input-type=module --eval '
+    for (const dependency of JSON.parse(process.argv[1]).dependencies) console.log(JSON.stringify(dependency));
+  ' "$preflight_json"
+)
+(( ${#pinned_dependencies[@]} == ${#dependency_names[@]} )) || {
+  printf '%s\n' 'OCR_RUNTIME_NOTICES_INVALID: Homebrew dependency inventory preflight returned incomplete records.' >&2
+  exit 1
+}
+
 for candidate in "$executable" "$library_root"/*; do
   while IFS= read -r dependency; do
     is_system_library "$dependency" && continue
@@ -277,16 +347,7 @@ homebrew_notices="$work_root/homebrew-notices"
 for dependency_index in "${!dependency_names[@]}"; do
   installed_name="${dependency_names[$dependency_index]}"
   installed_version="${dependency_versions[$dependency_index]}"
-  printf 'OCR_RUNTIME_DEPENDENCY: provider=homebrew name=%s version=%s\n' "$installed_name" "$installed_version" >&2
-  if ! dependency_json="$(
-    cd "$repository_root" && node --input-type=module --eval '
-      import { findOcrRuntimeDependency } from "./scripts/release/ocr-runtime-dependency-inventory.mjs";
-      process.stdout.write(JSON.stringify(findOcrRuntimeDependency(process.argv[1], process.argv[2], process.argv[3])));
-    ' homebrew "$installed_name" "$installed_version"
-  )"; then
-    printf 'OCR_RUNTIME_NOTICES_INVALID: No pinned dependency record for homebrew/%s@%s.\n' "$installed_name" "$installed_version" >&2
-    exit 1
-  fi
+  dependency_json="${pinned_dependencies[$dependency_index]}"
 
   dependency_values=()
   while IFS= read -r value; do
