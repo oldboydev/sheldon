@@ -42,6 +42,46 @@ describe('OCR runtime dependency inventory', () => {
     });
   });
 
+  it('uses the same verified libtiff source and license semantics across providers', () => {
+    const homebrew = findOcrRuntimeDependency('homebrew', 'libtiff', '4.7.1_1');
+    const msys2 = findOcrRuntimeDependency('msys2', 'mingw-w64-x86_64-libtiff', '4.7.1-1');
+
+    expect(msys2).toMatchObject({
+      sourceUrl: homebrew.sourceUrl,
+      sourceSha256: homebrew.sourceSha256,
+      licenses: homebrew.licenses,
+      spdx: homebrew.spdx,
+    });
+  });
+
+  it('models every verified license in the MSYS2 zstd release source', () => {
+    const dependency = findOcrRuntimeDependency('msys2', 'mingw-w64-x86_64-zstd', '1.5.7-2');
+
+    expect(dependency.licenses).toEqual([
+      {
+        path: 'zstd-1.5.7/LICENSE',
+        sha256: '7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8',
+        spdx: 'BSD-3-Clause',
+      },
+      {
+        path: 'zstd-1.5.7/COPYING',
+        sha256: 'f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505',
+        spdx: 'GPL-2.0-only',
+      },
+      {
+        path: 'zstd-1.5.7/programs/zstdgrep',
+        sha256: '9bc769b26542ef2efa14ae29b3178b7f10639cd95544207691cb258fe06bbe17',
+        spdx: 'BSD-2-Clause',
+      },
+      {
+        path: 'zstd-1.5.7/lib/dictBuilder/divsufsort.c',
+        sha256: '2081acb08865f623857d2c0dcb0e79fce9489f01416528c30cfee7097915c616',
+        spdx: 'MIT',
+      },
+    ]);
+    expect(dependency.spdx).toBe('(BSD-3-Clause OR GPL-2.0-only) AND BSD-2-Clause AND MIT');
+  });
+
   it('contains verified records for the confirmed native build dependencies', () => {
     expect(OCR_RUNTIME_DEPENDENCY_INVENTORY).toEqual([
       {
@@ -344,10 +384,10 @@ describe('OCR runtime dependency inventory', () => {
           {
             path: 'tiff-4.7.1/LICENSE.md',
             sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
-            spdx: 'MIT',
+            spdx: 'libtiff',
           },
         ],
-        spdx: 'MIT',
+        spdx: 'libtiff',
       },
       {
         provider: 'msys2',
@@ -455,10 +495,25 @@ describe('OCR runtime dependency inventory', () => {
           {
             path: 'zstd-1.5.7/LICENSE',
             sha256: '7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8',
-            spdx: 'BSD-3-Clause OR GPL-2.0-or-later',
+            spdx: 'BSD-3-Clause',
+          },
+          {
+            path: 'zstd-1.5.7/COPYING',
+            sha256: 'f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505',
+            spdx: 'GPL-2.0-only',
+          },
+          {
+            path: 'zstd-1.5.7/programs/zstdgrep',
+            sha256: '9bc769b26542ef2efa14ae29b3178b7f10639cd95544207691cb258fe06bbe17',
+            spdx: 'BSD-2-Clause',
+          },
+          {
+            path: 'zstd-1.5.7/lib/dictBuilder/divsufsort.c',
+            sha256: '2081acb08865f623857d2c0dcb0e79fce9489f01416528c30cfee7097915c616',
+            spdx: 'MIT',
           },
         ],
-        spdx: 'BSD-3-Clause OR GPL-2.0-or-later',
+        spdx: '(BSD-3-Clause OR GPL-2.0-only) AND BSD-2-Clause AND MIT',
       },
     ]);
   });

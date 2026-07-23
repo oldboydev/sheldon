@@ -301,10 +301,10 @@ const inventory = [
       {
         path: 'tiff-4.7.1/LICENSE.md',
         sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
-        spdx: 'MIT',
+        spdx: 'libtiff',
       },
     ],
-    spdx: 'MIT',
+    spdx: 'libtiff',
   },
   {
     provider: 'msys2',
@@ -412,10 +412,25 @@ const inventory = [
       {
         path: 'zstd-1.5.7/LICENSE',
         sha256: '7055266497633c9025b777c78eb7235af13922117480ed5c674677adc381c9d8',
-        spdx: 'BSD-3-Clause OR GPL-2.0-or-later',
+        spdx: 'BSD-3-Clause',
+      },
+      {
+        path: 'zstd-1.5.7/COPYING',
+        sha256: 'f9c375a1be4a41f7b70301dd83c91cb89e41567478859b77eef375a52d782505',
+        spdx: 'GPL-2.0-only',
+      },
+      {
+        path: 'zstd-1.5.7/programs/zstdgrep',
+        sha256: '9bc769b26542ef2efa14ae29b3178b7f10639cd95544207691cb258fe06bbe17',
+        spdx: 'BSD-2-Clause',
+      },
+      {
+        path: 'zstd-1.5.7/lib/dictBuilder/divsufsort.c',
+        sha256: '2081acb08865f623857d2c0dcb0e79fce9489f01416528c30cfee7097915c616',
+        spdx: 'MIT',
       },
     ],
-    spdx: 'BSD-3-Clause OR GPL-2.0-or-later',
+    spdx: '(BSD-3-Clause OR GPL-2.0-only) AND BSD-2-Clause AND MIT',
   },
 ];
 
