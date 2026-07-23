@@ -9,11 +9,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parse } from 'yaml';
 
 import { buildOcrRuntime, parseBuildOcrRuntimeArguments } from '../build-ocr-runtime.mjs';
-import {
-  findPinnedOcrRuntimeDependency,
-  formatMissingOcrRuntimeDependencies,
-  OCR_RUNTIME_DEPENDENCY_INVENTORY,
-} from '../ocr-runtime-dependency-inventory.mjs';
 import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
@@ -160,100 +155,28 @@ describe('Native OCR runtime workflow', () => {
 
     expect(builder).toContain('-DSW_BUILD=OFF');
     expect(builder).toContain('& $pacman -Qo $packagePath');
+    expect(builder).toContain('& $pacman -Q');
+    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'graph-lock'");
+    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'sources'");
+    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'dependency-preflight'");
+    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'download'");
+    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'dependency-notice'");
+    expect(builder).not.toContain('node --input-type=module --eval');
+    expect(builder).not.toContain(
+      '51342815a262a5c1d000bab44503ddbf71ef210053375d504f619ca7a3b381bd',
+    );
+    expect(builder.indexOf("'graph-lock'")).toBeLessThan(builder.indexOf("'download'"));
+    expect(builder.indexOf("'graph-lock'")).toBeLessThan(builder.indexOf('cmake.exe'));
+    expect(builder.indexOf("'graph-lock'")).toBeLessThan(builder.indexOf('$workRoot ='));
+    expect(builder).not.toContain('/share/licenses/');
+    expect(builder).toContain('$queue.Enqueue($builtExecutable.FullName)');
+    expect(builder).toContain("'eng.traineddata'");
+    expect(builder).toContain("'por.traineddata'");
+    expect(builder.split('$env:PATH = $previousPath')).toHaveLength(3);
+    expect(builder).toContain('OCR_RUNTIME_MSYS2_GRAPH_INVALID');
+    expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_INVALID');
+    expect(builder).toContain('OCR_RUNTIME_NOTICES_INVALID');
   });
-
-  it('preflights a singleton MSYS2 identity as an array', async () => {
-    const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
-    const result = await executeWindowsDependencyPreflight(windowsBuilder, [
-      { provider: 'msys2', name: 'mingw-w64-x86_64-singleton', version: '1.0.0-1' },
-    ]);
-
-    expect(result.code).not.toBe(0);
-    expect(result.stdout, result.stderr).toContain(
-      'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-singleton version=1.0.0-1',
-    );
-    expect(result.stderr).toContain(
-      ['OCR_RUNTIME_MISSING_DEPENDENCIES:', 'msys2/mingw-w64-x86_64-singleton@1.0.0-1'].join('\n'),
-    );
-    expect(`${result.stdout}\n${result.stderr}`).not.toContain(
-      'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
-    );
-  }, 15_000);
-
-  it.each([
-    ['empty', []],
-    ['malformed', [{ provider: 'msys2', name: '', version: '1.0.0-1' }]],
-  ])(
-    'fails closed for an %s MSYS2 identity set',
-    async (_case, identities) => {
-      const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
-      const result = await executeWindowsDependencyPreflight(windowsBuilder, identities);
-
-      expect(result.code).not.toBe(0);
-      expect(`${result.stdout}\n${result.stderr}`).toContain('OCR_RUNTIME_');
-      expect(`${result.stdout}\n${result.stderr}`).not.toContain(
-        'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
-      );
-    },
-    15_000,
-  );
-
-  it('batch-reports every missing MSYS2 identity before downloading a notice source', async () => {
-    const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
-    const discoveredDependencies = [
-      { provider: 'msys2', name: 'mingw-w64-x86_64-zlib', version: '1.3.2-1' },
-      { provider: 'msys2', name: 'mingw-w64-x86_64-brotli', version: '1.1.0-2' },
-      { provider: 'msys2', name: 'mingw-w64-x86_64-libpng', version: '1.6.46-1' },
-    ];
-
-    expect(
-      formatMissingOcrRuntimeDependencies(
-        discoveredDependencies.filter(
-          ({ provider, name, version }) =>
-            !findPinnedOcrRuntimeDependency(
-              provider,
-              name,
-              version,
-              OCR_RUNTIME_DEPENDENCY_INVENTORY,
-            ),
-        ),
-      ),
-    ).toBe(
-      [
-        'OCR_RUNTIME_MISSING_DEPENDENCIES:',
-        'msys2/mingw-w64-x86_64-brotli@1.1.0-2',
-        'msys2/mingw-w64-x86_64-libpng@1.6.46-1',
-        'msys2/mingw-w64-x86_64-zlib@1.3.2-1',
-      ].join('\n'),
-    );
-    expect(windowsBuilder).toContain('findPinnedOcrRuntimeDependency');
-    expect(windowsBuilder).toContain('OCR_RUNTIME_MISSING_DEPENDENCIES');
-    expect(windowsBuilder.indexOf('OCR_RUNTIME_MISSING_DEPENDENCIES')).toBeLessThan(
-      windowsBuilder.indexOf('Get-VerifiedDependencyNotice'),
-    );
-
-    const result = await executeWindowsDependencyPreflight(windowsBuilder, discoveredDependencies);
-
-    expect(result.code).not.toBe(0);
-    expect(result.stdout, result.stderr).toContain(
-      [
-        'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-zlib version=1.3.2-1',
-        'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-brotli version=1.1.0-2',
-        'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-libpng version=1.6.46-1',
-      ].join('\n'),
-    );
-    expect(result.stderr).toContain(
-      [
-        'OCR_RUNTIME_MISSING_DEPENDENCIES:',
-        'msys2/mingw-w64-x86_64-brotli@1.1.0-2',
-        'msys2/mingw-w64-x86_64-libpng@1.6.46-1',
-        'msys2/mingw-w64-x86_64-zlib@1.3.2-1',
-      ].join('\n'),
-    );
-    expect(`${result.stdout}\n${result.stderr}`).not.toContain(
-      'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
-    );
-  }, 15_000);
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
     const macosBuilder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
@@ -433,13 +356,11 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
       readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8'),
     ]);
 
-    expect(windowsBuilder).toContain('findPinnedOcrRuntimeDependency');
+    expect(windowsBuilder).toContain("'dependency-preflight'");
     expect(windowsBuilder).toContain('& $pacman -Q $packageName');
     expect(windowsBuilder).toContain('$dependency.sourceUrl');
     expect(windowsBuilder).toContain('$dependency.sourceSha256');
-    expect(windowsBuilder).toContain('$dependency.licenses');
-    expect(windowsBuilder).toContain('$license.path');
-    expect(windowsBuilder).toContain('$license.sha256');
+    expect(windowsBuilder).toContain("'dependency-notice'");
     expect(windowsBuilder).not.toContain('/share/licenses/');
 
     expect(macosBuilder).toContain('findPinnedOcrRuntimeDependency');
@@ -486,71 +407,4 @@ function testSources() {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
-}
-
-async function executeWindowsDependencyPreflight(
-  windowsBuilder: string,
-  identities: unknown[],
-): Promise<{ stdout: string; stderr: string; code: number | null }> {
-  const preflightFunction = windowsBuilder.match(
-    / {2}function Get-PinnedDependencies\([\s\S]*?(?=\n {2}function Get-VerifiedDependencyNotice)/u,
-  )?.[0];
-  const materializationBranch = windowsBuilder.match(
-    / {2}\$pinnedDependencies = @\(Get-PinnedDependencies[\s\S]*?(?=\n {2}\$modelLicense =)/u,
-  )?.[0];
-  if (!preflightFunction || !materializationBranch) {
-    throw new Error('The Windows MSYS2 dependency preflight control branch is missing.');
-  }
-
-  const root = await temporaryRoot();
-  const harness = join(root, 'missing-msys2-preflight-harness.ps1');
-  const repositoryRoot = process.cwd().replaceAll("'", "''");
-  const identitiesJson = JSON.stringify(identities).replaceAll("'", "''");
-  await writeFile(
-    harness,
-    `$ErrorActionPreference = 'Stop'
-Set-StrictMode -Version Latest
-$repositoryRoot = '${repositoryRoot}'
-${preflightFunction}
-
-function Get-VerifiedDependencyNotice {
-  throw 'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED'
-}
-
-$privateDllProviders = @{}
-$packageIdentities = ConvertFrom-Json -InputObject '${identitiesJson}'
-try {
-${materializationBranch}
-  exit 0
-} catch {
-  [Console]::Error.WriteLine($_.Exception.Message)
-  exit 1
-}
-`,
-    'utf8',
-  );
-
-  const powershell = process.platform === 'win32' ? 'powershell.exe' : 'pwsh';
-  const powershellArguments =
-    process.platform === 'win32'
-      ? ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', harness]
-      : ['-NoProfile', '-File', harness];
-  try {
-    const result = await execFileAsync(powershell, powershellArguments, {
-      encoding: 'utf8',
-      shell: false,
-    });
-    return { ...result, code: 0 };
-  } catch (error) {
-    const result = error as {
-      stdout?: string;
-      stderr?: string;
-      code?: number | null;
-    };
-    return {
-      stdout: result.stdout ?? '',
-      stderr: result.stderr ?? '',
-      code: result.code ?? null,
-    };
-  }
 }

@@ -1,10 +1,14 @@
 import { createHash } from 'node:crypto';
+import { spawn } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 import {
   assertPinnedMsys2PackageGraph,
   downloadPinnedFile,
@@ -826,6 +830,220 @@ describe('pinned Windows download transport', () => {
   });
 });
 
+describe('Windows OCR runtime CLI', () => {
+  it('serializes the existing pinned source manifest without diagnostics', async () => {
+    const result = await runWindowsCli(['sources']);
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(JSON.parse(result.stdout)).toEqual(OCR_RUNTIME_SOURCES);
+  });
+
+  it('validates a matching fixture graph lock from bounded stdin without emitting output', async () => {
+    const root = await temporaryExtractedRoot();
+    const lockPath = join(root, 'graph.lock.json');
+    await writeFile(lockPath, JSON.stringify(graphLock()), 'utf8');
+
+    const result = await runWindowsCli(
+      ['graph-lock', '--lock', lockPath],
+      packages.map(({ name, version }) => `${name} ${version}`).join('\n'),
+    );
+
+    expect(result).toEqual({ code: 0, stdout: '', stderr: '' });
+  });
+
+  it('reports a missing graph lock with the complete parsed installed graph', async () => {
+    const root = await temporaryExtractedRoot();
+    const missingLock = join(root, 'missing.lock.json');
+
+    const result = await runWindowsCli(
+      ['graph-lock', '--lock', missingLock],
+      'mingw-w64-x86_64-zlib 1.3.2-2\nbash 5.2.037-2\n',
+    );
+
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('OCR_RUNTIME_MSYS2_GRAPH_LOCK_INVALID');
+    expect(result.stderr).toContain(
+      ['installed:', '- bash@5.2.037-2', '- mingw-w64-x86_64-zlib@1.3.2-2'].join('\n'),
+    );
+  });
+
+  it('serializes a valid dependency preflight as JSON and writes diagnostics to stderr', async () => {
+    const identity = {
+      provider: 'msys2',
+      name: 'mingw-w64-x86_64-zlib',
+      version: '1.3.2-2',
+    };
+
+    const result = await runWindowsCli(['dependency-preflight'], JSON.stringify([identity]));
+
+    expect(result.code).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      dependencies: [expect.objectContaining(identity)],
+      diagnostics: [
+        'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-zlib version=1.3.2-2',
+      ],
+    });
+    expect(result.stderr).toBe(
+      'OCR_RUNTIME_DEPENDENCY: provider=msys2 name=mingw-w64-x86_64-zlib version=1.3.2-2\n',
+    );
+  });
+
+  it('batch-reports missing dependency identities on stderr without corrupting stdout', async () => {
+    const identities = [
+      { provider: 'msys2', name: 'missing-zlib', version: '2' },
+      { provider: 'msys2', name: 'missing-brotli', version: '1' },
+    ];
+
+    const result = await runWindowsCli(['dependency-preflight'], JSON.stringify(identities));
+
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toBe(
+      [
+        'OCR_RUNTIME_MISSING_DEPENDENCIES:',
+        'msys2/missing-brotli@1',
+        'msys2/missing-zlib@2',
+        '',
+      ].join('\n'),
+    );
+  });
+
+  it.each([
+    ['dependency-preflight', ['dependency-preflight']],
+    ['dependency-notice', ['dependency-notice']],
+  ])('rejects malformed JSON stdin for %s', async (_label, arguments_) => {
+    const result = await runWindowsCli(arguments_, '{not-json');
+
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('OCR_RUNTIME_ARGUMENTS_INVALID');
+  });
+
+  it('rejects stdin beyond the fixed input bound', async () => {
+    const result = await runWindowsCli(
+      ['dependency-preflight'],
+      JSON.stringify(['x'.repeat(1024 * 1024)]),
+    );
+
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('OCR_RUNTIME_ARGUMENTS_INVALID');
+  });
+
+  it.each([
+    ['no command', []],
+    ['unknown command', ['unknown']],
+    ['graph lock missing switch', ['graph-lock']],
+    ['graph lock missing value', ['graph-lock', '--lock']],
+    ['graph lock unknown switch', ['graph-lock', '--other', 'lock.json']],
+    ['graph lock repeated switch', ['graph-lock', '--lock', 'a', '--lock', 'b']],
+    ['graph lock extra positional', ['graph-lock', '--lock', 'a', 'extra']],
+    ['dependency preflight extra positional', ['dependency-preflight', 'extra']],
+    ['sources extra positional', ['sources', 'extra']],
+    ['download missing url', ['download', '--output', 'a', '--sha256', 'b']],
+    ['download missing output', ['download', '--url', 'a', '--sha256', 'b']],
+    ['download missing sha256', ['download', '--url', 'a', '--output', 'b']],
+    [
+      'download repeated url',
+      ['download', '--url', 'a', '--url', 'b', '--output', 'c', '--sha256', 'd'],
+    ],
+    [
+      'download repeated output',
+      ['download', '--url', 'a', '--output', 'b', '--output', 'c', '--sha256', 'd'],
+    ],
+    [
+      'download repeated sha256',
+      ['download', '--url', 'a', '--output', 'b', '--sha256', 'c', '--sha256', 'd'],
+    ],
+    [
+      'download unknown switch',
+      ['download', '--url', 'a', '--output', 'b', '--sha256', 'c', '--other', 'd'],
+    ],
+    [
+      'download extra positional',
+      ['download', '--url', 'a', '--output', 'b', '--sha256', 'c', 'extra'],
+    ],
+    ['dependency notice extra positional', ['dependency-notice', 'extra']],
+  ])('rejects invalid argument shape: %s', async (_label, arguments_) => {
+    const result = await runWindowsCli(arguments_);
+
+    expect(result.code).not.toBe(0);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('OCR_RUNTIME_ARGUMENTS_INVALID');
+  });
+
+  it('routes pinned downloads through the HTTPS-only transport before contacting an HTTP server', async () => {
+    const destination = await temporaryDestination();
+    let requests = 0;
+    const server = createServer((_request, response) => {
+      requests += 1;
+      response.writeHead(200, { 'content-type': 'application/octet-stream' });
+      response.end('verified');
+    });
+    await new Promise<void>((resolvePromise, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', resolvePromise);
+    });
+
+    try {
+      const { port } = server.address() as AddressInfo;
+      const result = await runWindowsCli([
+        'download',
+        '--url',
+        `http://127.0.0.1:${port}/source`,
+        '--output',
+        destination,
+        '--sha256',
+        sha256('verified'),
+      ]);
+
+      expect(result.code).not.toBe(0);
+      expect(result.stdout).toBe('');
+      expect(result.stderr).toContain('OCR_RUNTIME_DOWNLOAD_INVALID: Source URL must use HTTPS.');
+      expect(requests).toBe(0);
+      await expect(readFile(destination)).rejects.toThrow();
+    } finally {
+      await new Promise<void>((resolvePromise, reject) =>
+        server.close((error) => (error ? reject(error) : resolvePromise())),
+      );
+    }
+  });
+
+  it('renders a verified dependency notice from a temporary extracted tree', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const dependency = pinnedDependency();
+    await writeExtractedFile(extractedRoot, 'archive/package/LICENSE', 'verified license text');
+
+    const result = await runWindowsCli(
+      ['dependency-notice'],
+      JSON.stringify({ dependency, privateDlls: ['zlib1.dll'], extractedRoot }),
+    );
+
+    expect(result.code).toBe(0);
+    expect(result.stderr).toBe('');
+    expect(result.stdout).toBe(
+      [
+        '== msys2 package: mingw-w64-x86_64-zlib@1.3.2-2 ==',
+        'Provider: msys2',
+        'Package: mingw-w64-x86_64-zlib',
+        'Version: 1.3.2-2',
+        'SPDX: Zlib',
+        'Source: https://example.test/zlib.tar.xz',
+        `Source SHA-256: ${'a'.repeat(64)}`,
+        'Private DLLs: zlib1.dll',
+        '',
+        'License SPDX: Zlib',
+        'License path: package/LICENSE',
+        `License SHA-256: ${sha256('verified license text')}`,
+        '',
+        'verified license text',
+      ].join('\n'),
+    );
+  });
+});
+
 async function temporaryDestination(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-windows-download-test-'));
   temporaryRoots.push(root);
@@ -869,4 +1087,35 @@ function pinnedDependency(overrides: Record<string, unknown> = {}) {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+async function runWindowsCli(
+  arguments_: string[],
+  stdin = '',
+): Promise<{ code: number | null; stdout: string; stderr: string }> {
+  const child = spawn(
+    process.execPath,
+    ['scripts/release/windows-ocr-runtime-cli.mjs', ...arguments_],
+    { cwd: process.cwd(), shell: false, stdio: ['pipe', 'pipe', 'pipe'] },
+  );
+  let stdout = '';
+  let stderr = '';
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+  child.stdout.on('data', (chunk: string) => {
+    stdout += chunk;
+  });
+  child.stderr.on('data', (chunk: string) => {
+    stderr += chunk;
+  });
+  child.stdin.on('error', (error: NodeJS.ErrnoException) => {
+    if (error.code !== 'EPIPE') throw error;
+  });
+  child.stdin.end(stdin);
+
+  const code = await new Promise<number | null>((resolvePromise, reject) => {
+    child.once('error', reject);
+    child.once('close', resolvePromise);
+  });
+  return { code, stdout, stderr };
 }

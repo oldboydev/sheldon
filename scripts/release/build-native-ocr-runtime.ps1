@@ -15,27 +15,53 @@ if ([string]::IsNullOrWhiteSpace($Output)) {
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
-Push-Location $repositoryRoot
-try {
-  $sourcesJson = node --input-type=module --eval "import { OCR_RUNTIME_SOURCES } from './scripts/release/ocr-runtime-sources.mjs'; process.stdout.write(JSON.stringify(OCR_RUNTIME_SOURCES));" 2>$null
-} finally {
-  Pop-Location
-}
-if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace($sourcesJson)) {
-  throw 'OCR_RUNTIME_SOURCE_UNPINNED: Unable to read the pinned OCR runtime source manifest.'
-}
-$sources = $sourcesJson | ConvertFrom-Json
-
 $msysRoot = if ([string]::IsNullOrWhiteSpace($env:MSYS2_ROOT)) { 'C:\msys64' } else { $env:MSYS2_ROOT }
 $mingwBin = Join-Path $msysRoot 'mingw64\bin'
 $pacman = Join-Path $msysRoot 'usr\bin\pacman.exe'
+if (-not (Test-Path $pacman)) {
+  throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 package manager $pacman."
+}
+$installedGraph = & $pacman -Q
+if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($installedGraph -join "`n"))) {
+  throw 'OCR_RUNTIME_MSYS2_GRAPH_INVALID: Unable to read the complete installed MSYS2 package graph.'
+}
+
+$windowsRuntimeCli = Join-Path $repositoryRoot 'scripts\release\windows-ocr-runtime-cli.mjs'
+$graphLock = Join-Path $repositoryRoot 'scripts\release\msys2-ocr-runtime.lock.json'
+if (-not (Test-Path $windowsRuntimeCli)) {
+  throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing Windows OCR runtime CLI $windowsRuntimeCli."
+}
+Push-Location $repositoryRoot
+try {
+  $installedGraph | node 'scripts/release/windows-ocr-runtime-cli.mjs' 'graph-lock' '--lock' $graphLock
+  $graphLockExitCode = $LASTEXITCODE
+} finally {
+  Pop-Location
+}
+if ($graphLockExitCode -ne 0) {
+  throw 'OCR_RUNTIME_MSYS2_GRAPH_INVALID: Installed MSYS2 packages do not match the committed graph lock.'
+}
+
 foreach ($tool in @('cmake.exe', 'ninja.exe', 'g++.exe', 'objdump.exe')) {
   if (-not (Test-Path (Join-Path $mingwBin $tool))) {
     throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 MINGW64 tool $tool."
   }
 }
-if (-not (Test-Path $pacman)) {
-  throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 package manager $pacman."
+
+Push-Location $repositoryRoot
+try {
+  $sourcesJson = node 'scripts/release/windows-ocr-runtime-cli.mjs' 'sources'
+  $sourcesExitCode = $LASTEXITCODE
+} finally {
+  Pop-Location
+}
+if ($sourcesExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($sourcesJson)) {
+  throw 'OCR_RUNTIME_SOURCE_UNPINNED: Unable to read the pinned OCR runtime source manifest.'
+}
+try {
+  $sources = $sourcesJson | ConvertFrom-Json
+} catch {
+  throw 'OCR_RUNTIME_SOURCE_UNPINNED: Pinned OCR runtime source manifest is not valid JSON.'
 }
 
 $outputRoot = [System.IO.Path]::GetFullPath($Output)
@@ -59,50 +85,33 @@ try {
   New-Item -ItemType Directory -Force -Path $sourceRoot, $modelsRoot, $libraryRoot, $dataRoot | Out-Null
 
   function Get-PinnedFile([string]$Uri, [string]$Destination, [string]$ExpectedHash) {
-    Invoke-WebRequest -Uri $Uri -OutFile $Destination
-    $actualHash = (Get-FileHash -Path $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($actualHash -ne $ExpectedHash.ToLowerInvariant()) {
-      throw "OCR_RUNTIME_CHECKSUM_INVALID: SHA-256 mismatch for $Uri."
+    Push-Location $repositoryRoot
+    try {
+      node 'scripts/release/windows-ocr-runtime-cli.mjs' 'download' `
+        '--url' $Uri '--output' $Destination '--sha256' $ExpectedHash
+      $downloadExitCode = $LASTEXITCODE
+    } finally {
+      Pop-Location
+    }
+    if ($downloadExitCode -ne 0) {
+      throw "OCR_RUNTIME_DOWNLOAD_INVALID: Unable to download pinned source $Uri."
     }
   }
 
   function Get-PinnedDependencies([object[]]$Identities) {
-    $missingDependenciesError = 'OCR_RUNTIME_MISSING_DEPENDENCIES'
     $identitiesJson = ConvertTo-Json -InputObject @($Identities) -Compress
     Push-Location $repositoryRoot
     try {
-      $preflightJson = $identitiesJson | node --input-type=module --eval `
-        'import { findPinnedOcrRuntimeDependency, formatMissingOcrRuntimeDependencies, OCR_RUNTIME_DEPENDENCY_INVENTORY } from ''./scripts/release/ocr-runtime-dependency-inventory.mjs'';
-         const identities = JSON.parse(await new Promise((resolve, reject) => { let input = ``; process.stdin.setEncoding(`utf8`); process.stdin.on(`data`, (chunk) => input += chunk); process.stdin.on(`end`, () => resolve(input)); process.stdin.on(`error`, reject); }));
-         if (!Array.isArray(identities) || identities.length === 0 || identities.some((identity) => !identity || typeof identity !== `object` || identity.provider !== `msys2` || typeof identity.name !== `string` || identity.name.length === 0 || typeof identity.version !== `string` || identity.version.length === 0)) {
-           throw new Error(`OCR_RUNTIME_NOTICES_INVALID: MSYS2 dependency identities must be a non-empty array of complete records.`);
-         }
-         const missing = [];
-         const diagnostics = [];
-         const dependencies = identities.map((identity) => {
-           diagnostics.push(`OCR_RUNTIME_DEPENDENCY: provider=${identity.provider} name=${identity.name} version=${identity.version}`);
-           const dependency = findPinnedOcrRuntimeDependency(identity.provider, identity.name, identity.version, OCR_RUNTIME_DEPENDENCY_INVENTORY);
-           if (!dependency) missing.push(identity);
-           return dependency;
-         });
-         const missingReport = missing.length > 0 ? formatMissingOcrRuntimeDependencies(missing) : null;
-         process.stdout.write(JSON.stringify({ dependencies, diagnostics, missingReport }));
-         if (missingReport) process.exitCode = 1;'
+      $preflightJson = $identitiesJson |
+        node 'scripts/release/windows-ocr-runtime-cli.mjs' 'dependency-preflight'
       $lookupExitCode = $LASTEXITCODE
     } finally {
       Pop-Location
     }
-    if ([string]::IsNullOrWhiteSpace($preflightJson)) {
+    if ($lookupExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($preflightJson)) {
       throw 'OCR_RUNTIME_NOTICES_INVALID: MSYS2 dependency inventory preflight failed.'
     }
     $preflight = $preflightJson | ConvertFrom-Json
-    $preflight.diagnostics | ForEach-Object { Write-Host $_ }
-    if ($lookupExitCode -ne 0) {
-      if ([string]::IsNullOrWhiteSpace($preflight.missingReport)) {
-        throw "${missingDependenciesError}: MSYS2 dependency inventory preflight failed."
-      }
-      throw $preflight.missingReport
-    }
     return @($preflight.dependencies)
   }
 
@@ -120,49 +129,22 @@ try {
       throw "OCR_RUNTIME_NOTICES_INVALID: Unable to extract pinned source for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
     }
 
-    $licenseNoticeLines = [System.Collections.Generic.List[string]]::new()
-    foreach ($license in $dependency.licenses) {
-      $licensePath = $license.path -replace '\\', '/'
-      $licenseFiles = @(
-        Get-ChildItem -Path $dependencyRoot -Recurse -File | Where-Object {
-          $relativePath = [System.IO.Path]::GetRelativePath($dependencyRoot, $_.FullName) -replace '\\', '/'
-          $relativePath -eq $licensePath -or $relativePath.EndsWith("/$licensePath", [System.StringComparison]::Ordinal)
-        }
-      )
-      if ($licenseFiles.Count -ne 1) {
-        throw "OCR_RUNTIME_NOTICES_INVALID: Pinned license path $licensePath did not resolve uniquely for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
-      }
-      $licenseHash = (Get-FileHash -Path $licenseFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-      if ($licenseHash -ne $license.sha256.ToLowerInvariant()) {
-        throw "OCR_RUNTIME_NOTICES_INVALID: License SHA-256 mismatch for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
-      }
-      $licenseText = Get-Content -Raw $licenseFiles[0].FullName
-      if ([string]::IsNullOrWhiteSpace($licenseText)) {
-        throw "OCR_RUNTIME_NOTICES_INVALID: Verified license text is empty for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
-      }
-      foreach ($line in @(
-        "License SPDX: $($license.spdx)",
-        "License path: $licensePath",
-        "License SHA-256: $($license.sha256)",
-        '',
-        $licenseText,
-        ''
-      )) {
-        [void]$licenseNoticeLines.Add($line)
-      }
+    $noticeInput = @{
+      dependency = $dependency
+      privateDlls = @($PrivateDlls)
+      extractedRoot = $dependencyRoot
+    } | ConvertTo-Json -Depth 8 -Compress
+    Push-Location $repositoryRoot
+    try {
+      $notice = $noticeInput | node 'scripts/release/windows-ocr-runtime-cli.mjs' 'dependency-notice'
+      $noticeExitCode = $LASTEXITCODE
+    } finally {
+      Pop-Location
     }
-
-    return @(
-      "== $($dependency.provider) package: $($dependency.name)@$($dependency.version) ==",
-      "Provider: $($dependency.provider)",
-      "Package: $($dependency.name)",
-      "Version: $($dependency.version)",
-      "SPDX: $($dependency.spdx)",
-      "Source: $($dependency.sourceUrl)",
-      "Source SHA-256: $($dependency.sourceSha256)",
-      "Private DLLs: $(($PrivateDlls | Sort-Object) -join ', ')",
-      ''
-    ) + $licenseNoticeLines
+    if ($noticeExitCode -ne 0 -or [string]::IsNullOrWhiteSpace($notice)) {
+      throw "OCR_RUNTIME_NOTICES_INVALID: Unable to render verified notice for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+    }
+    return $notice
   }
 
   Get-PinnedFile $sources.tesseract.url $sourceArchive $sources.tesseract.sha256
@@ -173,22 +155,25 @@ try {
   Copy-Item (Join-Path $modelsRoot 'por.traineddata') (Join-Path $dataRoot 'por.traineddata')
 
   $previousPath = $env:PATH
-  $env:PATH = "$mingwBin;$env:PATH"
-  & (Join-Path $mingwBin 'cmake.exe') -S $sourceRoot -B (Join-Path $workRoot 'build') -G Ninja `
-    -DCMAKE_BUILD_TYPE=Release `
-    -DBUILD_SHARED_LIBS=ON `
-    -DBUILD_TESTS=OFF `
-    -DBUILD_TRAINING_TOOLS=OFF `
-    -DSW_BUILD=OFF `
-    -DDISABLE_ARCHIVE=ON `
-    -DDISABLE_CURL=ON `
-    -DENABLE_NATIVE=OFF `
-    -DGRAPHICS_DISABLED=ON `
-    -DOPENMP_BUILD=OFF
-  if ($LASTEXITCODE -ne 0) { throw 'OCR_RUNTIME_BUILD_FAILED: CMake configuration failed.' }
-  & (Join-Path $mingwBin 'cmake.exe') --build (Join-Path $workRoot 'build') --target tesseract --parallel
-  if ($LASTEXITCODE -ne 0) { throw 'OCR_RUNTIME_BUILD_FAILED: Tesseract compilation failed.' }
-  $env:PATH = $previousPath
+  try {
+    $env:PATH = "$mingwBin;$env:PATH"
+    & (Join-Path $mingwBin 'cmake.exe') -S $sourceRoot -B (Join-Path $workRoot 'build') -G Ninja `
+      -DCMAKE_BUILD_TYPE=Release `
+      -DBUILD_SHARED_LIBS=ON `
+      -DBUILD_TESTS=OFF `
+      -DBUILD_TRAINING_TOOLS=OFF `
+      -DSW_BUILD=OFF `
+      -DDISABLE_ARCHIVE=ON `
+      -DDISABLE_CURL=ON `
+      -DENABLE_NATIVE=OFF `
+      -DGRAPHICS_DISABLED=ON `
+      -DOPENMP_BUILD=OFF
+    if ($LASTEXITCODE -ne 0) { throw 'OCR_RUNTIME_BUILD_FAILED: CMake configuration failed.' }
+    & (Join-Path $mingwBin 'cmake.exe') --build (Join-Path $workRoot 'build') --target tesseract --parallel
+    if ($LASTEXITCODE -ne 0) { throw 'OCR_RUNTIME_BUILD_FAILED: Tesseract compilation failed.' }
+  } finally {
+    $env:PATH = $previousPath
+  }
 
   $builtExecutable = Get-ChildItem -Path (Join-Path $workRoot 'build') -Recurse -File -Filter 'tesseract.exe' |
     Select-Object -First 1
@@ -306,10 +291,14 @@ try {
   }
 
   $previousPath = $env:PATH
-  $env:PATH = "$libraryRoot;$env:PATH"
-  $health = & $executable --tessdata-dir $dataRoot --list-langs 2>&1
-  $env:PATH = $previousPath
-  if ($LASTEXITCODE -ne 0 -or -not ($health -contains 'eng') -or -not ($health -contains 'por')) {
+  try {
+    $env:PATH = "$libraryRoot;$env:PATH"
+    $health = & $executable --tessdata-dir $dataRoot --list-langs 2>&1
+    $healthExitCode = $LASTEXITCODE
+  } finally {
+    $env:PATH = $previousPath
+  }
+  if ($healthExitCode -ne 0 -or -not ($health -contains 'eng') -or -not ($health -contains 'por')) {
     throw "OCR_RUNTIME_HEALTHCHECK_FAILED: Tesseract could not list eng and por. Output: $health"
   }
 } finally {
