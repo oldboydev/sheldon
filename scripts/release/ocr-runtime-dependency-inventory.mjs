@@ -151,13 +151,23 @@ export function findOcrRuntimeDependency(
   version,
   inventory = OCR_RUNTIME_DEPENDENCY_INVENTORY,
 ) {
-  assertPinnedOcrRuntimeDependencyInventory(inventory);
-  const entry = inventory.find(
-    (candidate) =>
-      candidate.provider === provider && candidate.name === name && candidate.version === version,
-  );
+  const entry = findPinnedOcrRuntimeDependency(provider, name, version, inventory);
   if (!entry) throw noticesError();
   return entry;
+}
+
+export function findPinnedOcrRuntimeDependency(provider, name, version, inventory) {
+  assertPinnedOcrRuntimeDependencyInventory(inventory);
+  return inventory.find(
+    (entry) => entry.provider === provider && entry.name === name && entry.version === version,
+  );
+}
+
+export function formatMissingOcrRuntimeDependencies(identities) {
+  const lines = new Set(
+    identities.map(({ provider, name, version }) => `${provider}/${name}@${version}`),
+  );
+  return ['OCR_RUNTIME_MISSING_DEPENDENCIES:', ...[...lines].toSorted()].join('\n');
 }
 
 function isPinnedDependency(entry) {

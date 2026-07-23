@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 
 import {
   assertPinnedOcrRuntimeDependencyInventory,
+  findPinnedOcrRuntimeDependency,
   findOcrRuntimeDependency,
+  formatMissingOcrRuntimeDependencies,
   OCR_RUNTIME_DEPENDENCY_INVENTORY,
 } from '../ocr-runtime-dependency-inventory.mjs';
 
@@ -166,6 +168,20 @@ describe('OCR runtime dependency inventory', () => {
     };
 
     expect(findOcrRuntimeDependency('msys2', 'giflib', '5.2.2-1', [dependency])).toBe(dependency);
+  });
+
+  it('returns undefined when an exact pinned dependency is absent', () => {
+    expect(findPinnedOcrRuntimeDependency('homebrew', 'giflib', '6.1.3', [])).toBeUndefined();
+  });
+
+  it('formats unique missing dependencies in lexical order', () => {
+    expect(
+      formatMissingOcrRuntimeDependencies([
+        { provider: 'msys2', name: 'zlib', version: '1' },
+        { provider: 'homebrew', name: 'giflib', version: '6' },
+        { provider: 'msys2', name: 'zlib', version: '1' },
+      ]),
+    ).toBe('OCR_RUNTIME_MISSING_DEPENDENCIES:\nhomebrew/giflib@6\nmsys2/zlib@1');
   });
 
   it('rejects an unpinned lookup and an absent dependency', () => {
