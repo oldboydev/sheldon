@@ -25,6 +25,17 @@ const inventory = [
     spdx: 'libpng-2.0',
   },
   {
+    provider: 'homebrew',
+    name: 'jpeg-turbo',
+    version: '3.1.4.1',
+    sourceUrl:
+      'https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.4.1/libjpeg-turbo-3.1.4.1.tar.gz',
+    sourceSha256: 'ecae8008e2cc9ade2f2c1bb9d5e6d4fb73e7c433866a056bd82980741571a022',
+    licensePath: 'libjpeg-turbo-3.1.4.1/LICENSE.md',
+    licenseSha256: 'e10114e6e40f3d0311c401ca25245ac5ef459a43c20f976fd63f03e816f5741f',
+    spdx: 'IJG AND Zlib AND BSD-3-Clause',
+  },
+  {
     provider: 'msys2',
     name: 'mingw-w64-x86_64-gcc-libs',
     version: '16.1.0-5',
@@ -40,7 +51,7 @@ const inventory = [
     name: 'mingw-w64-x86_64-giflib',
     version: '6.1.3-1',
     sourceUrl:
-      'https://downloads.sourceforge.net/sourceforge/giflib/giflib-6.x/giflib-6.1.3.tar.gz',
+      'https://master.dl.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz?viasf=1',
     sourceSha256: 'b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e',
     licensePath: 'giflib-6.1.3/COPYING',
     licenseSha256: 'ed5d90cb4a041bddad679470a071302ab05ae5d0ec2cf8f9c97ad7b2708751e6',
