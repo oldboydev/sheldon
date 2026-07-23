@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -10,6 +10,8 @@ import {
   downloadPinnedFile,
   MSYS2_GRAPH_SCHEMA_VERSION,
   parseMsys2PackageGraph,
+  preflightMsys2RuntimeDependencies,
+  renderVerifiedMsys2DependencyNotice,
   validateMsys2GraphLock,
 } from '../windows-ocr-runtime.mjs';
 
@@ -176,6 +178,272 @@ describe('pinned MSYS2 package graph comparison', () => {
         'changed:',
         `- ${packages[0].name} expected=0.9.0-1 installed=${packages[0].version}`,
       ].join('\n'),
+    );
+  });
+});
+
+describe('MSYS2 runtime dependency preflight', () => {
+  it('reports every missing dependency in deterministic lexical order', () => {
+    expect(() =>
+      preflightMsys2RuntimeDependencies(
+        [
+          { provider: 'msys2', name: 'zlib', version: '2' },
+          { provider: 'msys2', name: 'brotli', version: '1' },
+        ],
+        [],
+      ),
+    ).toThrow('OCR_RUNTIME_MISSING_DEPENDENCIES:\nmsys2/brotli@1\nmsys2/zlib@2');
+  });
+
+  it('reports a singleton missing dependency', () => {
+    expect(() =>
+      preflightMsys2RuntimeDependencies([{ provider: 'msys2', name: 'zlib', version: '2' }], []),
+    ).toThrow('OCR_RUNTIME_MISSING_DEPENDENCIES:\nmsys2/zlib@2');
+  });
+
+  it.each([
+    ['empty identities', []],
+    ['non-array identities', null],
+    ['null identity', [null]],
+    ['array identity', [[]]],
+    ['missing version', [{ provider: 'msys2', name: 'zlib' }]],
+    ['empty name', [{ provider: 'msys2', name: '', version: '2' }]],
+    ['whitespace version', [{ provider: 'msys2', name: 'zlib', version: ' ' }]],
+    ['extra identity field', [{ provider: 'msys2', name: 'zlib', version: '2', extra: true }]],
+  ])('rejects malformed %s', (_label, identities) => {
+    expect(() => preflightMsys2RuntimeDependencies(identities, [])).toThrow(
+      'OCR_RUNTIME_NOTICES_INVALID',
+    );
+  });
+
+  it('rejects a non-MSYS2 identity', () => {
+    expect(() =>
+      preflightMsys2RuntimeDependencies([{ provider: 'homebrew', name: 'zlib', version: '2' }], []),
+    ).toThrow('OCR_RUNTIME_NOTICES_INVALID');
+  });
+
+  it('deduplicates identities before lookup and diagnostics', () => {
+    const dependency = pinnedDependency();
+
+    expect(
+      preflightMsys2RuntimeDependencies(
+        [
+          { provider: 'msys2', name: dependency.name, version: dependency.version },
+          { provider: 'msys2', name: dependency.name, version: dependency.version },
+        ],
+        [dependency],
+      ),
+    ).toEqual({
+      dependencies: [dependency],
+      diagnostics: [
+        `OCR_RUNTIME_DEPENDENCY: provider=msys2 name=${dependency.name} version=${dependency.version}`,
+      ],
+    });
+  });
+
+  it('returns exact hits and diagnostics in lexical package-name order independent of input order', () => {
+    const zlib = pinnedDependency();
+    const brotli = pinnedDependency({
+      name: 'mingw-w64-x86_64-brotli',
+      version: '1.1.0-1',
+      sourceUrl: 'https://example.test/brotli.tar.xz',
+    });
+    const reversedIdentities = [
+      { provider: 'msys2', name: zlib.name, version: zlib.version },
+      { provider: 'msys2', name: brotli.name, version: brotli.version },
+    ];
+
+    const result = preflightMsys2RuntimeDependencies(reversedIdentities, [zlib, brotli]);
+    const reorderedResult = preflightMsys2RuntimeDependencies([...reversedIdentities].reverse(), [
+      zlib,
+      brotli,
+    ]);
+
+    expect(result).toEqual({
+      dependencies: [brotli, zlib],
+      diagnostics: [
+        `OCR_RUNTIME_DEPENDENCY: provider=msys2 name=${brotli.name} version=${brotli.version}`,
+        `OCR_RUNTIME_DEPENDENCY: provider=msys2 name=${zlib.name} version=${zlib.version}`,
+      ],
+    });
+    expect(reorderedResult).toEqual(result);
+  });
+
+  it('validates every identity before looking up any dependency', () => {
+    const dependency = pinnedDependency();
+
+    expect(() =>
+      preflightMsys2RuntimeDependencies(
+        [
+          { provider: 'msys2', name: dependency.name, version: dependency.version },
+          { provider: 'msys2', name: '', version: '2' },
+        ],
+        [dependency],
+      ),
+    ).toThrow('OCR_RUNTIME_NOTICES_INVALID');
+  });
+});
+
+describe('verified MSYS2 dependency notice rendering', () => {
+  it('renders the exact existing metadata and verified license-text order', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const licenseText = 'verified license text';
+    const dependency = pinnedDependency({
+      licenses: [
+        {
+          path: 'package/LICENSE',
+          sha256: sha256(licenseText),
+          spdx: 'Zlib',
+        },
+      ],
+    });
+    await writeExtractedFile(extractedRoot, 'package/LICENSE', licenseText);
+
+    await expect(
+      renderVerifiedMsys2DependencyNotice({
+        dependency,
+        privateDlls: ['zlib1.dll'],
+        extractedRoot,
+      }),
+    ).resolves.toBe(
+      [
+        '== msys2 package: mingw-w64-x86_64-zlib@1.3.2-2 ==',
+        'Provider: msys2',
+        'Package: mingw-w64-x86_64-zlib',
+        'Version: 1.3.2-2',
+        'SPDX: Zlib',
+        'Source: https://example.test/zlib.tar.xz',
+        `Source SHA-256: ${'a'.repeat(64)}`,
+        'Private DLLs: zlib1.dll',
+        '',
+        'License SPDX: Zlib',
+        'License path: package/LICENSE',
+        `License SHA-256: ${sha256(licenseText)}`,
+        '',
+        licenseText,
+      ].join('\n'),
+    );
+  });
+
+  it('rejects a license path with no suffix match', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const dependency = pinnedDependency();
+    await writeExtractedFile(extractedRoot, 'package/COPYING', 'verified license text');
+
+    await expect(
+      renderVerifiedMsys2DependencyNotice({
+        dependency,
+        privateDlls: ['zlib1.dll'],
+        extractedRoot,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
+  });
+
+  it('rejects a license path with multiple suffix matches', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const dependency = pinnedDependency();
+    await writeExtractedFile(extractedRoot, 'first/package/LICENSE', 'verified license text');
+    await writeExtractedFile(extractedRoot, 'second/package/LICENSE', 'verified license text');
+
+    await expect(
+      renderVerifiedMsys2DependencyNotice({
+        dependency,
+        privateDlls: ['zlib1.dll'],
+        extractedRoot,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
+  });
+
+  it.each(['../LICENSE', 'package/../../LICENSE', '/package/LICENSE', 'C:\\package\\LICENSE'])(
+    'rejects a traversing or absolute license path: %s',
+    async (path) => {
+      const extractedRoot = await temporaryExtractedRoot();
+      const dependency = pinnedDependency({
+        licenses: [{ path, sha256: sha256('verified license text'), spdx: 'Zlib' }],
+      });
+
+      await expect(
+        renderVerifiedMsys2DependencyNotice({
+          dependency,
+          privateDlls: ['zlib1.dll'],
+          extractedRoot,
+        }),
+      ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
+    },
+  );
+
+  it('rejects a license hash mismatch', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const dependency = pinnedDependency();
+    await writeExtractedFile(extractedRoot, 'package/LICENSE', 'unverified license text');
+
+    await expect(
+      renderVerifiedMsys2DependencyNotice({
+        dependency,
+        privateDlls: ['zlib1.dll'],
+        extractedRoot,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
+  });
+
+  it('rejects whitespace-only verified license text', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const licenseText = ' \r\n\t';
+    const dependency = pinnedDependency({
+      licenses: [{ path: 'package/LICENSE', sha256: sha256(licenseText), spdx: 'Zlib' }],
+    });
+    await writeExtractedFile(extractedRoot, 'package/LICENSE', licenseText);
+
+    await expect(
+      renderVerifiedMsys2DependencyNotice({
+        dependency,
+        privateDlls: ['zlib1.dll'],
+        extractedRoot,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
+  });
+
+  it('rejects duplicate private DLL names', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const dependency = pinnedDependency();
+    await writeExtractedFile(extractedRoot, 'package/LICENSE', 'verified license text');
+
+    await expect(
+      renderVerifiedMsys2DependencyNotice({
+        dependency,
+        privateDlls: ['zlib1.dll', 'zlib1.dll'],
+        extractedRoot,
+      }),
+    ).rejects.toThrow('OCR_RUNTIME_NOTICES_INVALID');
+  });
+
+  it('preserves declared license ordering and sorts private DLL names', async () => {
+    const extractedRoot = await temporaryExtractedRoot();
+    const noticeText = 'notice text';
+    const licenseText = 'license text';
+    const dependency = pinnedDependency({
+      licenses: [
+        { path: 'package/NOTICE', sha256: sha256(noticeText), spdx: 'MIT' },
+        { path: 'package/LICENSE', sha256: sha256(licenseText), spdx: 'Zlib' },
+      ],
+    });
+    await writeExtractedFile(extractedRoot, 'archive/package/NOTICE', noticeText);
+    await writeExtractedFile(extractedRoot, 'archive/package/LICENSE', licenseText);
+
+    const rendered = await renderVerifiedMsys2DependencyNotice({
+      dependency,
+      privateDlls: ['zlib2.dll', 'zlib1.dll'],
+      extractedRoot,
+    });
+
+    expect(rendered).toContain('Private DLLs: zlib1.dll, zlib2.dll');
+    expect(rendered.indexOf('License path: package/NOTICE')).toBeLessThan(
+      rendered.indexOf('License path: package/LICENSE'),
+    );
+    expect(rendered).toContain(
+      [`License SHA-256: ${sha256(noticeText)}`, '', noticeText, '', 'License SPDX: Zlib'].join(
+        '\n',
+      ),
     );
   });
 });
@@ -559,6 +827,41 @@ async function temporaryDestination(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-windows-download-test-'));
   temporaryRoots.push(root);
   return join(root, 'source.bin');
+}
+
+async function temporaryExtractedRoot(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'sheldon-windows-notice-test-'));
+  temporaryRoots.push(root);
+  return root;
+}
+
+async function writeExtractedFile(
+  extractedRoot: string,
+  relativePath: string,
+  contents: string,
+): Promise<void> {
+  const filePath = join(extractedRoot, ...relativePath.split('/'));
+  await mkdir(join(filePath, '..'), { recursive: true });
+  await writeFile(filePath, contents);
+}
+
+function pinnedDependency(overrides: Record<string, unknown> = {}) {
+  return {
+    provider: 'msys2',
+    name: 'mingw-w64-x86_64-zlib',
+    version: '1.3.2-2',
+    sourceUrl: 'https://example.test/zlib.tar.xz',
+    sourceSha256: 'a'.repeat(64),
+    licenses: [
+      {
+        path: 'package/LICENSE',
+        sha256: sha256('verified license text'),
+        spdx: 'Zlib',
+      },
+    ],
+    spdx: 'Zlib',
+    ...overrides,
+  };
 }
 
 function sha256(value: string): string {

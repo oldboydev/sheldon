@@ -1,6 +1,13 @@
 import { createHash, randomUUID } from 'node:crypto';
-import { rename, rm, writeFile } from 'node:fs/promises';
-import { basename, dirname, join } from 'node:path';
+import { readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { basename, dirname, join, relative } from 'node:path';
+
+import {
+  assertPinnedOcrRuntimeDependencyInventory,
+  findPinnedOcrRuntimeDependency,
+  formatMissingOcrRuntimeDependencies,
+  OCR_RUNTIME_DEPENDENCY_INVENTORY,
+} from './ocr-runtime-dependency-inventory.mjs';
 
 export const MSYS2_GRAPH_SCHEMA_VERSION = 1;
 
@@ -259,6 +266,144 @@ export function assertPinnedMsys2PackageGraph(installed, lock) {
   }
 
   throw new Error(lines.join('\n'));
+}
+
+export function preflightMsys2RuntimeDependencies(
+  identities,
+  inventory = OCR_RUNTIME_DEPENDENCY_INVENTORY,
+) {
+  if (!Array.isArray(identities) || identities.length === 0) {
+    throw noticesError('MSYS2 dependency identities must be a non-empty array.');
+  }
+
+  for (const identity of identities) {
+    if (
+      !hasExactKeys(identity, ['provider', 'name', 'version']) ||
+      identity.provider !== 'msys2' ||
+      !isPackageName(identity.name) ||
+      !isPackageVersion(identity.version)
+    ) {
+      throw noticesError('MSYS2 dependency identities must be complete records.');
+    }
+  }
+
+  const uniqueIdentities = [
+    ...new Map(
+      identities.map((identity) => [
+        `${identity.provider}\u0000${identity.name}\u0000${identity.version}`,
+        identity,
+      ]),
+    ).values(),
+  ].sort(compareDependencyIdentities);
+
+  const missing = [];
+  const dependencies = [];
+  const diagnostics = [];
+  for (const identity of uniqueIdentities) {
+    const dependency = findPinnedOcrRuntimeDependency(
+      identity.provider,
+      identity.name,
+      identity.version,
+      inventory,
+    );
+    if (dependency === undefined) {
+      missing.push(identity);
+      continue;
+    }
+
+    dependencies.push(dependency);
+    diagnostics.push(
+      `OCR_RUNTIME_DEPENDENCY: provider=${identity.provider} name=${identity.name} version=${identity.version}`,
+    );
+  }
+
+  if (missing.length > 0) {
+    throw new Error(formatMissingOcrRuntimeDependencies(missing));
+  }
+
+  return Object.freeze({
+    dependencies: Object.freeze(dependencies),
+    diagnostics: Object.freeze(diagnostics),
+  });
+}
+
+export async function renderVerifiedMsys2DependencyNotice(options) {
+  if (
+    !hasExactKeys(options, ['dependency', 'privateDlls', 'extractedRoot']) ||
+    typeof options.extractedRoot !== 'string' ||
+    options.extractedRoot.length === 0 ||
+    !Array.isArray(options.privateDlls) ||
+    options.privateDlls.length === 0
+  ) {
+    throw noticesError('MSYS2 dependency notice options are invalid.');
+  }
+
+  const { dependency, extractedRoot } = options;
+  assertPinnedOcrRuntimeDependencyInventory([dependency]);
+  if (dependency.provider !== 'msys2') {
+    throw noticesError('MSYS2 dependency notices require an MSYS2 dependency.');
+  }
+
+  const privateDlls = normalizePrivateDlls(options.privateDlls);
+  const regularFiles = await collectRegularFiles(extractedRoot);
+  const licenseSections = [];
+  for (const license of dependency.licenses) {
+    const licensePath = normalizeLicensePath(license.path);
+    const matches = regularFiles.filter(
+      ({ relativePath }) =>
+        relativePath === licensePath || relativePath.endsWith(`/${licensePath}`),
+    );
+    if (matches.length !== 1) {
+      throw noticesError(
+        `Pinned license path ${licensePath} did not resolve uniquely for ${dependency.provider}/${dependency.name}@${dependency.version}.`,
+      );
+    }
+
+    let licenseBytes;
+    try {
+      licenseBytes = await readFile(matches[0].absolutePath);
+    } catch {
+      throw noticesError(
+        `Pinned license path ${licensePath} could not be read for ${dependency.provider}/${dependency.name}@${dependency.version}.`,
+      );
+    }
+    const actualSha256 = createHash('sha256').update(licenseBytes).digest('hex');
+    if (actualSha256 !== license.sha256.toLowerCase()) {
+      throw noticesError(
+        `License SHA-256 mismatch for ${dependency.provider}/${dependency.name}@${dependency.version}.`,
+      );
+    }
+
+    const licenseText = licenseBytes.toString('utf8');
+    if (licenseText.trim().length === 0) {
+      throw noticesError(
+        `Verified license text is empty for ${dependency.provider}/${dependency.name}@${dependency.version}.`,
+      );
+    }
+
+    licenseSections.push(
+      [
+        `License SPDX: ${license.spdx}`,
+        `License path: ${licensePath}`,
+        `License SHA-256: ${license.sha256}`,
+        '',
+        licenseText,
+      ].join('\n'),
+    );
+  }
+
+  return [
+    `== ${dependency.provider} package: ${dependency.name}@${dependency.version} ==`,
+    `Provider: ${dependency.provider}`,
+    `Package: ${dependency.name}`,
+    `Version: ${dependency.version}`,
+    `SPDX: ${dependency.spdx}`,
+    `Source: ${dependency.sourceUrl}`,
+    `Source SHA-256: ${dependency.sourceSha256}`,
+    `Private DLLs: ${privateDlls.join(', ')}`,
+    '',
+    licenseSections.join('\n\n'),
+  ].join('\n');
 }
 
 export async function downloadPinnedFile({
@@ -557,4 +702,86 @@ function defaultSleep(milliseconds) {
   return new Promise((resolve) => {
     setTimeout(resolve, milliseconds);
   });
+}
+
+function compareDependencyIdentities(left, right) {
+  return (
+    left.name.localeCompare(right.name, 'en') ||
+    left.version.localeCompare(right.version, 'en') ||
+    left.provider.localeCompare(right.provider, 'en')
+  );
+}
+
+function normalizePrivateDlls(privateDlls) {
+  const normalized = [];
+  const seenNames = new Set();
+  for (const name of privateDlls) {
+    if (
+      typeof name !== 'string' ||
+      name.length === 0 ||
+      name.trim() !== name ||
+      /[,\r\n/\\]/u.test(name)
+    ) {
+      throw noticesError('Private DLL names must be non-empty file names.');
+    }
+
+    const identity = name.toLowerCase();
+    if (seenNames.has(identity)) {
+      throw noticesError(`Duplicate private DLL name: ${name}.`);
+    }
+    seenNames.add(identity);
+    normalized.push(name);
+  }
+  return normalized.sort((left, right) => left.localeCompare(right, 'en'));
+}
+
+function normalizeLicensePath(path) {
+  if (typeof path !== 'string' || path.length === 0) {
+    throw noticesError('Pinned license paths must be non-empty relative paths.');
+  }
+
+  const normalized = path.replaceAll('\\', '/');
+  const segments = normalized.split('/');
+  if (
+    normalized.startsWith('/') ||
+    /^[A-Za-z]:\//u.test(normalized) ||
+    segments.some((segment) => segment.length === 0 || segment === '.' || segment === '..')
+  ) {
+    throw noticesError(`Pinned license path is not a normalized relative path: ${normalized}.`);
+  }
+  return normalized;
+}
+
+async function collectRegularFiles(extractedRoot) {
+  const files = [];
+
+  async function visit(directory) {
+    let entries;
+    try {
+      entries = await readdir(directory, { withFileTypes: true });
+    } catch {
+      throw noticesError('Extracted dependency root could not be read.');
+    }
+
+    for (const entry of entries) {
+      const absolutePath = join(directory, entry.name);
+      if (entry.isDirectory()) {
+        await visit(absolutePath);
+      } else if (entry.isFile()) {
+        files.push({
+          absolutePath,
+          relativePath: relative(extractedRoot, absolutePath).replaceAll('\\', '/'),
+        });
+      }
+    }
+  }
+
+  await visit(extractedRoot);
+  return files;
+}
+
+function noticesError(message) {
+  const error = new Error(`OCR_RUNTIME_NOTICES_INVALID: ${message}`);
+  error.code = 'OCR_RUNTIME_NOTICES_INVALID';
+  return error;
 }
