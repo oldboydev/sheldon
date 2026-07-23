@@ -54,6 +54,12 @@ describe('MSYS2 package graph parsing', () => {
       expect(() => parseMsys2PackageGraph(stdout)).toThrow('OCR_RUNTIME_MSYS2_GRAPH_INVALID');
     },
   );
+
+  it('rejects a blank line within pacman output', () => {
+    expect(() => parseMsys2PackageGraph('bash 1\n\nzlib 2\n')).toThrow(
+      'OCR_RUNTIME_MSYS2_GRAPH_INVALID',
+    );
+  });
 });
 
 describe('MSYS2 package graph lock validation', () => {
