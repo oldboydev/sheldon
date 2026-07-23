@@ -97,23 +97,36 @@ try {
       throw "OCR_RUNTIME_NOTICES_INVALID: Unable to extract pinned source for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
     }
 
-    $licensePath = $dependency.licensePath -replace '\\', '/'
-    $licenseFiles = @(
-      Get-ChildItem -Path $dependencyRoot -Recurse -File | Where-Object {
-        $relativePath = [System.IO.Path]::GetRelativePath($dependencyRoot, $_.FullName) -replace '\\', '/'
-        $relativePath -eq $licensePath -or $relativePath.EndsWith("/$licensePath", [System.StringComparison]::Ordinal)
+    $licenseNoticeLines = [System.Collections.Generic.List[string]]::new()
+    foreach ($license in $dependency.licenses) {
+      $licensePath = $license.path -replace '\\', '/'
+      $licenseFiles = @(
+        Get-ChildItem -Path $dependencyRoot -Recurse -File | Where-Object {
+          $relativePath = [System.IO.Path]::GetRelativePath($dependencyRoot, $_.FullName) -replace '\\', '/'
+          $relativePath -eq $licensePath -or $relativePath.EndsWith("/$licensePath", [System.StringComparison]::Ordinal)
+        }
+      )
+      if ($licenseFiles.Count -ne 1) {
+        throw "OCR_RUNTIME_NOTICES_INVALID: Pinned license path $licensePath did not resolve uniquely for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
       }
-    )
-    if ($licenseFiles.Count -ne 1) {
-      throw "OCR_RUNTIME_NOTICES_INVALID: Pinned license path $licensePath did not resolve uniquely for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
-    }
-    $licenseHash = (Get-FileHash -Path $licenseFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
-    if ($licenseHash -ne $dependency.licenseSha256.ToLowerInvariant()) {
-      throw "OCR_RUNTIME_NOTICES_INVALID: License SHA-256 mismatch for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
-    }
-    $licenseText = Get-Content -Raw $licenseFiles[0].FullName
-    if ([string]::IsNullOrWhiteSpace($licenseText)) {
-      throw "OCR_RUNTIME_NOTICES_INVALID: Verified license text is empty for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+      $licenseHash = (Get-FileHash -Path $licenseFiles[0].FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+      if ($licenseHash -ne $license.sha256.ToLowerInvariant()) {
+        throw "OCR_RUNTIME_NOTICES_INVALID: License SHA-256 mismatch for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+      }
+      $licenseText = Get-Content -Raw $licenseFiles[0].FullName
+      if ([string]::IsNullOrWhiteSpace($licenseText)) {
+        throw "OCR_RUNTIME_NOTICES_INVALID: Verified license text is empty for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
+      }
+      foreach ($line in @(
+        "License SPDX: $($license.spdx)",
+        "License path: $licensePath",
+        "License SHA-256: $($license.sha256)",
+        '',
+        $licenseText,
+        ''
+      )) {
+        [void]$licenseNoticeLines.Add($line)
+      }
     }
 
     return @(
@@ -124,13 +137,9 @@ try {
       "SPDX: $($dependency.spdx)",
       "Source: $($dependency.sourceUrl)",
       "Source SHA-256: $($dependency.sourceSha256)",
-      "License path: $($dependency.licensePath)",
-      "License SHA-256: $($dependency.licenseSha256)",
       "Private DLLs: $(($PrivateDlls | Sort-Object) -join ', ')",
-      '',
-      $licenseText,
       ''
-    )
+    ) + $licenseNoticeLines
   }
 
   Get-PinnedFile $sources.tesseract.url $sourceArchive $sources.tesseract.sha256

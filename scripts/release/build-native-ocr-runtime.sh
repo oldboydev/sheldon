@@ -294,17 +294,18 @@ for dependency_index in "${!dependency_names[@]}"; do
   done < <(
     node --input-type=module --eval '
       const dependency = JSON.parse(process.argv[1]);
-      for (const key of ["provider", "name", "version", "spdx", "sourceUrl", "sourceSha256", "licensePath", "licenseSha256"])
+      for (const key of ["provider", "name", "version", "spdx", "sourceUrl", "sourceSha256"])
         console.log(dependency[key]);
+      console.log(JSON.stringify(dependency.licenses));
     ' "$dependency_json"
   )
-  (( ${#dependency_values[@]} == 8 )) || {
+  (( ${#dependency_values[@]} == 7 )) || {
     printf 'OCR_RUNTIME_NOTICES_INVALID: Pinned dependency record is incomplete for homebrew/%s@%s.\n' "$installed_name" "$installed_version" >&2
     exit 1
   }
   provider="${dependency_values[0]}"; dependency_name="${dependency_values[1]}"; dependency_version="${dependency_values[2]}"
   dependency_spdx="${dependency_values[3]}"; source_url="${dependency_values[4]}"; source_sha256="${dependency_values[5]}"
-  license_path="${dependency_values[6]}"; license_sha256="${dependency_values[7]}"
+  licenses_json="${dependency_values[6]}"
 
   dependency_archive="$work_root/dependency-$dependency_index.source"
   dependency_root="$work_root/dependency-$dependency_index"
@@ -314,7 +315,27 @@ for dependency_index in "${!dependency_names[@]}"; do
     printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to extract pinned source for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
     exit 1
   }
-  if ! license_file="$(python3 -c '
+  {
+    printf '== %s package: %s@%s ==\n' "$provider" "$dependency_name" "$dependency_version"
+    printf 'Provider: %s\nPackage: %s\nVersion: %s\nSPDX: %s\n' "$provider" "$dependency_name" "$dependency_version" "$dependency_spdx"
+    printf 'Source: %s\nSource SHA-256: %s\n' "$source_url" "$source_sha256"
+    printf 'Private dylibs: %s\n\n' "${dependency_libraries[$dependency_index]}"
+    while IFS= read -r license_json; do
+      license_values=()
+      while IFS= read -r value; do
+        license_values+=("$value")
+      done < <(
+        node --input-type=module --eval '
+          const license = JSON.parse(process.argv[1]);
+          for (const key of ["path", "sha256", "spdx"]) console.log(license[key]);
+        ' "$license_json"
+      )
+      (( ${#license_values[@]} == 3 )) || {
+        printf 'OCR_RUNTIME_NOTICES_INVALID: Pinned license record is incomplete for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
+        exit 1
+      }
+      license_path="${license_values[0]}"; license_sha256="${license_values[1]}"; license_spdx="${license_values[2]}"
+      if ! license_file="$(python3 -c '
 import os, sys
 root, expected = sys.argv[1], sys.argv[2].replace("\\\\", "/")
 matches = []
@@ -328,26 +349,26 @@ if len(matches) != 1:
     sys.exit(1)
 print(matches[0])
 ' "$dependency_root" "$license_path")"; then
-    printf 'OCR_RUNTIME_NOTICES_INVALID: Pinned license path %s did not resolve uniquely for %s/%s@%s.\n' \
-      "$license_path" "$provider" "$dependency_name" "$dependency_version" >&2
-    exit 1
-  fi
-  [[ "$(shasum -a 256 "$license_file" | awk '{print $1}')" == "$license_sha256" ]] || {
-    printf 'OCR_RUNTIME_NOTICES_INVALID: License SHA-256 mismatch for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
-    exit 1
-  }
-  [[ -s "$license_file" ]] || {
-    printf 'OCR_RUNTIME_NOTICES_INVALID: Verified license text is empty for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
-    exit 1
-  }
-  {
-    printf '== %s package: %s@%s ==\n' "$provider" "$dependency_name" "$dependency_version"
-    printf 'Provider: %s\nPackage: %s\nVersion: %s\nSPDX: %s\n' "$provider" "$dependency_name" "$dependency_version" "$dependency_spdx"
-    printf 'Source: %s\nSource SHA-256: %s\nLicense path: %s\nLicense SHA-256: %s\n' \
-      "$source_url" "$source_sha256" "$license_path" "$license_sha256"
-    printf 'Private dylibs: %s\n\n' "${dependency_libraries[$dependency_index]}"
-    cat "$license_file"
-    printf '\n\n'
+        printf 'OCR_RUNTIME_NOTICES_INVALID: Pinned license path %s did not resolve uniquely for %s/%s@%s.\n' \
+          "$license_path" "$provider" "$dependency_name" "$dependency_version" >&2
+        exit 1
+      fi
+      [[ "$(shasum -a 256 "$license_file" | awk '{print $1}')" == "$license_sha256" ]] || {
+        printf 'OCR_RUNTIME_NOTICES_INVALID: License SHA-256 mismatch for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
+        exit 1
+      }
+      [[ -s "$license_file" ]] || {
+        printf 'OCR_RUNTIME_NOTICES_INVALID: Verified license text is empty for %s/%s@%s.\n' "$provider" "$dependency_name" "$dependency_version" >&2
+        exit 1
+      }
+      printf 'License SPDX: %s\nLicense path: %s\nLicense SHA-256: %s\n\n' "$license_spdx" "$license_path" "$license_sha256"
+      cat "$license_file"
+      printf '\n\n'
+    done < <(
+      node --input-type=module --eval '
+        for (const license of JSON.parse(process.argv[1])) console.log(JSON.stringify(license));
+      ' "$licenses_json"
+    )
   } >> "$homebrew_notices"
 done
 

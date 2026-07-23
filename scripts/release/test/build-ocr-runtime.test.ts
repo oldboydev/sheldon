@@ -293,8 +293,9 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     expect(windowsBuilder).toContain('& $pacman -Q $packageName');
     expect(windowsBuilder).toContain('$dependency.sourceUrl');
     expect(windowsBuilder).toContain('$dependency.sourceSha256');
-    expect(windowsBuilder).toContain('$dependency.licensePath');
-    expect(windowsBuilder).toContain('$dependency.licenseSha256');
+    expect(windowsBuilder).toContain('$dependency.licenses');
+    expect(windowsBuilder).toContain('$license.path');
+    expect(windowsBuilder).toContain('$license.sha256');
     expect(windowsBuilder).not.toContain('/share/licenses/');
 
     expect(macosBuilder).toContain('findOcrRuntimeDependency');
@@ -307,8 +308,9 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     expect(macosBuilder).not.toContain('brew which-formula');
     expect(macosBuilder).toContain('sourceUrl');
     expect(macosBuilder).toContain('sourceSha256');
-    expect(macosBuilder).toContain('licensePath');
-    expect(macosBuilder).toContain('licenseSha256');
+    expect(macosBuilder).toContain('dependency.licenses');
+    expect(macosBuilder).toContain('JSON.stringify(dependency.licenses)');
+    expect(macosBuilder).toContain('license_spdx');
     expect(macosBuilder).not.toContain("-iname 'LICENSE*'");
   });
 });

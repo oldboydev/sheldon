@@ -23,8 +23,13 @@ describe('OCR runtime dependency inventory', () => {
         sourceUrl:
           'https://github.com/DanBloomberg/leptonica/releases/download/1.87.0/leptonica-1.87.0.tar.gz',
         sourceSha256: 'c73363397f96eb1295602bf44d708a994ad42046c791bf03ea0505d829bdb6a7',
-        licensePath: 'leptonica-1.87.0/leptonica-license.txt',
-        licenseSha256: '87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806',
+        licenses: [
+          {
+            path: 'leptonica-1.87.0/leptonica-license.txt',
+            sha256: '87829abb5bbb00b55a107365da89e9a33f86c4250169e5a1e5588505be7d5806',
+            spdx: 'BSD-2-Clause',
+          },
+        ],
         spdx: 'BSD-2-Clause',
       },
       {
@@ -34,8 +39,13 @@ describe('OCR runtime dependency inventory', () => {
         sourceUrl:
           'https://downloads.sourceforge.net/project/libpng/libpng16/1.6.58/libpng-1.6.58.tar.xz',
         sourceSha256: '28eb403f51f0f7405249132cecfe82ea5c0ef97f1b32c5a65828814ae0d34775',
-        licensePath: 'libpng-1.6.58/LICENSE',
-        licenseSha256: 'bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526',
+        licenses: [
+          {
+            path: 'libpng-1.6.58/LICENSE',
+            sha256: 'bdb0a645ea18c60507d0368379b1ac5474b92255fcc2d115e07486a7672ba526',
+            spdx: 'libpng-2.0',
+          },
+        ],
         spdx: 'libpng-2.0',
       },
       {
@@ -45,8 +55,13 @@ describe('OCR runtime dependency inventory', () => {
         sourceUrl:
           'https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.1.4.1/libjpeg-turbo-3.1.4.1.tar.gz',
         sourceSha256: 'ecae8008e2cc9ade2f2c1bb9d5e6d4fb73e7c433866a056bd82980741571a022',
-        licensePath: 'libjpeg-turbo-3.1.4.1/LICENSE.md',
-        licenseSha256: 'e10114e6e40f3d0311c401ca25245ac5ef459a43c20f976fd63f03e816f5741f',
+        licenses: [
+          {
+            path: 'libjpeg-turbo-3.1.4.1/LICENSE.md',
+            sha256: 'e10114e6e40f3d0311c401ca25245ac5ef459a43c20f976fd63f03e816f5741f',
+            spdx: 'IJG AND Zlib AND BSD-3-Clause',
+          },
+        ],
         spdx: 'IJG AND Zlib AND BSD-3-Clause',
       },
       {
@@ -56,8 +71,18 @@ describe('OCR runtime dependency inventory', () => {
         sourceUrl:
           'https://repo.msys2.org/mingw/mingw64/mingw-w64-x86_64-gcc-libs-16.1.0-5-any.pkg.tar.zst',
         sourceSha256: 'aa560f5438c35b71c3e7b24fd5becbca028f70c5b4d1f1697a86ff80fec947da',
-        licensePath: 'mingw64/share/licenses/gcc-libs/COPYING.RUNTIME',
-        licenseSha256: '9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74',
+        licenses: [
+          {
+            path: 'mingw64/share/licenses/gcc-libs/COPYING.RUNTIME',
+            sha256: '9d6b43ce4d8de0c878bf16b54d8e7a10d9bd42b75178153e3af6a815bdc90f74',
+            spdx: 'GPL-3.0-or-later WITH GCC-exception-3.1',
+          },
+          {
+            path: 'mingw64/share/licenses/gcc-libs/COPYING.LIB',
+            sha256: 'a9bdde5616ecdd1e980b44f360600ee8783b1f99b8cc83a2beb163a0a390e861',
+            spdx: 'LGPL-2.1-or-later',
+          },
+        ],
         spdx: 'GPL-3.0-or-later WITH GCC-exception-3.1 AND LGPL-2.1-or-later',
       },
       {
@@ -67,17 +92,33 @@ describe('OCR runtime dependency inventory', () => {
         sourceUrl:
           'https://master.dl.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz?viasf=1',
         sourceSha256: 'b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e',
-        licensePath: 'giflib-6.1.3/COPYING',
-        licenseSha256: 'ed5d90cb4a041bddad679470a071302ab05ae5d0ec2cf8f9c97ad7b2708751e6',
+        licenses: [
+          {
+            path: 'giflib-6.1.3/COPYING',
+            sha256: 'ed5d90cb4a041bddad679470a071302ab05ae5d0ec2cf8f9c97ad7b2708751e6',
+            spdx: 'MIT',
+          },
+        ],
         spdx: 'MIT',
       },
     ]);
   });
 
-  it('rejects entries without a pinned provider, name, and version', () => {
+  it('rejects entries without a non-empty unique pinned license list', () => {
     expect(() =>
       assertPinnedOcrRuntimeDependencyInventory([
-        { provider: 'homebrew', name: 'leptonica', version: '1.87.0' },
+        {
+          provider: 'homebrew',
+          name: 'leptonica',
+          version: '1.87.0',
+          sourceUrl: 'https://example.test/leptonica.tar.gz',
+          sourceSha256: 'a'.repeat(64),
+          spdx: 'BSD-2-Clause',
+          licenses: [
+            { path: 'LICENSE', sha256: 'b'.repeat(64), spdx: 'BSD-2-Clause' },
+            { path: 'LICENSE', sha256: 'c'.repeat(64), spdx: 'BSD-2-Clause' },
+          ],
+        },
       ]),
     ).toThrow('OCR_RUNTIME_NOTICES_INVALID');
   });
@@ -89,8 +130,7 @@ describe('OCR runtime dependency inventory', () => {
       version: '5.2.2-1',
       sourceUrl: 'https://example.test/giflib-5.2.2.tar.gz',
       sourceSha256: 'a'.repeat(64),
-      licensePath: 'COPYING',
-      licenseSha256: 'b'.repeat(64),
+      licenses: [{ path: 'COPYING', sha256: 'b'.repeat(64), spdx: 'MIT' }],
       spdx: 'MIT',
     };
 
