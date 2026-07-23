@@ -183,16 +183,20 @@ describe('Native OCR runtime workflow', () => {
   it.each([
     ['empty', []],
     ['malformed', [{ provider: 'msys2', name: '', version: '1.0.0-1' }]],
-  ])('fails closed for an %s MSYS2 identity set', async (_case, identities) => {
-    const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
-    const result = await executeWindowsDependencyPreflight(windowsBuilder, identities);
+  ])(
+    'fails closed for an %s MSYS2 identity set',
+    async (_case, identities) => {
+      const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
+      const result = await executeWindowsDependencyPreflight(windowsBuilder, identities);
 
-    expect(result.code).not.toBe(0);
-    expect(`${result.stdout}\n${result.stderr}`).toContain('OCR_RUNTIME_');
-    expect(`${result.stdout}\n${result.stderr}`).not.toContain(
-      'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
-    );
-  }, 15_000);
+      expect(result.code).not.toBe(0);
+      expect(`${result.stdout}\n${result.stderr}`).toContain('OCR_RUNTIME_');
+      expect(`${result.stdout}\n${result.stderr}`).not.toContain(
+        'OCR_RUNTIME_TEST_MATERIALIZATION_REACHED',
+      );
+    },
+    15_000,
+  );
 
   it('batch-reports every missing MSYS2 identity before downloading a notice source', async () => {
     const windowsBuilder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
