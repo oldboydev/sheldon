@@ -489,10 +489,10 @@ async function executeWindowsDependencyPreflight(
   identities: unknown[],
 ): Promise<{ stdout: string; stderr: string; code: number | null }> {
   const preflightFunction = windowsBuilder.match(
-    /  function Get-PinnedDependencies\([\s\S]*?(?=\n  function Get-VerifiedDependencyNotice)/u,
+    / {2}function Get-PinnedDependencies\([\s\S]*?(?=\n {2}function Get-VerifiedDependencyNotice)/u,
   )?.[0];
   const materializationBranch = windowsBuilder.match(
-    /  \$pinnedDependencies = @\(Get-PinnedDependencies[\s\S]*?(?=\n  \$modelLicense =)/u,
+    / {2}\$pinnedDependencies = @\(Get-PinnedDependencies[\s\S]*?(?=\n {2}\$modelLicense =)/u,
   )?.[0];
   if (!preflightFunction || !materializationBranch) {
     throw new Error('The Windows MSYS2 dependency preflight control branch is missing.');
