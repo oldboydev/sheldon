@@ -7,6 +7,110 @@ param(
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
 
+function New-OcrRuntimeJob {
+  if ($null -eq ('OcrRuntimeJob' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.ComponentModel;
+using System.IO;
+using System.Runtime.InteropServices;
+using System.Threading.Tasks;
+
+public sealed class OcrRuntimeJob : IDisposable
+{
+    private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+    private const int JobObjectExtendedLimitInformation = 9;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount, WriteOperationCount, OtherOperationCount;
+        public ulong ReadTransferCount, WriteTransferCount, OtherTransferCount;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_BASIC_LIMIT_INFORMATION
+    {
+        public long PerProcessUserTimeLimit, PerJobUserTimeLimit;
+        public uint LimitFlags;
+        public UIntPtr MinimumWorkingSetSize, MaximumWorkingSetSize;
+        public uint ActiveProcessLimit;
+        public UIntPtr Affinity;
+        public uint PriorityClass, SchedulingClass;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct JOBOBJECT_EXTENDED_LIMIT_INFORMATION
+    {
+        public JOBOBJECT_BASIC_LIMIT_INFORMATION BasicLimitInformation;
+        public IO_COUNTERS IoInfo;
+        public UIntPtr ProcessMemoryLimit, JobMemoryLimit, PeakProcessMemoryUsed, PeakJobMemoryUsed;
+    }
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr CreateJobObject(IntPtr attributes, string name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool SetInformationJobObject(IntPtr job, int informationClass, IntPtr information, int length);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool AssignProcessToJobObject(IntPtr job, IntPtr process);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool CloseHandle(IntPtr handle);
+
+    private IntPtr handle;
+
+    public OcrRuntimeJob()
+    {
+        handle = CreateJobObject(IntPtr.Zero, null);
+        if (handle == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
+        var limits = new JOBOBJECT_EXTENDED_LIMIT_INFORMATION();
+        limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+        var pointer = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION)));
+        try
+        {
+            Marshal.StructureToPtr(limits, pointer, false);
+            if (!SetInformationJobObject(handle, JobObjectExtendedLimitInformation, pointer, Marshal.SizeOf(typeof(JOBOBJECT_EXTENDED_LIMIT_INFORMATION))))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        catch
+        {
+            CloseHandle(handle);
+            handle = IntPtr.Zero;
+            throw;
+        }
+        finally { Marshal.FreeHGlobal(pointer); }
+    }
+
+    public void AddProcess(IntPtr process)
+    {
+        if (!AssignProcessToJobObject(handle, process)) throw new Win32Exception(Marshal.GetLastWin32Error());
+    }
+
+    public static Task WriteAndCloseAsync(StreamWriter writer, string text)
+    {
+        return Task.Run(() =>
+        {
+            try { writer.Write(text); }
+            finally { writer.Close(); }
+        });
+    }
+
+    public void Dispose()
+    {
+        if (handle != IntPtr.Zero)
+        {
+            CloseHandle(handle);
+            handle = IntPtr.Zero;
+        }
+    }
+}
+'@
+  }
+  return [OcrRuntimeJob]::new()
+}
+
 function Invoke-WatchedProcess {
   [CmdletBinding()]
   param(
@@ -30,70 +134,96 @@ function Invoke-WatchedProcess {
 
   $process = [System.Diagnostics.Process]::new()
   $process.StartInfo = $startInfo
-  Write-Host "OCR_RUNTIME_STAGE: $Stage"
-  if (-not $process.Start()) {
-    throw "OCR_RUNTIME_PROCESS_INVALID: Unable to start stage $Stage."
-  }
-  $stdout = [System.Text.StringBuilder]::new()
-  $stderr = [System.Text.StringBuilder]::new()
-  $stdoutBuffer = [char[]]::new(4096)
-  $stderrBuffer = [char[]]::new(4096)
-  $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
-  $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
-  if ($PSBoundParameters.ContainsKey('StandardInput')) {
-    $process.StandardInput.Write($StandardInput)
-  }
-  $process.StandardInput.Close()
+  $job = New-OcrRuntimeJob
+  try {
+    Write-Host "OCR_RUNTIME_STAGE: $Stage"
+    if (-not $process.Start()) {
+      throw "OCR_RUNTIME_PROCESS_INVALID: Unable to start stage $Stage."
+    }
+    $job.AddProcess($process.Handle)
+    $stdout = [System.Text.StringBuilder]::new()
+    $stderr = [System.Text.StringBuilder]::new()
+    $stdoutBuffer = [char[]]::new(4096)
+    $stderrBuffer = [char[]]::new(4096)
+    $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
+    $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $stdinWrite = if ($PSBoundParameters.ContainsKey('StandardInput')) {
+      [OcrRuntimeJob]::WriteAndCloseAsync($process.StandardInput, $StandardInput)
+    } else {
+      $process.StandardInput.Close()
+      $null
+    }
+    $stdinOpen = $null -ne $stdinWrite
+    $timedOut = $false
+    while ($null -ne $stdinWrite -or $null -ne $stdoutRead -or $null -ne $stderrRead) {
+      $pending = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+      if ($null -ne $stdinWrite) { [void]$pending.Add($stdinWrite) }
+      if ($null -ne $stdoutRead) { [void]$pending.Add($stdoutRead) }
+      if ($null -ne $stderrRead) { [void]$pending.Add($stderrRead) }
+      [void][System.Threading.Tasks.Task]::WaitAny($pending.ToArray(), 50)
 
-  $watch = [System.Diagnostics.Stopwatch]::StartNew()
-  $timedOut = $false
-  while ($null -ne $stdoutRead -or $null -ne $stderrRead) {
-    $pendingReads = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
-    if ($null -ne $stdoutRead) { [void]$pendingReads.Add($stdoutRead) }
-    if ($null -ne $stderrRead) { [void]$pendingReads.Add($stderrRead) }
-    [void][System.Threading.Tasks.Task]::WaitAny($pendingReads.ToArray(), 50)
+      if ($null -ne $stdinWrite -and $stdinWrite.IsCompleted) {
+        try {
+          [void]$stdinWrite.GetAwaiter().GetResult()
+        } catch {
+          if (-not $timedOut) { throw }
+        }
+        $stdinOpen = $false
+        $stdinWrite = $null
+      }
+      if ($null -ne $stdoutRead -and $stdoutRead.IsCompleted) {
+        $stdoutCount = $stdoutRead.GetAwaiter().GetResult()
+        if ($stdoutCount -gt 0) {
+          $stdoutChunk = [string]::new($stdoutBuffer, 0, $stdoutCount)
+          [void]$stdout.Append($stdoutChunk)
+          Write-Host "OCR_RUNTIME_STDOUT: $stdoutChunk"
+          $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
+        } else {
+          $stdoutRead = $null
+        }
+      }
+      if ($null -ne $stderrRead -and $stderrRead.IsCompleted) {
+        $stderrCount = $stderrRead.GetAwaiter().GetResult()
+        if ($stderrCount -gt 0) {
+          $stderrChunk = [string]::new($stderrBuffer, 0, $stderrCount)
+          [void]$stderr.Append($stderrChunk)
+          Write-Host "OCR_RUNTIME_STDERR: $stderrChunk"
+          $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
+        } else {
+          $stderrRead = $null
+        }
+      }
 
-    if ($null -ne $stdoutRead -and $stdoutRead.IsCompleted) {
-      $stdoutCount = $stdoutRead.GetAwaiter().GetResult()
-      if ($stdoutCount -gt 0) {
-        $stdoutChunk = [string]::new($stdoutBuffer, 0, $stdoutCount)
-        [void]$stdout.Append($stdoutChunk)
-        Write-Host "OCR_RUNTIME_STDOUT: $stdoutChunk"
-        $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
-      } else {
-        $stdoutRead = $null
+      if (-not $timedOut -and $watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
+        $timedOut = $true
+        if ($stdinOpen) {
+          try { $process.StandardInput.Close() } catch { }
+          $stdinOpen = $false
+        }
+        if (-not $process.WaitForExit(0)) {
+          try {
+            $process.Kill($true)
+          } catch [System.InvalidOperationException] {
+            if (-not $process.HasExited) { throw }
+          }
+        }
+        $job.Dispose()
+        $job = $null
       }
     }
-    if ($null -ne $stderrRead -and $stderrRead.IsCompleted) {
-      $stderrCount = $stderrRead.GetAwaiter().GetResult()
-      if ($stderrCount -gt 0) {
-        $stderrChunk = [string]::new($stderrBuffer, 0, $stderrCount)
-        [void]$stderr.Append($stderrChunk)
-        Write-Host "OCR_RUNTIME_STDERR: $stderrChunk"
-        $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
-      } else {
-        $stderrRead = $null
-      }
+    $process.WaitForExit()
+    if ($timedOut) {
+      throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."
     }
 
-    if (-not $timedOut -and $watch.Elapsed.TotalSeconds -ge $TimeoutSeconds -and -not $process.WaitForExit(0)) {
-      try {
-        $process.Kill($true)
-      } catch [System.InvalidOperationException] {
-        if (-not $process.HasExited) { throw }
-      }
-      $timedOut = $true
+    return [pscustomobject]@{
+      ExitCode = $process.ExitCode
+      StdOut = $stdout.ToString()
+      StdErr = $stderr.ToString()
     }
-  }
-  $process.WaitForExit()
-  if ($timedOut) {
-    throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."
-  }
-
-  return [pscustomobject]@{
-    ExitCode = $process.ExitCode
-    StdOut = $stdout.ToString()
-    StdErr = $stderr.ToString()
+  } finally {
+    if ($null -ne $job) { $job.Dispose() }
   }
 }
 

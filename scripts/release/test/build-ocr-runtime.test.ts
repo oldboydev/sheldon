@@ -267,6 +267,38 @@ describe('Native OCR runtime workflow', () => {
     }
   });
 
+  it('times out a large stdin write when the child never reads it', async () => {
+    const root = await temporaryRoot();
+
+    await expect(
+      runWindowsRunnerTimeoutHarness(
+        root,
+        'Start-Sleep -Seconds 15',
+        "-StandardInput ('x' * 1048576)",
+      ),
+    ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
+  });
+
+  it('times out and cleans a descendant that keeps the redirected streams open after its parent exits', async () => {
+    const root = await temporaryRoot();
+
+    await expect(
+      runWindowsRunnerTimeoutHarness(
+        root,
+        `
+$childInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$childInfo.FileName = Join-Path $PSHOME 'pwsh.exe'
+$childInfo.UseShellExecute = $false
+[void]$childInfo.ArgumentList.Add('-NoProfile')
+[void]$childInfo.ArgumentList.Add('-Command')
+[void]$childInfo.ArgumentList.Add('Start-Sleep -Seconds 15')
+[void][System.Diagnostics.Process]::Start($childInfo)
+[Console]::Out.WriteLine('DESCENDANT_READY')
+`,
+      ),
+    ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
+  });
+
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
     const macosBuilder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
     const preflightOffset = macosBuilder.indexOf('lookup_exit_code=0');
@@ -496,4 +528,48 @@ function testSources() {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+async function runWindowsRunnerTimeoutHarness(
+  root: string,
+  childScript: string,
+  standardInputArgument = '',
+): Promise<string> {
+  const childPath = join(root, 'watchdog-child.ps1');
+  const harnessPath = join(root, 'watchdog-harness.ps1');
+  const builderPath = resolve('scripts/release/build-native-ocr-runtime.ps1');
+  await writeFile(childPath, childScript, 'utf8');
+  await writeFile(
+    harnessPath,
+    `$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$builder = [System.Management.Automation.Language.Parser]::ParseFile('${escapePowerShellPath(builderPath)}', [ref]$tokens, [ref]$errors)
+if ($errors.Count -gt 0) { throw $errors[0] }
+$jobFactory = $builder.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-OcrRuntimeJob' }, $true)
+$runner = $builder.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-WatchedProcess' }, $true)
+. ([scriptblock]::Create($jobFactory.Extent.Text))
+. ([scriptblock]::Create($runner.Extent.Text))
+$expected = 'OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.'
+$watch = [System.Diagnostics.Stopwatch]::StartNew()
+try {
+  Invoke-WatchedProcess -FilePath (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile', '-File', '${escapePowerShellPath(childPath)}') -Stage 'stdin-harness' -TimeoutSeconds 1 -TimeoutCode 'OCR_RUNTIME_TEST_TIMEOUT' ${standardInputArgument}
+  throw 'The watchdog unexpectedly completed.'
+} catch {
+  if ($_.Exception.Message -ne $expected) { throw }
+  if ($watch.Elapsed.TotalSeconds -gt 3) { throw 'The watchdog exceeded the harness deadline.' }
+  Write-Output $_.Exception.Message
+}
+`,
+    'utf8',
+  );
+  const result = await execFileAsync('pwsh', ['-NoProfile', '-File', harnessPath], {
+    shell: false,
+    timeout: 4000,
+  });
+  return result.stdout;
+}
+
+function escapePowerShellPath(value: string): string {
+  return value.replaceAll("'", "''");
 }
