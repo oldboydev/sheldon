@@ -193,21 +193,25 @@ describe('Native OCR runtime workflow', () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
 
     expect(builder).toContain('function Invoke-WatchedProcess');
+    expect(builder).toContain('$startInfo.UseShellExecute = $false');
+    expect(builder).toContain('$startInfo.RedirectStandardInput = $true');
+    expect(builder).toContain('$startInfo.RedirectStandardOutput = $true');
+    expect(builder).toContain('$startInfo.RedirectStandardError = $true');
+    expect(builder).toContain('$startInfo.ArgumentList.Add($argument)');
+    expect(builder).toContain('$process.StandardOutput.ReadToEndAsync()');
+    expect(builder).toContain('$process.StandardError.ReadToEndAsync()');
+    expect(builder).toContain('$process.WaitForExit($TimeoutSeconds * 1000)');
     expect(builder).toContain('$process.Kill($true)');
+    expect(builder).toContain('$process.WaitForExit()');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
     expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');
-    expect(builder).toContain('OCR_RUNTIME_STAGE: download-source');
-    expect(builder).toContain('OCR_RUNTIME_STAGE: health-check');
-    expect(builder).toContain('TimeoutSeconds = 180');
-    expect(builder).toContain('TimeoutSeconds = 900');
+    expect(builder).toContain('Write-Host "OCR_RUNTIME_STAGE: $Stage"');
+    expect(builder).toContain('-TimeoutSeconds 180');
+    expect(builder).toContain('-TimeoutSeconds 900');
     expect(builder).toContain('-DSW_BUILD=OFF');
-    expect(builder).toContain('& $pacman -Qo $packagePath');
-    expect(builder).toContain('& $pacman -Q');
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'graph-lock'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'sources'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'dependency-preflight'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'download'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'dependency-notice'");
+    expect(builder).not.toMatch(/(?:^|\s)&\s+\$?(?:pacman|objdump|executable)/mu);
+    expect(builder).not.toContain('Start-Process');
+    expect(builder).not.toContain('taskkill');
     expect(builder).not.toContain('node --input-type=module --eval');
     expect(builder).not.toContain(
       '51342815a262a5c1d000bab44503ddbf71ef210053375d504f619ca7a3b381bd',
@@ -224,7 +228,7 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_INVALID');
     expect(builder).toContain('OCR_RUNTIME_NOTICES_INVALID');
 
-    const stageMarkers = [
+    const stages = [
       'graph-query',
       'graph-lock',
       'read-sources',
@@ -239,7 +243,7 @@ describe('Native OCR runtime workflow', () => {
       'package-owner',
       'health-check',
     ];
-    const stageOffsets = stageMarkers.map((stage) => builder.indexOf(`OCR_RUNTIME_STAGE: ${stage}`));
+    const stageOffsets = stages.map((stage) => builder.indexOf(`-Stage '${stage}'`));
     for (const stageOffset of stageOffsets) {
       expect(stageOffset).toBeGreaterThanOrEqual(0);
     }
@@ -427,7 +431,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     ]);
 
     expect(windowsBuilder).toContain("'dependency-preflight'");
-    expect(windowsBuilder).toContain('& $pacman -Q $packageName');
+    expect(windowsBuilder).toContain("-ArgumentList @('-Q', $packageName)");
     expect(windowsBuilder).toContain('$dependency.sourceUrl');
     expect(windowsBuilder).toContain('$dependency.sourceSha256');
     expect(windowsBuilder).toContain("'dependency-notice'");
