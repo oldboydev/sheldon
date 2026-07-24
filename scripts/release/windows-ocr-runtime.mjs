@@ -477,103 +477,106 @@ async function downloadPinnedFileAttempt({
   let redirectCount = 0;
 
   while (true) {
-    let response;
-    const requestSignal = AbortSignal.timeout(requestTimeoutMs);
+    const requestDeadline = createRequestDeadline(requestTimeoutMs);
     try {
-      response = await awaitRequestTimeout(
-        fetchImpl(currentUrl.href, {
-          redirect: 'manual',
-          signal: requestSignal,
-        }),
-        requestSignal,
-      );
-    } catch (error) {
-      if (!isRetryableTransportError(error)) {
-        throw error;
-      }
-      throw retryableDownloadError(
-        'transport-error',
-        'OCR_RUNTIME_DOWNLOAD_INVALID',
-        `Transport failed for ${sanitizeUrl(originalUrl)}.`,
-      );
-    }
-
-    if (!isFetchResponse(response)) {
-      throw downloadError(
-        'OCR_RUNTIME_DOWNLOAD_INVALID',
-        `Transport returned an invalid response for ${sanitizeUrl(originalUrl)}.`,
-      );
-    }
-
-    if (REDIRECT_STATUSES.has(response.status)) {
-      redirectCount += 1;
-      if (redirectCount > maxRedirects) {
-        throw downloadError(
-          'OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID',
-          `Redirect limit exceeded for ${sanitizeUrl(originalUrl)}.`,
+      let response;
+      try {
+        response = await requestDeadline.wait(
+          fetchImpl(currentUrl.href, {
+            redirect: 'manual',
+            signal: requestDeadline.signal,
+          }),
         );
-      }
-
-      const targetUrl = resolveHttpsRedirect(response.headers.get('location'), currentUrl);
-      onDiagnostic(
-        `OCR_RUNTIME_DOWNLOAD_REDIRECT: attempt=${attempt} hop=${redirectCount}/${maxRedirects} status=${response.status} from=${sanitizeUrl(currentUrl)} to=${sanitizeUrl(targetUrl)}`,
-      );
-      currentUrl = targetUrl;
-      continue;
-    }
-
-    if (RETRYABLE_HTTP_STATUSES.has(response.status)) {
-      throw retryableDownloadError(
-        `http-${response.status}`,
-        'OCR_RUNTIME_DOWNLOAD_INVALID',
-        `HTTP ${response.status} for ${sanitizeUrl(originalUrl)}.`,
-      );
-    }
-    if (!response.ok) {
-      throw downloadError(
-        'OCR_RUNTIME_DOWNLOAD_INVALID',
-        `HTTP ${response.status} for ${sanitizeUrl(originalUrl)}.`,
-      );
-    }
-
-    let bytes;
-    try {
-      bytes = Buffer.from(await awaitRequestTimeout(response.arrayBuffer(), requestSignal));
-    } catch (error) {
-      if (!isRetryableTransportError(error)) {
-        throw error;
-      }
-      throw retryableDownloadError(
-        'transport-error',
-        'OCR_RUNTIME_DOWNLOAD_INVALID',
-        `Transport failed for ${sanitizeUrl(originalUrl)}.`,
-      );
-    }
-
-    const actualSha256 = createHash('sha256').update(bytes).digest('hex');
-    const partialPath = join(
-      dirname(destination),
-      `${basename(destination)}.${randomUUID()}.partial`,
-    );
-    try {
-      await writeFile(partialPath, bytes);
-      if (actualSha256 !== expectedSha256) {
+      } catch (error) {
+        if (!isRetryableTransportError(error)) {
+          throw error;
+        }
         throw retryableDownloadError(
-          'checksum-mismatch',
-          'OCR_RUNTIME_CHECKSUM_INVALID',
-          `SHA-256 mismatch for ${sanitizeUrl(originalUrl)}.`,
+          'transport-error',
+          'OCR_RUNTIME_DOWNLOAD_INVALID',
+          `Transport failed for ${sanitizeUrl(originalUrl)}.`,
         );
       }
-      await rename(partialPath, destination);
-    } finally {
-      await rm(partialPath, { force: true });
-    }
 
-    return {
-      finalUrl: currentUrl.href,
-      sha256: actualSha256,
-      attempts: attempt,
-    };
+      if (!isFetchResponse(response)) {
+        throw downloadError(
+          'OCR_RUNTIME_DOWNLOAD_INVALID',
+          `Transport returned an invalid response for ${sanitizeUrl(originalUrl)}.`,
+        );
+      }
+
+      if (REDIRECT_STATUSES.has(response.status)) {
+        redirectCount += 1;
+        if (redirectCount > maxRedirects) {
+          throw downloadError(
+            'OCR_RUNTIME_DOWNLOAD_REDIRECT_INVALID',
+            `Redirect limit exceeded for ${sanitizeUrl(originalUrl)}.`,
+          );
+        }
+
+        const targetUrl = resolveHttpsRedirect(response.headers.get('location'), currentUrl);
+        onDiagnostic(
+          `OCR_RUNTIME_DOWNLOAD_REDIRECT: attempt=${attempt} hop=${redirectCount}/${maxRedirects} status=${response.status} from=${sanitizeUrl(currentUrl)} to=${sanitizeUrl(targetUrl)}`,
+        );
+        currentUrl = targetUrl;
+        continue;
+      }
+
+      if (RETRYABLE_HTTP_STATUSES.has(response.status)) {
+        throw retryableDownloadError(
+          `http-${response.status}`,
+          'OCR_RUNTIME_DOWNLOAD_INVALID',
+          `HTTP ${response.status} for ${sanitizeUrl(originalUrl)}.`,
+        );
+      }
+      if (!response.ok) {
+        throw downloadError(
+          'OCR_RUNTIME_DOWNLOAD_INVALID',
+          `HTTP ${response.status} for ${sanitizeUrl(originalUrl)}.`,
+        );
+      }
+
+      let bytes;
+      try {
+        bytes = Buffer.from(await requestDeadline.wait(response.arrayBuffer()));
+      } catch (error) {
+        if (!isRetryableTransportError(error)) {
+          throw error;
+        }
+        throw retryableDownloadError(
+          'transport-error',
+          'OCR_RUNTIME_DOWNLOAD_INVALID',
+          `Transport failed for ${sanitizeUrl(originalUrl)}.`,
+        );
+      }
+
+      const actualSha256 = createHash('sha256').update(bytes).digest('hex');
+      const partialPath = join(
+        dirname(destination),
+        `${basename(destination)}.${randomUUID()}.partial`,
+      );
+      try {
+        await writeFile(partialPath, bytes);
+        if (actualSha256 !== expectedSha256) {
+          throw retryableDownloadError(
+            'checksum-mismatch',
+            'OCR_RUNTIME_CHECKSUM_INVALID',
+            `SHA-256 mismatch for ${sanitizeUrl(originalUrl)}.`,
+          );
+        }
+        await rename(partialPath, destination);
+      } finally {
+        await rm(partialPath, { force: true });
+      }
+
+      return {
+        finalUrl: currentUrl.href,
+        sha256: actualSha256,
+        attempts: attempt,
+      };
+    } finally {
+      requestDeadline.dispose();
+    }
   }
 }
 
@@ -690,28 +693,29 @@ function isFetchResponse(value) {
   );
 }
 
-function awaitRequestTimeout(operation, signal) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    const finish = (callback, value) => {
-      if (settled) return;
-      settled = true;
-      signal.removeEventListener('abort', onAbort);
-      callback(value);
-    };
-    const onAbort = () => finish(reject, signal.reason);
-
-    if (signal.aborted) {
-      onAbort();
-      return;
-    }
-
-    signal.addEventListener('abort', onAbort, { once: true });
-    Promise.resolve(operation).then(
-      (value) => finish(resolve, value),
-      (error) => finish(reject, error),
-    );
+function createRequestDeadline(requestTimeoutMs) {
+  const controller = new AbortController();
+  const timeoutError = new DOMException('Request timed out.', 'TimeoutError');
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort(timeoutError);
+      reject(timeoutError);
+    }, requestTimeoutMs);
   });
+
+  return {
+    signal: controller.signal,
+    wait(operation) {
+      return Promise.race([operation, timeout]);
+    },
+    dispose() {
+      clearTimeout(timeoutId);
+      if (!controller.signal.aborted) {
+        controller.abort();
+      }
+    },
+  };
 }
 
 function isRetryableTransportError(error) {

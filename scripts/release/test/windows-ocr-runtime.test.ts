@@ -728,35 +728,89 @@ describe('pinned Windows download transport', () => {
     expect(sleep.mock.calls).toEqual([[250], [500]]);
   });
 
-  it('retries a body that ignores the request abort signal exactly three times', async () => {
+  it('bounds a fetch that ignores its abort signal and exhausts all retry attempts', async () => {
     const destination = await temporaryDestination();
     const signals: AbortSignal[] = [];
-    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+    const fetchImpl = vi.fn((_url: string, init: RequestInit) => {
       signals.push(init.signal as AbortSignal);
-      return {
-        status: 200,
-        ok: true,
-        headers: new Headers(),
-        arrayBuffer: () => new Promise<ArrayBuffer>(() => {}),
-      };
+      return new Promise<Response>(() => {});
     });
     const sleep = vi.fn(async () => {});
+    const diagnostics: string[] = [];
+    let result: unknown;
 
-    await expect(
-      downloadPinnedFile({
+    vi.useFakeTimers();
+    try {
+      void downloadPinnedFile({
         url: 'https://example.test/source',
         destination,
         expectedSha256: sha256('verified'),
         fetchImpl,
         sleep,
+        onDiagnostic: (line: string) => diagnostics.push(line),
         requestTimeoutMs: 20,
-      }),
-    ).rejects.toThrow('OCR_RUNTIME_DOWNLOAD_INVALID');
+      }).catch((error) => {
+        result = error;
+      });
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(fetchImpl).toHaveBeenCalledTimes(3);
     expect(sleep.mock.calls).toEqual([[250], [500]]);
     expect(signals).toHaveLength(3);
     expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(diagnostics).toEqual([
+      'OCR_RUNTIME_DOWNLOAD_RETRY: attempt=1/3 reason=transport-error url=https://example.test/source',
+      'OCR_RUNTIME_DOWNLOAD_RETRY: attempt=2/3 reason=transport-error url=https://example.test/source',
+    ]);
+    expect(result).toBeInstanceOf(Error);
+    expect((result as Error).message).toContain('OCR_RUNTIME_DOWNLOAD_INVALID');
+  });
+
+  it('bounds a genuine response body that ignores its abort signal and exhausts all retry attempts', async () => {
+    const destination = await temporaryDestination();
+    const signals: AbortSignal[] = [];
+    const response = new Response('verified', { status: 200 });
+    response.arrayBuffer = vi.fn(() => new Promise<ArrayBuffer>(() => {}));
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      signals.push(init.signal as AbortSignal);
+      return response;
+    });
+    const sleep = vi.fn(async () => {});
+    const diagnostics: string[] = [];
+    let result: unknown;
+
+    vi.useFakeTimers();
+    try {
+      void downloadPinnedFile({
+        url: 'https://example.test/source',
+        destination,
+        expectedSha256: sha256('verified'),
+        fetchImpl,
+        sleep,
+        onDiagnostic: (line: string) => diagnostics.push(line),
+        requestTimeoutMs: 20,
+      }).catch((error) => {
+        result = error;
+      });
+      await vi.runAllTimersAsync();
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(fetchImpl).toHaveBeenCalledTimes(3);
+    expect(response.arrayBuffer).toHaveBeenCalledTimes(3);
+    expect(sleep.mock.calls).toEqual([[250], [500]]);
+    expect(signals).toHaveLength(3);
+    expect(signals.every((signal) => signal.aborted)).toBe(true);
+    expect(diagnostics).toEqual([
+      'OCR_RUNTIME_DOWNLOAD_RETRY: attempt=1/3 reason=transport-error url=https://example.test/source',
+      'OCR_RUNTIME_DOWNLOAD_RETRY: attempt=2/3 reason=transport-error url=https://example.test/source',
+    ]);
+    expect(result).toBeInstanceOf(Error);
+    expect((result as Error).message).toContain('OCR_RUNTIME_DOWNLOAD_INVALID');
   });
 
   it('retries a recognized network failure', async () => {
