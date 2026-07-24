@@ -120,7 +120,13 @@ describe('Native OCR runtime workflow', () => {
       on?: { workflow_dispatch?: unknown };
       jobs?: {
         build?: {
-          strategy?: { matrix?: { platform?: unknown } };
+          'timeout-minutes'?: string;
+          strategy?: {
+            matrix?: {
+              include?: Array<{ platform?: string; runner?: string; timeoutMinutes?: number }>;
+              platform?: unknown;
+            };
+          };
           steps?: Array<{
             name?: string;
             uses?: string;
@@ -138,6 +144,15 @@ describe('Native OCR runtime workflow', () => {
       'darwin-x64',
       'linux-x64',
     ]);
+    expect(workflow.jobs?.build?.['timeout-minutes']).toBe('${{ matrix.timeoutMinutes }}');
+    expect(workflow.jobs?.build?.strategy?.matrix?.include).toEqual(
+      expect.arrayContaining([
+        { platform: 'win32-x64', runner: 'windows-2022', timeoutMinutes: 30 },
+        { platform: 'darwin-arm64', runner: 'macos-14', timeoutMinutes: 360 },
+        { platform: 'darwin-x64', runner: 'macos-13', timeoutMinutes: 360 },
+        { platform: 'linux-x64', runner: 'ubuntu-22.04', timeoutMinutes: 360 },
+      ]),
+    );
     expect(workflow.jobs?.build?.steps).toContainEqual(
       expect.objectContaining({
         uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
@@ -177,6 +192,14 @@ describe('Native OCR runtime workflow', () => {
   it("uses the MSYS2 Leptonica installation instead of Tesseract's unavailable SW path", async () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
 
+    expect(builder).toContain('function Invoke-WatchedProcess');
+    expect(builder).toContain('$process.Kill($true)');
+    expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
+    expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');
+    expect(builder).toContain('OCR_RUNTIME_STAGE: download-source');
+    expect(builder).toContain('OCR_RUNTIME_STAGE: health-check');
+    expect(builder).toContain('TimeoutSeconds = 180');
+    expect(builder).toContain('TimeoutSeconds = 900');
     expect(builder).toContain('-DSW_BUILD=OFF');
     expect(builder).toContain('& $pacman -Qo $packagePath');
     expect(builder).toContain('& $pacman -Q');
@@ -200,6 +223,29 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('OCR_RUNTIME_MSYS2_GRAPH_INVALID');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_INVALID');
     expect(builder).toContain('OCR_RUNTIME_NOTICES_INVALID');
+
+    const stageMarkers = [
+      'graph-query',
+      'graph-lock',
+      'read-sources',
+      'download-source',
+      'preflight-dependencies',
+      'extract-dependency',
+      'render-notice',
+      'extract-tesseract',
+      'configure',
+      'build',
+      'inspect-dll',
+      'package-owner',
+      'health-check',
+    ];
+    const stageOffsets = stageMarkers.map((stage) => builder.indexOf(`OCR_RUNTIME_STAGE: ${stage}`));
+    for (const stageOffset of stageOffsets) {
+      expect(stageOffset).toBeGreaterThanOrEqual(0);
+    }
+    for (let index = 1; index < stageOffsets.length; index += 1) {
+      expect(stageOffsets[index - 1]).toBeLessThan(stageOffsets[index]);
+    }
   });
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
