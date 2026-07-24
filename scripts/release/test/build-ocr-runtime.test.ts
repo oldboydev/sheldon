@@ -198,10 +198,25 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$startInfo.RedirectStandardOutput = $true');
     expect(builder).toContain('$startInfo.RedirectStandardError = $true');
     expect(builder).toContain('$startInfo.ArgumentList.Add($argument)');
-    expect(builder).toContain('$process.StandardOutput.ReadToEndAsync()');
-    expect(builder).toContain('$process.StandardError.ReadToEndAsync()');
-    expect(builder).toContain('$process.WaitForExit($TimeoutSeconds * 1000)');
+    expect(builder).toContain('$stdout = [System.Text.StringBuilder]::new()');
+    expect(builder).toContain('$stderr = [System.Text.StringBuilder]::new()');
+    expect(builder).toContain(
+      '$process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)',
+    );
+    expect(builder).toContain(
+      '$process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)',
+    );
+    expect(builder).toContain('$stdout.Append($stdoutChunk)');
+    expect(builder).toContain('$stderr.Append($stderrChunk)');
+    expect(builder).toContain('OCR_RUNTIME_STDOUT: $stdoutChunk');
+    expect(builder).toContain('OCR_RUNTIME_STDERR: $stderrChunk');
+    expect(builder).toContain('$process.WaitForExit(0)');
     expect(builder).toContain('$process.Kill($true)');
+    expect(builder).toContain('catch [System.InvalidOperationException]');
+    expect(builder).toContain('if (-not $process.HasExited) { throw }');
+    expect(builder).toContain(
+      'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
+    );
     expect(builder).toContain('$process.WaitForExit()');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
     expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');

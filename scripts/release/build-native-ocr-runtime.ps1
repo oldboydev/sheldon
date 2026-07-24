@@ -34,25 +34,66 @@ function Invoke-WatchedProcess {
   if (-not $process.Start()) {
     throw "OCR_RUNTIME_PROCESS_INVALID: Unable to start stage $Stage."
   }
-  $stdoutTask = $process.StandardOutput.ReadToEndAsync()
-  $stderrTask = $process.StandardError.ReadToEndAsync()
+  $stdout = [System.Text.StringBuilder]::new()
+  $stderr = [System.Text.StringBuilder]::new()
+  $stdoutBuffer = [char[]]::new(4096)
+  $stderrBuffer = [char[]]::new(4096)
+  $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
+  $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
   if ($PSBoundParameters.ContainsKey('StandardInput')) {
     $process.StandardInput.Write($StandardInput)
   }
   $process.StandardInput.Close()
 
-  if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-    $process.Kill($true)
-    $process.WaitForExit()
-    [void]$stdoutTask.GetAwaiter().GetResult()
-    [void]$stderrTask.GetAwaiter().GetResult()
+  $watch = [System.Diagnostics.Stopwatch]::StartNew()
+  $timedOut = $false
+  while ($null -ne $stdoutRead -or $null -ne $stderrRead) {
+    $pendingReads = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
+    if ($null -ne $stdoutRead) { [void]$pendingReads.Add($stdoutRead) }
+    if ($null -ne $stderrRead) { [void]$pendingReads.Add($stderrRead) }
+    [void][System.Threading.Tasks.Task]::WaitAny($pendingReads.ToArray(), 50)
+
+    if ($null -ne $stdoutRead -and $stdoutRead.IsCompleted) {
+      $stdoutCount = $stdoutRead.GetAwaiter().GetResult()
+      if ($stdoutCount -gt 0) {
+        $stdoutChunk = [string]::new($stdoutBuffer, 0, $stdoutCount)
+        [void]$stdout.Append($stdoutChunk)
+        Write-Host "OCR_RUNTIME_STDOUT: $stdoutChunk"
+        $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
+      } else {
+        $stdoutRead = $null
+      }
+    }
+    if ($null -ne $stderrRead -and $stderrRead.IsCompleted) {
+      $stderrCount = $stderrRead.GetAwaiter().GetResult()
+      if ($stderrCount -gt 0) {
+        $stderrChunk = [string]::new($stderrBuffer, 0, $stderrCount)
+        [void]$stderr.Append($stderrChunk)
+        Write-Host "OCR_RUNTIME_STDERR: $stderrChunk"
+        $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
+      } else {
+        $stderrRead = $null
+      }
+    }
+
+    if (-not $timedOut -and $watch.Elapsed.TotalSeconds -ge $TimeoutSeconds -and -not $process.WaitForExit(0)) {
+      try {
+        $process.Kill($true)
+      } catch [System.InvalidOperationException] {
+        if (-not $process.HasExited) { throw }
+      }
+      $timedOut = $true
+    }
+  }
+  $process.WaitForExit()
+  if ($timedOut) {
     throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."
   }
 
   return [pscustomobject]@{
     ExitCode = $process.ExitCode
-    StdOut = $stdoutTask.GetAwaiter().GetResult()
-    StdErr = $stderrTask.GetAwaiter().GetResult()
+    StdOut = $stdout.ToString()
+    StdErr = $stderr.ToString()
   }
 }
 
