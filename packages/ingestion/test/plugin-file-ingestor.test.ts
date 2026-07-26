@@ -13,7 +13,9 @@ import type { LegacyM2PluginFileManifest } from '../src/index.js';
 import {
   PluginFileIngestionError,
   publishPluginFileIngestion,
+  publishPluginSourceIngestion,
   type PublishPluginFileInput,
+  type PublishPluginSourceInput,
 } from '../src/plugin-file-ingestor.js';
 
 const temporaryDirectories: string[] = [];
@@ -97,7 +99,82 @@ function input(rawDirectory: string): PublishPluginFileInput {
   };
 }
 
+function sourceInput(rawDirectory: string, originalName = 'fixture.pdf'): PublishPluginSourceInput {
+  return {
+    originalName,
+    rawDirectory,
+    plugin: { id: 'sheldon.file', version: '1.0.0' },
+    options: { language: 'en', ocr: 'off' },
+  };
+}
+
 describe('plugin file ingestion publication', () => {
+  it('publishes the supplied safe original basename', async () => {
+    const directory = await fixtureDirectory();
+    const temporaryDirectory = join(directory, 'lease');
+    const rawDirectory = join(directory, 'raw');
+    await mkdir(temporaryDirectory);
+    const fixtureLease = await lease(temporaryDirectory, Buffer.from('named-source'));
+
+    const result = await publishPluginSourceIngestion(
+      sourceInput(rawDirectory, 'example-test-article.html'),
+      fixtureLease,
+      fixedClock,
+    );
+
+    expect(result.manifest.original_name).toBe('example-test-article.html');
+  });
+
+  it.each(['.', '..', '...', 'folder/article.html', 'folder\\article.html'])
+    ('rejects an unsafe original name: %s', async (originalName) => {
+      const directory = await fixtureDirectory();
+      const temporaryDirectory = join(directory, 'lease');
+      await mkdir(temporaryDirectory);
+      const fixtureLease = await lease(temporaryDirectory, Buffer.from('unsafe-name'));
+
+      await expect(
+        publishPluginSourceIngestion(
+          sourceInput(join(directory, 'raw'), originalName),
+          fixtureLease,
+          fixedClock,
+        ),
+      ).rejects.toMatchObject({ code: 'PLUGIN_FILE_ORIGINAL_NAME_INVALID' });
+    });
+
+  it('keeps URL-shaped source identities byte-based and links distinct revisions', async () => {
+    const directory = await fixtureDirectory();
+    const rawDirectory = join(directory, 'raw');
+    const firstLeaseDirectory = join(directory, 'lease-v1');
+    const nextLeaseDirectory = join(directory, 'lease-v2');
+    await Promise.all([mkdir(firstLeaseDirectory), mkdir(nextLeaseDirectory)]);
+    const firstLease = await lease(firstLeaseDirectory, Buffer.from('<article>first</article>'));
+    const nextLease = await lease(nextLeaseDirectory, Buffer.from('<article>second</article>'));
+    const canonicalUri = 'https://example.test/article';
+    for (const fixtureLease of [firstLease, nextLease]) {
+      const normalized = fixtureLease.artifacts.find((artifact) => artifact.role === 'normalized');
+      if (normalized?.metadata === undefined) throw new Error('Fixture requires normalized metadata.');
+      Object.assign(normalized.metadata, { canonicalUri });
+    }
+
+    const first = await publishPluginSourceIngestion(
+      sourceInput(rawDirectory, 'example-test-article.html'),
+      firstLease,
+      fixedClock,
+    );
+    const next = await publishPluginSourceIngestion(
+      sourceInput(rawDirectory, 'example-test-article.html'),
+      nextLease,
+      { now: () => new Date('2026-07-20T13:00:00.000Z') },
+    );
+
+    expect(next.sourceId).not.toBe(first.sourceId);
+    expect(next.manifest).toMatchObject({
+      canonical_uri: canonicalUri,
+      original_name: 'example-test-article.html',
+      previous_source_id: first.sourceId,
+    });
+  });
+
   it('atomically publishes original, normalized content, assets and plugin metadata', async () => {
     const directory = await fixtureDirectory();
     const temporaryDirectory = join(directory, 'lease');
@@ -130,6 +207,7 @@ describe('plugin file ingestion publication', () => {
     expect(result.manifest).toMatchObject({
       source_id: result.sourceId,
       canonical_uri: 'file:///knowledge/fixture.pdf',
+      original_name: 'fixture.pdf',
       plugin: 'sheldon.file',
       plugin_version: '1.0.0',
       extractor: 'embedded',

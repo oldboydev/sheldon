@@ -11,6 +11,7 @@ export {
 export {
   PluginFileIngestionError,
   publishPluginFileIngestion,
+  publishPluginSourceIngestion,
   type LegacyM2PluginFileManifest,
   type PluginFileArtifactManifest,
   type PluginFileIngestionErrorCode,
@@ -18,4 +19,5 @@ export {
   type PluginFileIngestorDependencies,
   type PluginFileManifest,
   type PublishPluginFileInput,
+  type PublishPluginSourceInput,
 } from './plugin-file-ingestor.js';

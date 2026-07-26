@@ -12,6 +12,9 @@ describe('Vitest configuration', () => {
       '@sheldon/persistence': expect.stringMatching(
         /packages[\\/]persistence[\\/]src[\\/]index\.ts$/,
       ),
+      '@sheldon/plugin-source-repository': expect.stringMatching(
+        /packages[\\/]plugins[\\/]official[\\/]source\.repository[\\/]src[\\/]index\.ts$/,
+      ),
     });
   });
 

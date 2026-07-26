@@ -50,6 +50,38 @@ export class ContractClient {
     }
   }
 
+  public async requestExpectedError(
+    command: ContractCommand,
+    operation: PluginOperation,
+    payload: JsonValue,
+    expectedDiagnosticCode: string,
+  ): Promise<{ readonly stderr: string }> {
+    const session = this.start(command);
+    const requestId = this.nextRequestId(operation);
+    try {
+      return await this.withOperationTimeout(async () => {
+        await writeJsonl(session.child.stdin, requestEnvelope(requestId, operation, payload));
+        const response = await this.nextResponse(session);
+        if (response.requestId !== requestId) {
+          throw new Error(`Plugin responded to ${response.requestId} instead of ${requestId}.`);
+        }
+        if (response.status !== 'error') {
+          throw new Error(
+            `Plugin ${operation} returned ${response.status} instead of error ${expectedDiagnosticCode}.`,
+          );
+        }
+        if (response.error.code !== expectedDiagnosticCode) {
+          throw new Error(
+            `Plugin ${operation} returned diagnostic ${response.error.code} instead of ${expectedDiagnosticCode}.`,
+          );
+        }
+        return { stderr: session.stderr() };
+      });
+    } finally {
+      await this.close(session.child);
+    }
+  }
+
   public async cancelActive(command: ContractCommand, ingestPayload: JsonValue): Promise<void> {
     const session = this.start(command);
     const ingestRequestId = this.nextRequestId('ingest');

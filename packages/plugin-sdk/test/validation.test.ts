@@ -33,11 +33,17 @@ describe('protocol v1 validation', () => {
     });
   });
 
+  it('accepts an official plugin priority of 200', () => {
+    expect(parsePluginManifest({ ...manifest, priority: 200 }, 'official')).toMatchObject({
+      priority: 200,
+    });
+  });
+
   it.each([
     ['bad id', { ...manifest, id: '../escape' }],
     ['bad semver', { ...manifest, version: 'latest' }],
     ['bad SPDX', { ...manifest, license: 'whatever' }],
-    ['priority outside range', { ...manifest, priority: 101 }],
+    ['priority outside range', { ...manifest, priority: 201 }],
     [
       'missing license',
       Object.fromEntries(Object.entries(manifest).filter(([key]) => key !== 'license')),
@@ -91,5 +97,45 @@ describe('protocol v1 validation', () => {
         cancel: { input: { kind: 'fixture', wait: true }, options: {} },
       }),
     ).toMatchObject({ ingest: { expectedRoles: ['normalized'] } });
+  });
+
+  it('accepts an expected ingest diagnostic as an alternative to artifact roles', () => {
+    expect(
+      parseContractFixture({
+        supportedProbe: { input: { kind: 'fixture' }, minimumConfidence: 80 },
+        unsupportedProbe: { input: { kind: 'unknown' } },
+        ingest: {
+          input: { kind: 'fixture' },
+          options: {},
+          expectedDiagnosticCode: 'URL_INPUT_INVALID',
+        },
+      }),
+    ).toMatchObject({ ingest: { expectedDiagnosticCode: 'URL_INPUT_INVALID' } });
+  });
+
+  it('requires exactly one ingest expectation', () => {
+    const fixture = {
+      supportedProbe: { input: { kind: 'fixture' }, minimumConfidence: 80 },
+      unsupportedProbe: { input: { kind: 'unknown' } },
+      cancel: { input: { kind: 'fixture', wait: true }, options: {} },
+    };
+
+    expect(() =>
+      parseContractFixture({
+        ...fixture,
+        ingest: { input: { kind: 'fixture' }, options: {} },
+      }),
+    ).toThrow(ProtocolValidationError);
+    expect(() =>
+      parseContractFixture({
+        ...fixture,
+        ingest: {
+          input: { kind: 'fixture' },
+          options: {},
+          expectedRoles: ['normalized'],
+          expectedDiagnosticCode: 'URL_INPUT_INVALID',
+        },
+      }),
+    ).toThrow(ProtocolValidationError);
   });
 });

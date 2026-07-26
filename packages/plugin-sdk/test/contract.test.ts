@@ -86,6 +86,49 @@ describe('language-neutral plugin contract', () => {
     );
   });
 
+  it('passes an ingest case that returns the exact expected structured diagnostic', async () => {
+    const root = await diagnosticFixtureRoot('URL_INPUT_INVALID');
+
+    const report = await runPluginContract(root, { timeoutMs: 2_000 });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({ operation: 'ingest', passed: true }),
+    );
+    expect(report.passed).toBe(true);
+  });
+
+  it('fails an ingest case whose structured diagnostic code differs', async () => {
+    const root = await diagnosticFixtureRoot('URL_ADDRESS_FORBIDDEN', {
+      expectedDiagnosticCode: 'URL_INPUT_INVALID',
+    });
+
+    const report = await runPluginContract(root, { timeoutMs: 2_000 });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        operation: 'ingest',
+        passed: false,
+        message: expect.stringContaining('URL_ADDRESS_FORBIDDEN'),
+      }),
+    );
+  });
+
+  it('fails an ingest case that is cancelled with the expected diagnostic code', async () => {
+    const root = await diagnosticFixtureRoot('URL_INPUT_INVALID', {
+      diagnosticStatus: 'cancelled',
+    });
+
+    const report = await runPluginContract(root, { timeoutMs: 2_000 });
+
+    expect(report.checks).toContainEqual(
+      expect.objectContaining({
+        operation: 'ingest',
+        passed: false,
+        message: expect.stringContaining('cancelled'),
+      }),
+    );
+  });
+
   it('times out a blocked stdin write and terminates the fixture process', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-plugin-sdk-non-reading-'));
     temporaryRoots.push(root);
@@ -112,4 +155,30 @@ function isProcessAlive(pid: number): boolean {
   } catch {
     return false;
   }
+}
+
+async function diagnosticFixtureRoot(
+  diagnosticCode: string,
+  options: {
+    readonly expectedDiagnosticCode?: string;
+    readonly diagnosticStatus?: 'error' | 'cancelled';
+  } = {},
+): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'sheldon-plugin-sdk-raw-diagnostic-'));
+  temporaryRoots.push(root);
+  await cp(fixtureRoot, root, { recursive: true });
+  await writeFile(join(root, 'silent-healthcheck'), '', 'utf8');
+  const contractPath = join(root, 'sheldon-plugin.contract.json');
+  const contract = JSON.parse(await readFile(contractPath, 'utf8')) as {
+    ingest: Record<string, unknown>;
+    cancel?: Record<string, unknown>;
+  };
+  contract.ingest = {
+    input: { diagnosticCode, diagnosticStatus: options.diagnosticStatus ?? 'error' },
+    options: {},
+    expectedDiagnosticCode: options.expectedDiagnosticCode ?? diagnosticCode,
+  };
+  delete contract.cancel;
+  await writeFile(contractPath, JSON.stringify(contract), 'utf8');
+  return root;
 }

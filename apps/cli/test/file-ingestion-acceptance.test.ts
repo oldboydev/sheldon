@@ -70,7 +70,11 @@ describe('file ingestion CLI flow', () => {
 
     expect(result).toMatchObject({ exitCode: 0, stderr: '' });
     expect(JSON.parse(result.stdout)).toMatchObject({
-      manifest: { plugin: 'source.file', content: { path: 'content.md' } },
+      manifest: {
+        plugin: 'source.file',
+        original_name: 'evidence.md',
+        content: { path: 'content.md' },
+      },
     });
   });
 

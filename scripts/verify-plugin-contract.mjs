@@ -7,6 +7,9 @@ for (const pluginRoot of [
   resolve('test-fixtures', 'plugins', 'node-sdk'),
   resolve('test-fixtures', 'plugins', 'powershell'),
   resolve('packages', 'plugins', 'official', 'source.file'),
+  resolve('packages', 'plugins', 'official', 'source.repository'),
+  resolve('packages', 'plugins', 'official', 'source.url'),
+  resolve('packages', 'plugins', 'official', 'source.youtube'),
 ]) {
   const report = await runPluginContract(pluginRoot);
   assert.equal(report.passed, true, JSON.stringify(report, null, 2));

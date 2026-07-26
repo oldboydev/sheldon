@@ -8,13 +8,21 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Plugin `source.repository` e comando `ingest repository` para publicar snapshots determinísticos de commits de repositórios Git locais limpos, com deduplicação, vínculo de revisão, inventário de seleção e recusa pré-publicação de segredos.
 - Catálogo oficial assinado para instalação opcional de plugins e comandos explícitos para gerenciar idiomas do `source.image`.
-- Plugins `source.file`, `source.image`, `source.url` e `source.youtube`; URL e YouTube permanecem scaffolds sem ingestão nesta milestone.
+- Plugins `source.url` e `source.youtube` para captura de uma página pública e de vídeos únicos com legendas; a CLI seleciona automaticamente o vídeo e encaminha `--language` como preferência de legendas.
 - Pipeline de release com ZIPs determinísticos por plataforma, catálogo assinado, SBOM, notices e verificação offline antes do upload.
 - Matriz nativa de OCR integrada ao release: os quatro artefatos validados são incorporados ao `source.image`; execuções manuais fazem dry run sem upload e somente tags `v*` publicam o catálogo.
 
 ### Changed
 
+- A validação de `source.repository` agora exige que os arquivos regulares do checkout sejam byte
+  por byte idênticos aos blobs de `HEAD`, sem usar `git status` nem conversões de worktree. Diferenças
+  brutas produzidas por `core.autocrlf`, `eol` ou filtros são recusadas, mas uma configuração inativa
+  de filtro personalizado não é recusada por si só.
+- A validação bruta de `source.repository`, separada do orçamento posterior de seleção, agora limita
+  o checkout a 64 MiB agregados e 10.000 entradas de diretório e retorna
+  `REPOSITORY_GIT_OUTPUT_LIMIT` quando o orçamento se esgota.
 - OCR de imagens passou a ser propriedade exclusiva do `source.image`, com modelos base `por` e `eng` privados ao plugin.
 
 - Verificações locais agora ignoram worktrees e arquivos de scratch aninhados, evitando suites duplicadas e lint de dependências de outra cópia do repositório.

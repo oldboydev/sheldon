@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { existsSync } from 'node:fs';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -54,7 +55,9 @@ for await (const line of lineReader) {
     break;
   }
   if (request.operation === 'healthcheck') {
-    process.stderr.write('raw fixture healthy\n');
+    if (!existsSync(join(process.cwd(), 'silent-healthcheck'))) {
+      process.stderr.write('raw fixture healthy\n');
+    }
     respond(request.requestId, 'success', {
       result: { checks: [{ id: 'raw-health', severity: 'info', message: 'healthy' }] },
     });
@@ -63,6 +66,15 @@ for await (const line of lineReader) {
   if (request.operation === 'ingest') {
     active = request;
     if (request.payload.input.wait === true) continue;
+    if (request.payload.input.diagnosticCode !== undefined) {
+      respond(request.requestId, request.payload.input.diagnosticStatus, {
+        error: {
+          code: request.payload.input.diagnosticCode,
+          message: 'Structured diagnostic fixture.',
+        },
+      });
+      break;
+    }
     const content = '# Raw fixture\n';
     await writeFile(join(request.payload.temporaryDirectory, 'content.md'), content, 'utf8');
     respond(request.requestId, 'success', {

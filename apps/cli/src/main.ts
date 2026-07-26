@@ -6,7 +6,7 @@ import type { EntityKind } from '@sheldon/core';
 import type { CommandExecutor } from '@sheldon/agent-runtime';
 import { PluginHostError } from '@sheldon/plugin-host';
 import { entityDirectory, VaultError } from '@sheldon/vault';
-import { Command, CommanderError, Option } from 'commander';
+import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 
 import { executeDoctor } from './commands/doctor.js';
 import { resolveVaultPath } from './config.js';
@@ -23,10 +23,16 @@ import { executeInit } from './commands/init.js';
 import {
   approveProposal,
   compileMemory,
+  ingestCrawl,
   ingestFile,
+  ingestRepository,
+  ingestUrl,
   lintWiki,
   previewProposal,
+  type CrawlIngestionOptions,
   type FileIngestionOptions,
+  type RepositoryIngestionOptions,
+  type UrlIngestionOptions,
 } from './commands/memory.js';
 import { assertProposalNotRejected, rejectProposal, retryCompile } from './commands/workflow.js';
 import {
@@ -206,6 +212,39 @@ function addMemoryCommands(
     .action((kind: EntityKind, slug: string, file: string, options: FileIngestionOptions) =>
       ingestFile(kind, slug, file, options, context),
     );
+  ingest
+    .command('url <kind> <slug> <url>')
+    .option('--vault <path>', 'explicit vault path')
+    .option('--plugin <id>', 'explicit URL ingestion plugin')
+    .option('--language <tags>', 'preferred comma-separated language tags')
+    .action((kind: EntityKind, slug: string, url: string, options: UrlIngestionOptions) =>
+      ingestUrl(kind, slug, url, options, context),
+    );
+  ingest
+    .command('crawl <kind> <slug> <seed-url>')
+    .requiredOption(
+      '--max-pages <count>',
+      'maximum page attempts (1-10)',
+      boundedInteger('--max-pages', 1, 10),
+    )
+    .requiredOption(
+      '--max-depth <depth>',
+      'maximum link depth (0-2)',
+      boundedInteger('--max-depth', 0, 2),
+    )
+    .option('--vault <path>', 'explicit vault path')
+    .option('--plugin <id>', 'explicit site ingestion plugin')
+    .action((kind: EntityKind, slug: string, seed: string, options: CrawlIngestionOptions) =>
+      ingestCrawl(kind, slug, seed, options, context),
+    );
+  ingest
+    .command('repository <kind> <slug> <directory>')
+    .option('--vault <path>', 'explicit vault path')
+    .option('--plugin <id>', 'explicit repository ingestion plugin')
+    .action(
+      (kind: EntityKind, slug: string, directory: string, options: RepositoryIngestionOptions) =>
+        ingestRepository(kind, slug, directory, options, context),
+    );
 
   program
     .command('compile <kind> <slug> <proposal-id>')
@@ -304,6 +343,23 @@ function addMemoryCommands(
     .action((kind: EntityKind, slug: string, options: VaultOption) =>
       lintWiki(kind, slug, options, context),
     );
+}
+
+function boundedInteger(
+  name: '--max-pages' | '--max-depth',
+  minimum: number,
+  maximum: number,
+): (value: string) => number {
+  return (value) => {
+    if (!/^(?:0|[1-9]\d*)$/u.test(value)) {
+      throw new InvalidArgumentError(`${name} must be an integer from ${minimum} to ${maximum}.`);
+    }
+    const parsed = Number(value);
+    if (parsed < minimum || parsed > maximum) {
+      throw new InvalidArgumentError(`${name} must be an integer from ${minimum} to ${maximum}.`);
+    }
+    return parsed;
+  };
 }
 
 function addEntityCommands(program: Command, kind: EntityKind, context: CommandContext): void {

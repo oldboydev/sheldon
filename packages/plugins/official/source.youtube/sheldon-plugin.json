@@ -7,8 +7,15 @@
   "license": "MIT",
   "command": { "executable": "node", "arguments": ["plugin.mjs"] },
   "capabilities": ["ingest-url"],
-  "priority": 100,
+  "priority": 200,
   "platforms": ["win32", "darwin", "linux"],
   "permissions": { "network": true, "cookies": false },
-  "dependencies": []
+  "dependencies": [
+    {
+      "id": "yt-dlp",
+      "kind": "executable",
+      "required": true,
+      "remediation": "Install yt-dlp and ensure it is available on PATH."
+    }
+  ]
 }

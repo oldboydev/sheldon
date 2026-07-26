@@ -92,29 +92,43 @@ export async function runPluginContract(
   });
   await record(checks, 'ingest', async () => {
     await withTemporaryDirectory(manifest.id, async (temporaryDirectory) => {
-      const { result } = await client.request<unknown>(command, 'ingest', {
+      const payload = {
         input: fixture.ingest.input,
         options: fixture.ingest.options,
         temporaryDirectory,
-      });
-      const artifacts = parseSourceArtifacts(result);
-      await validateArtifacts(artifacts, temporaryDirectory, fixture.ingest.expectedRoles);
+      };
+      if ('expectedDiagnosticCode' in fixture.ingest) {
+        await client.requestExpectedError(
+          command,
+          'ingest',
+          payload,
+          fixture.ingest.expectedDiagnosticCode,
+        );
+      } else {
+        const { result } = await client.request<unknown>(command, 'ingest', payload);
+        const artifacts = parseSourceArtifacts(result);
+        await validateArtifacts(artifacts, temporaryDirectory, fixture.ingest.expectedRoles);
+      }
     });
   });
-  await record(checks, 'cancel', async () => {
-    await withTemporaryDirectory(manifest.id, async (temporaryDirectory) => {
-      await client.cancelActive(command, {
-        input: fixture.cancel.input,
-        options: fixture.cancel.options,
-        temporaryDirectory,
+  if (fixture.cancel !== undefined) {
+    await record(checks, 'cancel', async () => {
+      await withTemporaryDirectory(manifest.id, async (temporaryDirectory) => {
+        await client.cancelActive(command, {
+          input: fixture.cancel.input,
+          options: fixture.cancel.options,
+          temporaryDirectory,
+        });
       });
     });
-  });
-  await record(checks, 'stderr', async () => {
-    if (healthcheckStderr.trim().length === 0) {
-      throw new Error('Healthcheck completed without a stderr log line.');
-    }
-  });
+  }
+  if (!('expectedDiagnosticCode' in fixture.ingest)) {
+    await record(checks, 'stderr', async () => {
+      if (healthcheckStderr.trim().length === 0) {
+        throw new Error('Healthcheck completed without a stderr log line.');
+      }
+    });
+  }
 
   return { pluginId: manifest.id, passed: checks.every((check) => check.passed), checks };
 }

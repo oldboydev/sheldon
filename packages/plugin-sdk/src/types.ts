@@ -121,19 +121,39 @@ export type ResponseEnvelope<TResult = JsonValue> =
       readonly error: ProtocolErrorBody;
     };
 
-export interface ContractFixture {
+interface ContractFixtureBase {
   readonly supportedProbe: {
     readonly input: Readonly<Record<string, JsonValue>>;
     readonly minimumConfidence: number;
   };
   readonly unsupportedProbe: { readonly input: Readonly<Record<string, JsonValue>> };
-  readonly ingest: {
-    readonly input: Readonly<Record<string, JsonValue>>;
-    readonly options: Readonly<Record<string, JsonValue>>;
-    readonly expectedRoles: readonly ArtifactRole[];
-  };
-  readonly cancel: {
-    readonly input: Readonly<Record<string, JsonValue>>;
-    readonly options: Readonly<Record<string, JsonValue>>;
-  };
 }
+
+interface ContractSuccessfulIngest {
+  readonly input: Readonly<Record<string, JsonValue>>;
+  readonly options: Readonly<Record<string, JsonValue>>;
+  readonly expectedRoles: readonly ArtifactRole[];
+}
+
+interface ContractExpectedDiagnosticIngest {
+  readonly input: Readonly<Record<string, JsonValue>>;
+  readonly options: Readonly<Record<string, JsonValue>>;
+  readonly expectedDiagnosticCode: string;
+}
+
+interface ContractCancel {
+  readonly input: Readonly<Record<string, JsonValue>>;
+  readonly options: Readonly<Record<string, JsonValue>>;
+}
+
+export type ContractFixture = ContractFixtureBase &
+  (
+    | {
+        readonly ingest: ContractSuccessfulIngest;
+        readonly cancel: ContractCancel;
+      }
+    | {
+        readonly ingest: ContractExpectedDiagnosticIngest;
+        readonly cancel?: never;
+      }
+  );

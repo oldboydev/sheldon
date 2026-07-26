@@ -20,6 +20,21 @@ import { parse, stringify } from 'yaml';
 
 import type { IngestionOption } from './local-file-ingestor.js';
 
+export interface PublishPluginSourceInput {
+  /** A safe basename retained as manifest provenance. */
+  readonly originalName: string;
+  /** The entity's `raw` directory. */
+  readonly rawDirectory: string;
+  /** The selected plugin manifest identity. */
+  readonly plugin: {
+    readonly id: string;
+    readonly version: string;
+  };
+  /** Options that can affect normalized output and source identity. */
+  readonly options?: Readonly<Record<string, IngestionOption>>;
+}
+
+/** @deprecated Use {@link PublishPluginSourceInput} for non-file sources. */
 export interface PublishPluginFileInput {
   /** The original local path, retained only as manifest provenance. */
   readonly filePath: string;
@@ -106,6 +121,7 @@ export type PluginFileIngestionErrorCode =
   | 'PLUGIN_FILE_ARTIFACT_REQUIRED'
   | 'PLUGIN_FILE_ASSET_PATH_ESCAPE'
   | 'PLUGIN_FILE_HISTORY_INVALID'
+  | 'PLUGIN_FILE_ORIGINAL_NAME_INVALID'
   | 'PLUGIN_FILE_OPTIONS_INVALID'
   | 'PLUGIN_FILE_SOURCE_CONFLICT';
 
@@ -142,11 +158,12 @@ function claimStaleMilliseconds(dependencies: PluginFileIngestorDependencies): n
 }
 
 /** Publishes host-validated plugin artifacts below an immutable raw source identity. */
-export async function publishPluginFileIngestion(
-  input: PublishPluginFileInput,
+export async function publishPluginSourceIngestion(
+  input: PublishPluginSourceInput,
   lease: IngestLease,
   dependencies: PluginFileIngestorDependencies = {},
 ): Promise<PluginFileIngestionResult> {
+  const originalName = safeOriginalName(input.originalName);
   const original = requiredArtifact(lease.artifacts, 'original');
   const normalized = requiredArtifact(lease.artifacts, 'normalized');
   const assets = lease.artifacts.filter((artifact) => artifact.role === 'asset');
@@ -198,7 +215,7 @@ export async function publishPluginFileIngestion(
     const manifest: PluginFileManifest = {
       source_id: sourceId,
       canonical_uri: metadata.canonicalUri,
-      original_name: basename(input.filePath),
+      original_name: originalName,
       content_sha256: contentSha256,
       options_sha256: optionsSha256,
       captured_at: (dependencies.now ?? (() => new Date()))().toISOString(),
@@ -270,6 +287,19 @@ export async function publishPluginFileIngestion(
   } finally {
     await sourceClaim.release();
   }
+}
+
+/** @deprecated Use {@link publishPluginSourceIngestion}. */
+export async function publishPluginFileIngestion(
+  input: PublishPluginFileInput,
+  lease: IngestLease,
+  dependencies: PluginFileIngestorDependencies = {},
+): Promise<PluginFileIngestionResult> {
+  return publishPluginSourceIngestion(
+    { ...input, originalName: basename(input.filePath) },
+    lease,
+    dependencies,
+  );
 }
 
 function requiredArtifact(
@@ -366,6 +396,22 @@ function artifactManifest(artifact: SourceArtifact, path: string): PluginFileArt
 function originalFileName(path: string): string {
   const extension = extname(path);
   return extension.length === 0 ? 'original' : `original${extension}`;
+}
+
+function safeOriginalName(originalName: string): string {
+  if (
+    originalName.length === 0 ||
+    /^\.+$/u.test(originalName) ||
+    originalName.includes('/') ||
+    originalName.includes('\\') ||
+    basename(originalName) !== originalName
+  ) {
+    throw new PluginFileIngestionError(
+      'PLUGIN_FILE_ORIGINAL_NAME_INVALID',
+      'The original source name must be a safe basename.',
+    );
+  }
+  return originalName;
 }
 
 function portablePath(path: string): string {

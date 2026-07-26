@@ -89,15 +89,54 @@ interface Conversation {
 const forwardedEnvironmentKeys = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR'] as const;
 const recordedErrorMessage =
   'Plugin operation failed. Inspect the stable error code and retained stderr.';
+const defaultPluginRecovery =
+  'Inspect the plugin manifest, protocol output, and retained stderr before retrying.';
 // Let a plugin that has already closed its protocol stream drain through a supervised process
 // before forcing termination. This remains bounded for plugins that keep running after a fault.
 const protocolFailureExitGraceMilliseconds = 250;
-const fileDiagnosticCodes = new Set([
+const sourceDiagnosticCodes = new Set([
+  'CRAWL_INPUT_INVALID',
+  'CRAWL_RAW_BUDGET_EXCEEDED',
+  'CRAWL_TOTAL_TIMEOUT',
   'FILE_INPUT_INVALID',
   'FILE_FORMAT_UNSUPPORTED',
   'FILE_OCR_UNAVAILABLE',
   'FILE_EXTRACTION_FAILED',
+  'URL_INPUT_INVALID',
+  'URL_ADDRESS_FORBIDDEN',
+  'URL_HTTP_STATUS',
+  'URL_REDIRECT_INVALID',
+  'URL_REDIRECT_LIMIT',
+  'URL_REDIRECT_OUT_OF_SCOPE',
+  'URL_REQUEST_TIMEOUT',
+  'URL_RESPONSE_TOO_LARGE',
+  'URL_CONTENT_TYPE_UNSUPPORTED',
+  'URL_RESPONSE_UNREADABLE',
+  'YOUTUBE_INPUT_INVALID',
+  'YOUTUBE_RUNTIME_UNAVAILABLE',
+  'YOUTUBE_EXTRACTION_FAILED',
+  'YOUTUBE_RESPONSE_INVALID',
+  'YOUTUBE_CAPTIONS_UNAVAILABLE',
+  'REPOSITORY_INPUT_INVALID',
+  'REPOSITORY_INPUT_UNREADABLE',
+  'REPOSITORY_SYMLINK_FORBIDDEN',
+  'REPOSITORY_GIT_UNAVAILABLE',
+  'REPOSITORY_GIT_OUTPUT_LIMIT',
+  'REPOSITORY_NOT_WORKTREE',
+  'REPOSITORY_HEAD_UNRESOLVED',
+  'REPOSITORY_DIRTY_WORKTREE',
+  'REPOSITORY_TREE_INVALID',
+  'REPOSITORY_HEAD_CHANGED',
+  'REPOSITORY_BLOB_UNREADABLE',
+  'REPOSITORY_BLOB_SIZE_MISMATCH',
+  'REPOSITORY_SECRET_DETECTED',
+  'REPOSITORY_ARTIFACT_WRITE_FAILED',
 ]);
+const urlDiagnosticCodes = new Set(
+  [...sourceDiagnosticCodes].filter(
+    (code) => code.startsWith('URL_') || code.startsWith('YOUTUBE_') || code.startsWith('CRAWL_'),
+  ),
+);
 
 export class PluginProcessRunner {
   private readonly state: PluginStateDatabase;
@@ -282,7 +321,15 @@ export class PluginProcessRunner {
       }
       if (terminal.response.status === 'error') {
         const { code, message } = terminal.response.error;
-        if (fileDiagnosticCodes.has(code)) throw this.error(plugin, code, message);
+        if (sourceDiagnosticCodes.has(code)) {
+          const diagnostic = forwardedSourceDiagnostic(code, message, request);
+          throw new PluginHostError(
+            code,
+            diagnostic.message,
+            plugin.manifest.id,
+            diagnostic.recovery,
+          );
+        }
         throw this.error(
           plugin,
           'PLUGIN_OPERATION_FAILED',
@@ -682,9 +729,41 @@ export class PluginProcessRunner {
       code,
       message,
       plugin?.manifest.id ?? '',
-      'Inspect the plugin manifest, protocol output, and retained stderr before retrying.',
+      defaultPluginRecovery,
       cause === undefined ? undefined : { cause },
     );
+  }
+}
+
+function forwardedSourceDiagnostic(
+  code: string,
+  message: string,
+  request: PrimaryRequest,
+): { readonly message: string; readonly recovery: string } {
+  if (code === 'YOUTUBE_CAPTIONS_UNAVAILABLE') {
+    return {
+      message:
+        'No usable requested captions were available. Local speech-to-text fallback is not implemented.',
+      recovery: 'Retry with another requested language or provide a captioned source.',
+    };
+  }
+  return {
+    message: urlDiagnosticCodes.has(code) ? safeUrlDiagnosticMessage(code, request) : message,
+    recovery: defaultPluginRecovery,
+  };
+}
+
+function safeUrlDiagnosticMessage(code: string, request: PrimaryRequest): string {
+  if (request.operation !== 'probe' && request.operation !== 'ingest') return code;
+  const value = request.payload.input.url;
+  if (typeof value !== 'string') return code;
+
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return code;
+    return `${code}: ${url.origin}${url.pathname}`;
+  } catch {
+    return code;
   }
 }
 

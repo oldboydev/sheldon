@@ -1,0 +1,14 @@
+{
+  "supportedProbe": {
+    "input": { "repositoryPath": "../../../../" },
+    "minimumConfidence": 100
+  },
+  "unsupportedProbe": {
+    "input": { "cloneUrl": "https://example.test/must-not-open-network.git" }
+  },
+  "ingest": {
+    "input": { "cloneUrl": "https://example.test/must-not-open-network.git" },
+    "options": {},
+    "expectedDiagnosticCode": "REPOSITORY_INPUT_INVALID"
+  }
+}

@@ -26,6 +26,9 @@ export default defineConfig({
       '@sheldon/plugin-source-image': sourcePath(
         './packages/plugins/official/source.image/src/index.ts',
       ),
+      '@sheldon/plugin-source-repository': sourcePath(
+        './packages/plugins/official/source.repository/src/index.ts',
+      ),
       '@sheldon/plugin-source-url': sourcePath(
         './packages/plugins/official/source.url/src/index.ts',
       ),

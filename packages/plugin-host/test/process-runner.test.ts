@@ -247,6 +247,36 @@ describe('PluginProcessRunner', () => {
     },
   );
 
+  it.each([
+    'YOUTUBE_INPUT_INVALID',
+    'YOUTUBE_RUNTIME_UNAVAILABLE',
+    'YOUTUBE_EXTRACTION_FAILED',
+    'YOUTUBE_RESPONSE_INVALID',
+    'YOUTUBE_CAPTIONS_UNAVAILABLE',
+    'REPOSITORY_INPUT_INVALID',
+    'REPOSITORY_INPUT_UNREADABLE',
+    'REPOSITORY_SYMLINK_FORBIDDEN',
+    'REPOSITORY_GIT_UNAVAILABLE',
+    'REPOSITORY_GIT_OUTPUT_LIMIT',
+    'REPOSITORY_NOT_WORKTREE',
+    'REPOSITORY_HEAD_UNRESOLVED',
+    'REPOSITORY_DIRTY_WORKTREE',
+    'REPOSITORY_TREE_INVALID',
+    'REPOSITORY_HEAD_CHANGED',
+    'REPOSITORY_BLOB_UNREADABLE',
+    'REPOSITORY_BLOB_SIZE_MISMATCH',
+    'REPOSITORY_SECRET_DETECTED',
+    'REPOSITORY_ARTIFACT_WRITE_FAILED',
+  ])('preserves stable %s diagnostics from a plugin response', async (code) => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+
+    await expect(
+      runner.probe(await pluginFor('error-echo'), { errorCode: code, secret: 'safe-message' }),
+    ).rejects.toMatchObject({ code, target: 'fixture.node' });
+    expect(state.listRuns().at(-1)).toMatchObject({ status: 'error', errorCode: code });
+  });
+
   it('records a numeric process exit after a framing violation when available', async () => {
     const state = stateDatabase();
     const runner = new PluginProcessRunner({
