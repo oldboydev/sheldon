@@ -10,11 +10,16 @@ import {
   type ProbeResult,
   type SourceArtifact,
 } from '@sheldon/plugin-sdk';
+import type { OfficialPlatform } from '@sheldon/plugin-host';
 
 import { normalizeYoutubeMarkdown, selectYoutubeCaption } from './captions.js';
 import { normalizeYoutubeLanguageTag } from './languages.js';
 import { extractYoutubeVideo, type YoutubeRunner } from './yt-dlp.js';
 import { canonicalYoutubeVideo } from './youtube-url.js';
+import { resolveYtDlpExecutable } from './runtime.js';
+
+const DEFAULT_PLATFORM: OfficialPlatform =
+  `${process.platform}-${process.arch}` as OfficialPlatform;
 
 const description: PluginDescription = {
   id: 'source.youtube',
@@ -31,12 +36,14 @@ const description: PluginDescription = {
       id: 'yt-dlp',
       kind: 'executable',
       required: true,
-      remediation: 'Install yt-dlp and ensure it is available on PATH.',
+      remediation: 'Reinstall the official source.youtube plugin for this platform.',
     },
   ],
 };
 
 export interface OfficialSourceYoutubeDependencies {
+  readonly pluginRoot?: string;
+  readonly platform?: OfficialPlatform;
   readonly executable?: string;
   readonly runner?: YoutubeRunner;
   readonly version?: () => Promise<string>;
@@ -45,7 +52,9 @@ export interface OfficialSourceYoutubeDependencies {
 export function createOfficialSourceYoutubePlugin(
   dependencies: OfficialSourceYoutubeDependencies = {},
 ): PluginImplementation {
-  const executable = dependencies.executable ?? 'yt-dlp';
+  const root = dependencies.pluginRoot ?? process.cwd();
+  const platform = dependencies.platform ?? DEFAULT_PLATFORM;
+  const executable = dependencies.executable ?? resolveYtDlpExecutable(root, platform);
   const runner = dependencies.runner;
   return definePlugin({
     describe: async () => description,
@@ -208,7 +217,7 @@ async function ytDlpCheck(
       id: 'yt-dlp',
       severity: 'error' as const,
       message: 'yt-dlp is unavailable or did not respond to the version probe.',
-      remediation: 'Install yt-dlp and ensure it is available on PATH.',
+      remediation: 'Reinstall the official source.youtube plugin for this platform.',
     };
   }
 }

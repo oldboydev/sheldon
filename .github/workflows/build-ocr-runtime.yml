@@ -73,6 +73,10 @@ jobs:
           node scripts/release/build-ocr-runtime.mjs
           --platform ${{ matrix.platform }}
           --output "$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
+      - name: Verify managed yt-dlp runtime
+        run: >-
+          node scripts/release/verify-youtube-runtime.mjs
+          --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ocr-runtime-${{ matrix.platform }}

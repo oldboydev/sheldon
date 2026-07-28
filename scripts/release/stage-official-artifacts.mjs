@@ -7,9 +7,10 @@ import { prepareOcrRuntime } from './prepare-ocr-runtime.mjs';
 
 const PACKAGE_FILES = ['package.json', 'sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'];
 
-export async function stageOfficialArtifacts(source, output, runtimeArtifacts) {
+export async function stageOfficialArtifacts(source, output, runtimeArtifacts, youtubeRuntime) {
   await assertNoStageInputSymlinks(source);
   if (runtimeArtifacts) await assertNoStageInputSymlinks(runtimeArtifacts);
+  if (youtubeRuntime) await assertNoStageInputSymlinks(youtubeRuntime);
   await rm(output, { recursive: true, force: true });
   await mkdir(output, { recursive: true });
   for (const id of OFFICIAL_PLUGIN_IDS) {
@@ -28,6 +29,9 @@ export async function stageOfficialArtifacts(source, output, runtimeArtifacts) {
       await copyRequired(join(pluginSource, 'data'), join(pluginOutput, 'data'), true);
       await copyRequired(join(pluginSource, 'runtime'), join(pluginOutput, 'runtime'), true);
       if (runtimeArtifacts) await mergeOcrRuntimeArtifacts(runtimeArtifacts, pluginOutput);
+    }
+    if (id === 'source.youtube' && youtubeRuntime) {
+      await copyRequired(join(youtubeRuntime, 'runtime'), join(pluginOutput, 'runtime'), true);
     }
   }
 }
@@ -125,7 +129,10 @@ export function parseStageOfficialArtifactArguments(argv) {
     const flag = argv[index];
     const value = argv[index + 1];
     if (
-      (flag !== '--source' && flag !== '--output' && flag !== '--runtime-artifacts') ||
+      (flag !== '--source' &&
+        flag !== '--output' &&
+        flag !== '--runtime-artifacts' &&
+        flag !== '--youtube-runtime') ||
       values.has(flag) ||
       typeof value !== 'string' ||
       value.trim() === ''
@@ -137,19 +144,24 @@ export function parseStageOfficialArtifactArguments(argv) {
   const source = values.get('--source');
   const output = values.get('--output');
   if (!source || !output) throw argumentsError();
-  return { source, output, runtimeArtifacts: values.get('--runtime-artifacts') };
+  return {
+    source,
+    output,
+    runtimeArtifacts: values.get('--runtime-artifacts'),
+    youtubeRuntime: values.get('--youtube-runtime'),
+  };
 }
 
 function argumentsError() {
   return releaseError(
     'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
-    'Use --source <plugins-directory> --output <stage-directory> [--runtime-artifacts <directory>].',
+    'Use --source <plugins-directory> --output <stage-directory> [--runtime-artifacts <directory>] [--youtube-runtime <directory>].',
   );
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const { source, output, runtimeArtifacts } = parseStageOfficialArtifactArguments(
+  const { source, output, runtimeArtifacts, youtubeRuntime } = parseStageOfficialArtifactArguments(
     process.argv.slice(2),
   );
-  await stageOfficialArtifacts(source, output, runtimeArtifacts);
+  await stageOfficialArtifacts(source, output, runtimeArtifacts, youtubeRuntime);
 }

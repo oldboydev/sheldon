@@ -7,7 +7,7 @@ Replace the source.youtube scaffold with an optional official plugin that ingest
 ## Scope and explicit boundaries
 
 - Accept public YouTube video URLs in youtube.com/watch, youtu.be, youtube.com/shorts, and youtube.com/embed forms. Reject playlists, channels, mixes, credentials, fragments, and non-YouTube URLs.
-- Use a user-installed yt-dlp executable only. It is never downloaded, upgraded, configured from a user configuration file, or invoked through a shell.
+- Use only the `yt-dlp` runtime managed by the official `source.youtube` artifact. The release pipeline downloads a pinned upstream version, verifies each platform binary and its licenses, and includes it in the matching signed plugin archive. Plugin installation never needs a global `PATH`, and ingestion never downloads or upgrades it, reads user configuration, or invokes a shell.
 - Request metadata and VTT captions without downloading media. Prefer a human-provided caption for each requested language, then an automatic caption. Default preference is Portuguese then English.
 - Emit exactly one original.info.json, one content.md, and the chosen VTT as an asset. Normalized metadata records canonical URI, selected track kind/language, extractor version, status, and warnings.
 - Fail before publication with YOUTUBE_CAPTIONS_UNAVAILABLE when no usable captions exist. The remediation makes clear that local STT is not configured; this slice never downloads or runs STT/models.
@@ -23,13 +23,13 @@ Approach 3 is selected. source.youtube reports confidence 100 and priority 200 f
 
 ## Components and data flow
 
-youtube-url.ts canonicalizes supported forms to `https://www.youtube.com/watch?v=<id>`. yt-dlp.ts owns a fixed no-config/no-playlist/no-media command, private output directory, JSON parsing, safe caption discovery, and injected test runner. captions.ts selects manual before automatic tracks and removes WebVTT timing/markup without inventing text. plugin.ts validates inputs/options, materializes host-validated artifacts, and exposes yt-dlp health checks with stable YOUTUBE_* codes.
+youtube-url.ts canonicalizes supported forms to `https://www.youtube.com/watch?v=<id>`. runtime.ts resolves the executable only inside the installed plugin's platform runtime directory. yt-dlp.ts owns a fixed no-config/no-playlist/no-media command, private output directory, JSON parsing, safe caption discovery, and injected test runner. captions.ts selects manual before automatic tracks and removes WebVTT timing/markup without inventing text. plugin.ts validates inputs/options, materializes host-validated artifacts, and exposes yt-dlp health checks with stable YOUTUBE_* codes.
 
 The existing URL command gains an optional --language preference string and passes it only to the selected plugin. Source publication, revisioning, and deduplication remain unchanged.
 
 ## Error handling and verification
 
-The plugin fails closed for absent yt-dlp, spawn failures, malformed metadata, unsafe generated paths, unreadable captions, and no captions. Commands use shell: false and no cookies or credentials. All unit/plugin tests inject the runner; they make no external request. CLI acceptance proves that YouTube wins specialized selection while a normal page still selects source.url.
+The plugin fails closed for a missing packaged yt-dlp runtime, spawn failures, malformed metadata, unsafe generated paths, unreadable captions, and no captions. Missing runtime remediation is to reinstall `source.youtube`, never to install a global executable. Commands use shell: false and no cookies or credentials. All unit/plugin tests inject the runner; they make no external request. CLI acceptance proves that YouTube wins specialized selection while a normal page still selects source.url.
 
 ## Autonomous approval
 

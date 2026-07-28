@@ -95,6 +95,7 @@ async function validatePluginStage(root, expectedId) {
   }
   await requireRegularFile(join(root, 'THIRD_PARTY_NOTICES'), 'OFFICIAL_RELEASE_NOTICES_MISSING');
   if (expectedId === 'source.image') await validateImageStage(root);
+  if (expectedId === 'source.youtube') await validateYoutubeStage(root);
   return { root, id: expectedId, version: manifest.version, name: manifest.name };
 }
 
@@ -109,6 +110,19 @@ async function validateImageStage(root) {
     await requireRegularFile(
       join(root, 'runtime', platform, platform === 'win32-x64' ? 'tesseract.exe' : 'tesseract'),
       'OFFICIAL_RELEASE_IMAGE_RUNTIME_MISSING',
+    );
+  }
+}
+
+async function validateYoutubeStage(root) {
+  for (const platform of OFFICIAL_PLATFORMS) {
+    await requireRegularFile(
+      join(root, 'runtime', platform, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'),
+      'OFFICIAL_RELEASE_YOUTUBE_RUNTIME_MISSING',
+    );
+    await requireRegularFile(
+      join(root, 'runtime', platform, 'THIRD_PARTY_NOTICES'),
+      'OFFICIAL_RELEASE_YOUTUBE_NOTICES_MISSING',
     );
   }
 }
@@ -133,6 +147,9 @@ async function createPluginArchive(plugin, platform, timestamp) {
 }
 
 function includeInPlatformArchive(id, path, platform) {
+  if (id === 'source.youtube') {
+    return !path.startsWith('runtime/') || path.startsWith(`runtime/${platform}/`);
+  }
   if (id !== 'source.image') return true;
   if (path === 'data/languages.yaml') return false;
   if (path.startsWith('data/tessdata/')) {
@@ -144,7 +161,9 @@ function includeInPlatformArchive(id, path, platform) {
 
 function archivePermissions(id, path, platform) {
   const unixRuntime =
-    id === 'source.image' && platform !== 'win32-x64' && path === `runtime/${platform}/tesseract`;
+    platform !== 'win32-x64' &&
+    ((id === 'source.image' && path === `runtime/${platform}/tesseract`) ||
+      (id === 'source.youtube' && path === `runtime/${platform}/yt-dlp`));
   return unixRuntime ? 0o100755 : 0o100644;
 }
 

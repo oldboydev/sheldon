@@ -245,11 +245,7 @@ O crawl usa `source.url` com a capacidade `ingest-site`. Ele começa na URL púb
 
 ## Vídeo único do YouTube com legendas (M3)
 
-O mesmo comando `ingest url` seleciona automaticamente `source.youtube` para uma URL pública HTTPS de um único vídeo do YouTube; páginas comuns continuam selecionando `source.url`. Instale o [yt-dlp](https://github.com/yt-dlp/yt-dlp) e deixe o executável disponível no `PATH` antes de ingerir vídeos. No Windows, uma opção é:
-
-```powershell
-winget install yt-dlp.yt-dlp
-```
+O mesmo comando `ingest url` seleciona automaticamente `source.youtube` para uma URL pública HTTPS de um único vídeo do YouTube; páginas comuns continuam selecionando `source.url`. Ao instalar `source.youtube` pelo catálogo oficial, o runtime verificado do [yt-dlp](https://github.com/yt-dlp/yt-dlp) vem no artefato específico da plataforma e fica privado ao plugin. Não há instalação manual, `PATH` global ou atualização implícita.
 
 ```powershell
 npm run sheldon -- ingest url topic agentes-locais https://youtu.be/AbCdEf12345 `
