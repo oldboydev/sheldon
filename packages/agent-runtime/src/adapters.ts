@@ -1,4 +1,6 @@
 import type { StructuredProposal } from './proposal.js';
+import { queryAnswerJsonSchema } from './query-answer-schema.js';
+import type { QueryAnswer } from './query-answer.js';
 import { structuredProposalJsonSchema } from './proposal-schema.js';
 
 export { AGENT_PROMPT_VERSION } from './proposal-schema.js';
@@ -36,11 +38,52 @@ export interface CommandExecutor {
     command: AgentCommand,
     options?: { readonly signal?: AbortSignal },
   ): Promise<CommandExecution>;
+  executeQuery?(
+    command: QueryAgentCommand,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<QueryCommandExecution>;
 }
 
 export interface AgentAdapter {
   readonly kind: AgentKind;
   execute(task: AgentTask, options?: { readonly signal?: AbortSignal }): Promise<CommandExecution>;
+}
+
+export interface QueryConceptInput {
+  readonly path: string;
+  readonly title: string;
+  readonly body: string;
+}
+
+export interface QueryAgentTask {
+  readonly answerId: string;
+  readonly question: string;
+  readonly concepts: readonly QueryConceptInput[];
+  readonly rawSources: readonly string[];
+  readonly gaps: readonly string[];
+  /** Entity directory from which the agent may verify only cited raw files. */
+  readonly workingDirectory?: string;
+}
+
+export interface QueryAgentCommand {
+  readonly executable: 'codex' | 'claude';
+  readonly arguments: readonly string[];
+  readonly prompt: string;
+  readonly input: QueryAgentTask;
+  readonly outputSchema: Readonly<Record<string, unknown>>;
+}
+
+export type QueryCommandExecution =
+  | { readonly status: 'answer'; readonly answer: QueryAnswer; readonly agentVersion: string }
+  | { readonly status: 'cancelled'; readonly agentVersion?: string; readonly message?: string }
+  | { readonly status: 'error'; readonly agentVersion?: string; readonly message: string };
+
+export interface QueryAgentAdapter {
+  readonly kind: AgentKind;
+  execute(
+    task: QueryAgentTask,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<QueryCommandExecution>;
 }
 
 export function createCodexCommandAdapter(executor: CommandExecutor): AgentAdapter {
@@ -49,6 +92,14 @@ export function createCodexCommandAdapter(executor: CommandExecutor): AgentAdapt
 
 export function createClaudeCommandAdapter(executor: CommandExecutor): AgentAdapter {
   return createCommandAdapter('claude', executor);
+}
+
+export function createCodexQueryAdapter(executor: CommandExecutor): QueryAgentAdapter {
+  return createQueryCommandAdapter('codex', executor);
+}
+
+export function createClaudeQueryAdapter(executor: CommandExecutor): QueryAgentAdapter {
+  return createQueryCommandAdapter('claude', executor);
 }
 
 function createCommandAdapter(kind: AgentKind, executor: CommandExecutor): AgentAdapter {
@@ -65,6 +116,30 @@ function createCommandAdapter(kind: AgentKind, executor: CommandExecutor): Agent
         },
         options,
       ),
+  };
+}
+
+function createQueryCommandAdapter(kind: AgentKind, executor: CommandExecutor): QueryAgentAdapter {
+  return {
+    kind,
+    execute: (task, options) => {
+      if (executor.executeQuery === undefined) {
+        return Promise.resolve({
+          status: 'error',
+          message: 'The configured agent executor does not support cited queries.',
+        });
+      }
+      return executor.executeQuery(
+        {
+          executable: kind,
+          arguments: commandArguments(kind),
+          prompt: renderQueryPrompt(task),
+          input: task,
+          outputSchema: queryAnswerJsonSchema,
+        },
+        options,
+      );
+    },
   };
 }
 
@@ -101,5 +176,25 @@ function renderPrompt(task: AgentTask): string {
     'Return the structured proposal only; do not wrap it in Markdown or add commentary.',
     'User request:',
     task.prompt,
+  ].join('\n');
+}
+
+function renderQueryPrompt(task: QueryAgentTask): string {
+  return [
+    'Answer the question exclusively from the supplied Sheldon wiki context.',
+    `Answer id: ${task.answerId}`,
+    'Return a JSON query answer that conforms to the supplied JSON Schema, without Markdown fencing.',
+    'The text field must have these explicit sections: "Wiki facts", "Inferences", and "Gaps".',
+    'Every material fact or inference must name one or more supplied wiki paths in its text.',
+    'Do not state general knowledge as wiki fact. If coverage is absent or insufficient, say so under Gaps and suggest a source to ingest.',
+    'Only cite paths from this supplied context. You may open a cited raw path only to resolve ambiguity.',
+    'Selected wiki concepts:',
+    ...task.concepts.map((concept) => `- ${concept.path} (${concept.title}):\n${concept.body}`),
+    'Cited raw paths:',
+    ...(task.rawSources.length === 0 ? ['- none'] : task.rawSources.map((source) => `- ${source}`)),
+    'Known coverage gaps:',
+    ...(task.gaps.length === 0 ? ['- none'] : task.gaps.map((gap) => `- ${gap}`)),
+    'User question:',
+    task.question,
   ].join('\n');
 }

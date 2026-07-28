@@ -17,6 +17,7 @@
     "@sheldon/plugin-host": "*",
     "@sheldon/plugin-sdk": "*",
     "@sheldon/review": "*",
+    "@sheldon/search": "*",
     "@sheldon/vault": "*",
     "commander": "^15.0.0",
     "yaml": "^2.9.0"

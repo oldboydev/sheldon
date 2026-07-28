@@ -292,7 +292,7 @@ export async function lintWiki(
   context.write(JSON.stringify(await new ReviewService(entity).lint(), null, 2));
 }
 
-async function resolveEntity(
+export async function resolveEntity(
   kind: EntityKind,
   slug: string,
   explicitVault: string | undefined,

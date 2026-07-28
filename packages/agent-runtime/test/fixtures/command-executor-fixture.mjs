@@ -25,10 +25,21 @@ if (prompt.includes('invalid-json')) {
       },
     ],
   };
+  const answer = {
+    schemaVersion: 1,
+    id: 'answer-001',
+    question: 'What does the wiki say?',
+    agent: 'codex',
+    concepts: [{ path: 'wiki/concepts/example.md', citation: 'Example' }],
+    raws: [{ path: 'raw/source-001/content.md', citation: 'Lines 1-3' }],
+    createdAt: '2026-07-28T12:00:00.000Z',
+    text: '## Wiki facts\n- Example\n\n## Inferences\n- None\n\n## Gaps\n- None',
+  };
+  const output = schema?.$id === 'sheldon-query-answer/v1' ? answer : proposal;
   if (lastMessageFlag >= 0) {
-    await writeFile(args[lastMessageFlag + 1], JSON.stringify(proposal), 'utf8');
+    await writeFile(args[lastMessageFlag + 1], JSON.stringify(output), 'utf8');
     process.stdout.write(JSON.stringify({ type: 'turn.completed' }) + '\n');
   } else {
-    process.stdout.write(JSON.stringify({ type: 'result', structured_output: proposal }));
+    process.stdout.write(JSON.stringify({ type: 'result', structured_output: output }));
   }
 }

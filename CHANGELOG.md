@@ -9,6 +9,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 ### Added
 
 - Índice local SQLite/FTS5 reconstruível de conceitos aprovados, com busca lexical e filtros de metadados para o M4.
+- Consulta M4 index-first por Codex ou Claude, com expansão limitada de links Markdown, citações de wiki/raw, lacunas explícitas e outputs duráveis em `outputs/answers/`.
+- Promoção de resposta citada para uma proposta pendente do fluxo de revisão, sem alteração da wiki antes de aprovação explícita.
 - Plugin `source.repository` e comando `ingest repository` para publicar snapshots determinísticos de commits de repositórios Git locais limpos, com deduplicação, vínculo de revisão, inventário de seleção e recusa pré-publicação de segredos.
 - Catálogo oficial assinado para instalação opcional de plugins e comandos explícitos para gerenciar idiomas do `source.image`.
 - Plugins `source.url` e `source.youtube` para captura de uma página pública e de vídeos únicos com legendas; a CLI seleciona automaticamente o vídeo e encaminha `--language` como preferência de legendas.

@@ -21,6 +21,13 @@ import {
 } from './commands/entities.js';
 import { executeInit } from './commands/init.js';
 import {
+  promoteAnswer,
+  queryVault,
+  type PromoteAnswerOptions,
+  type QueryCommandOptions,
+} from './commands/query.js';
+import { searchVault, type SearchCommandOptions } from './commands/search.js';
+import {
   approveProposal,
   compileMemory,
   ingestCrawl,
@@ -161,6 +168,54 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
   addEntityCommands(program, 'topic', context);
   addEntityCommands(program, 'project', context);
   addMemoryCommands(program, context, dependencies);
+  program
+    .command('search <query>')
+    .option('--topic <slug>', 'restrict results to one topic')
+    .option('--project <slug>', 'restrict results to one project')
+    .option('--type <type>', 'restrict results to one concept type')
+    .option('--tag <tag>', 'restrict results to one tag')
+    .option('--status <status>', 'restrict results to one concept status')
+    .option(
+      '--updated-after <timestamp>',
+      'restrict results updated at or after an ISO-8601 instant',
+    )
+    .option(
+      '--updated-before <timestamp>',
+      'restrict results updated at or before an ISO-8601 instant',
+    )
+    .option('--vault <path>', 'explicit vault path')
+    .action((query: string, options: SearchCommandOptions) => searchVault(query, options, context));
+  program
+    .command('query <kind> <slug> <answer-id>')
+    .requiredOption('--question <text>', 'question to answer from indexed wiki context')
+    .requiredOption(
+      '--agent <agent>',
+      'agent that writes the cited answer (codex or claude)',
+      agentKind,
+    )
+    .option(
+      '--link-depth <depth>',
+      'maximum local wiki-link expansion depth (0-2; default 1)',
+      boundedInteger('--link-depth', 0, 2),
+    )
+    .option('--vault <path>', 'explicit vault path')
+    .action((kind: EntityKind, slug: string, answerId: string, options: QueryCommandOptions) =>
+      queryVault(kind, slug, answerId, options, context, dependencies),
+    );
+  const answer = program.command('answer');
+  answer
+    .command('promote <kind> <slug> <answer-id> <proposal-id>')
+    .requiredOption('--prompt <text>', 'instruction for the proposed durable wiki change')
+    .option('--vault <path>', 'explicit vault path')
+    .action(
+      (
+        kind: EntityKind,
+        slug: string,
+        answerId: string,
+        proposalId: string,
+        options: PromoteAnswerOptions,
+      ) => promoteAnswer(kind, slug, answerId, proposalId, options, context, dependencies),
+    );
   const agent = program.command('agent');
   agent.command('doctor [agent]').action((name: string | undefined) => {
     if (name !== undefined && name !== 'codex' && name !== 'claude') {
@@ -191,6 +246,11 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .command('remove <code>')
     .action((code: string) => removeImageLanguageCommand(code, context));
   return program;
+}
+
+function agentKind(value: string): AgentName {
+  if (value === 'codex' || value === 'claude') return value;
+  throw new InvalidArgumentError('Agent must be codex or claude.');
 }
 
 function catalogTemporaryRoot(environment: NodeJS.ProcessEnv, homeDirectory: string): string {
@@ -345,11 +405,7 @@ function addMemoryCommands(
     );
 }
 
-function boundedInteger(
-  name: '--max-pages' | '--max-depth',
-  minimum: number,
-  maximum: number,
-): (value: string) => number {
+function boundedInteger(name: string, minimum: number, maximum: number): (value: string) => number {
   return (value) => {
     if (!/^(?:0|[1-9]\d*)$/u.test(value)) {
       throw new InvalidArgumentError(`${name} must be an integer from ${minimum} to ${maximum}.`);
