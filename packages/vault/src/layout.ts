@@ -12,6 +12,7 @@ export interface VaultPaths {
   readonly system: string;
   readonly manifest: string;
   readonly operationsDatabase: string;
+  readonly searchDatabase: string;
 }
 
 export function vaultPaths(root: string): VaultPaths {
@@ -26,6 +27,7 @@ export function vaultPaths(root: string): VaultPaths {
     system,
     manifest: join(system, 'vault.yaml'),
     operationsDatabase: join(system, 'operations.db'),
+    searchDatabase: join(system, 'search-index.db'),
   };
 }
 

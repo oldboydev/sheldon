@@ -10,6 +10,8 @@ Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de en
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
+O M4 começou pelo índice local reconstruível: conceitos aprovados podem ser projetados em SQLite/FTS5 para busca lexical e filtros de metadados. A superfície de consulta citável, os outputs de resposta e a promoção para propostas continuam em desenvolvimento.
+
 ## Decisões principais
 
 - Core em TypeScript sobre Node.js LTS.
@@ -41,6 +43,8 @@ npm run verify
 ```
 
 Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, cobertura, build, validações de domínio, política documental e `git diff --check`. Worktrees locais e scratch de automação são excluídos da descoberta de Markdown e testes, portanto não duplicam suites nem validam dependências de outra cópia do repositório.
+
+O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que materializa `system/search-index.db` a partir de `wiki/`. Esse banco é cache reconstruível, não é a fonte de verdade e pode ser removido quando necessário.
 
 O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 
