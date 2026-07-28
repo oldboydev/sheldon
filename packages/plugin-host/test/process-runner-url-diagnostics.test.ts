@@ -125,4 +125,46 @@ describe('PluginProcessRunner URL diagnostics', () => {
       errorCode: 'YOUTUBE_CAPTIONS_UNAVAILABLE',
     });
   });
+
+  it('preserves only a valid YouTube video ID in YouTube diagnostics', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+    const unsafeUrl =
+      'https://www.youtube.com/watch?v=AbCdEf12345&credential=query-secret#fragment-secret';
+
+    await expect(
+      runner.probe(await pluginForFixture(), {
+        errorCode: 'YOUTUBE_EXTRACTION_FAILED',
+        secret: unsafeUrl,
+        url: unsafeUrl,
+      }),
+    ).rejects.toMatchObject({
+      code: 'YOUTUBE_EXTRACTION_FAILED',
+      message: 'YOUTUBE_EXTRACTION_FAILED: https://www.youtube.com/watch?v=AbCdEf12345',
+      target: 'fixture.node',
+    });
+    const retainedRun = state.listRuns().at(-1);
+    expect(JSON.stringify(retainedRun)).not.toContain('query-secret');
+    expect(JSON.stringify(retainedRun)).not.toContain('fragment-secret');
+  });
+
+  it('does not retain an invalid YouTube video ID in diagnostics', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+    const unsafeUrl = 'https://www.youtube.com/watch?v=query-secret&credential=another-secret';
+
+    await expect(
+      runner.probe(await pluginForFixture(), {
+        errorCode: 'YOUTUBE_INPUT_INVALID',
+        secret: unsafeUrl,
+        url: unsafeUrl,
+      }),
+    ).rejects.toMatchObject({
+      code: 'YOUTUBE_INPUT_INVALID',
+      message: 'YOUTUBE_INPUT_INVALID: https://www.youtube.com/watch',
+      target: 'fixture.node',
+    });
+    expect(JSON.stringify(state.listRuns().at(-1))).not.toContain('query-secret');
+    expect(JSON.stringify(state.listRuns().at(-1))).not.toContain('another-secret');
+  });
 });

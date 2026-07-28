@@ -761,10 +761,20 @@ function safeUrlDiagnosticMessage(code: string, request: PrimaryRequest): string
   try {
     const url = new URL(value);
     if (url.protocol !== 'http:' && url.protocol !== 'https:') return code;
-    return `${code}: ${url.origin}${url.pathname}`;
+    const safeYoutubeQuery = safeYoutubeVideoQuery(code, url);
+    return `${code}: ${url.origin}${url.pathname}${safeYoutubeQuery}`;
   } catch {
     return code;
   }
+}
+
+function safeYoutubeVideoQuery(code: string, url: URL): string {
+  if (!code.startsWith('YOUTUBE_') || url.pathname !== '/watch') return '';
+  if (!new Set(['youtube.com', 'www.youtube.com', 'm.youtube.com']).has(url.hostname)) return '';
+
+  const videoIds = url.searchParams.getAll('v');
+  const videoId = videoIds.length === 1 ? videoIds[0] : undefined;
+  return videoId !== undefined && /^[A-Za-z0-9_-]{11}$/u.test(videoId) ? `?v=${videoId}` : '';
 }
 
 function handled<T>(value: T): HandledResult<T> {
