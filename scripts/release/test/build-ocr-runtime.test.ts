@@ -238,7 +238,7 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$queue.Enqueue($builtExecutable.FullName)');
     expect(builder).toContain('$inspection.StdOut -split "`r?`n"');
     expect(builder).toContain("$tar = Join-Path $msysRoot 'usr\\bin\\bsdtar.exe'");
-    expect(builder).toContain("Invoke-WatchedProcess -FilePath $tar");
+    expect(builder).toContain('Invoke-WatchedProcess -FilePath $tar');
     expect(builder).toContain("'eng.traineddata'");
     expect(builder).toContain("'por.traineddata'");
     expect(builder.split('$env:PATH = $previousPath')).toHaveLength(3);
@@ -484,7 +484,9 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     expect(windowsBuilder).toContain("-ArgumentList @('-Q', $packageName)");
     expect(windowsBuilder).toContain('$dependency.sourceUrl');
     expect(windowsBuilder).toContain('$dependency.sourceSha256');
-    expect(windowsBuilder).toContain('$licensePaths = @($dependency.licenses | ForEach-Object { $_.path })');
+    expect(windowsBuilder).toContain(
+      '$licensePaths = @($dependency.licenses | ForEach-Object { $_.path })',
+    );
     expect(windowsBuilder).toContain("'--directory', $dependencyRoot, '--') + $licensePaths");
     expect(windowsBuilder).toContain('$notices += @($msys2LicenseNotices | ForEach-Object { $_ })');
     expect(windowsBuilder).toContain("'dependency-notice'");
