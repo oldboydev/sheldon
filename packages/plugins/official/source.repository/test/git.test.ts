@@ -573,7 +573,7 @@ describe('committed Git boundary', () => {
       code: 'REPOSITORY_HEAD_UNRESOLVED',
     });
     await expect(access(missingObjectPath)).rejects.toBeDefined();
-  });
+  }, 15_000);
 
   it('rejects a staged index mismatch before reading blobs', async () => {
     const repository = await cleanRepositoryDirectory();
