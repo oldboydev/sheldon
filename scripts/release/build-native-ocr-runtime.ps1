@@ -498,8 +498,10 @@ try {
     "tessdata license source: $modelLicenseUrl", "tessdata license SHA-256: $($sources.models.eng.licenseSha256)",
     (Get-Content -Raw $modelLicense),
     '', '== Bundled MSYS2 DLLs ==', ($copied | Sort-Object | ForEach-Object { "- $_" }),
-    '', '== Verified MSYS2 package licenses ==', $msys2LicenseNotices
-  ) -join [Environment]::NewLine
+    '', '== Verified MSYS2 package licenses =='
+  )
+  $notices += @($msys2LicenseNotices | ForEach-Object { $_ })
+  $notices = $notices -join [Environment]::NewLine
   $noticesPath = Join-Path $runtimeRoot 'THIRD_PARTY_NOTICES'
   [System.IO.File]::WriteAllText($noticesPath, $notices + [Environment]::NewLine)
   if ((Get-Item $noticesPath).Length -eq 0) { throw 'OCR_RUNTIME_NOTICES_INVALID: Notices are empty.' }

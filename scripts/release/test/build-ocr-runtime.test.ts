@@ -486,6 +486,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     expect(windowsBuilder).toContain('$dependency.sourceSha256');
     expect(windowsBuilder).toContain('$licensePaths = @($dependency.licenses | ForEach-Object { $_.path })');
     expect(windowsBuilder).toContain("'--directory', $dependencyRoot, '--') + $licensePaths");
+    expect(windowsBuilder).toContain('$notices += @($msys2LicenseNotices | ForEach-Object { $_ })');
     expect(windowsBuilder).toContain("'dependency-notice'");
     expect(windowsBuilder).not.toContain('/share/licenses/');
 
