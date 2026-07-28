@@ -126,6 +126,7 @@ describe('QueryService', () => {
 
     await expect(service.query({ question: 'unknown subject' })).resolves.toEqual({
       question: 'unknown subject',
+      truncated: false,
       concepts: [],
       citations: [],
       gaps: [
@@ -174,7 +175,97 @@ describe('QueryService', () => {
       QueryServiceError,
     );
   });
+
+  it('reports when maxResults excludes matching index hits', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'active.md',
+      concept({
+        id: 'active',
+        title: 'Active recall',
+        description: 'Retrieve facts.',
+        sources: [],
+        body: 'Practice retrieving information.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'interleaved.md',
+      concept({
+        id: 'interleaved',
+        title: 'Interleaved recall',
+        description: 'Retrieve varied facts.',
+        sources: [],
+        body: 'Practice retrieving varied information.',
+      }),
+    );
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    const result = await service.query({ question: 'recall', maxResults: 1 });
+    expect(result.truncated).toBe(true);
+    expect(result.concepts).toHaveLength(1);
+  });
+
+  it('rejects a corrupted indexed concept path on another Windows volume before reading it', async () => {
+    const root = await createVault();
+    const service = new QueryService(
+      root,
+      fakeIndex({
+        path: otherVolumePath(root),
+        sources: [],
+      }),
+    );
+    services.push(service);
+
+    await expect(service.query({ question: 'recall' })).rejects.toThrow(
+      'Indexed concept path escapes its entity',
+    );
+  });
 });
+
+function fakeIndex(
+  overrides: Partial<{
+    readonly path: string;
+    readonly sources: readonly string[];
+  }>,
+): SearchIndex {
+  const result = {
+    conceptId: 'recall',
+    entity: { id: 'topic-memory', kind: 'topic' as const, slug: 'memory', title: 'Memory' },
+    type: 'note',
+    title: 'Recall',
+    description: 'Retrieve facts.',
+    aliases: [],
+    tags: [],
+    status: 'active',
+    createdAt: '2026-07-28T00:00:00.000Z',
+    updatedAt: '2026-07-28T00:00:00.000Z',
+    sources: [],
+    path: 'wiki/recall.md',
+    snippet: 'Recall',
+    score: 1,
+    matchFields: ['title'] as const,
+    ...overrides,
+  };
+  return {
+    search: (query: string) => (query.length === 0 ? [result] : [result]),
+    close: () => undefined,
+  } as unknown as SearchIndex;
+}
+
+function otherVolumePath(root: string): string {
+  if (process.platform === 'win32') {
+    const volume = root.slice(0, 2).toUpperCase() === 'C:' ? 'D:' : 'C:';
+    return `${volume}\\outside\\recall.md`;
+  }
+  return '/outside/recall.md';
+}
 
 async function createVault(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-query-'));

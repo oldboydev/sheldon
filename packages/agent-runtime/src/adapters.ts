@@ -61,7 +61,7 @@ export interface QueryAgentTask {
   readonly concepts: readonly QueryConceptInput[];
   readonly rawSources: readonly string[];
   readonly gaps: readonly string[];
-  /** Entity directory from which the agent may verify only cited raw files. */
+  /** Entity directory used as the agent working directory; cited raw access is a prompt contract. */
   readonly workingDirectory?: string;
 }
 
@@ -109,7 +109,7 @@ function createCommandAdapter(kind: AgentKind, executor: CommandExecutor): Agent
       executor.execute(
         {
           executable: kind,
-          arguments: commandArguments(kind),
+          arguments: commandArguments(kind, structuredProposalJsonSchema),
           prompt: renderPrompt(task),
           input: task,
           outputSchema: structuredProposalJsonSchema,
@@ -132,7 +132,7 @@ function createQueryCommandAdapter(kind: AgentKind, executor: CommandExecutor): 
       return executor.executeQuery(
         {
           executable: kind,
-          arguments: commandArguments(kind),
+          arguments: commandArguments(kind, queryAnswerJsonSchema),
           prompt: renderQueryPrompt(task),
           input: task,
           outputSchema: queryAnswerJsonSchema,
@@ -143,7 +143,10 @@ function createQueryCommandAdapter(kind: AgentKind, executor: CommandExecutor): 
   };
 }
 
-function commandArguments(kind: AgentKind): readonly string[] {
+function commandArguments(
+  kind: AgentKind,
+  outputSchema: Readonly<Record<string, unknown>>,
+): readonly string[] {
   return kind === 'codex'
     ? [
         'exec',
@@ -162,7 +165,7 @@ function commandArguments(kind: AgentKind): readonly string[] {
         '--output-format',
         'json',
         '--json-schema',
-        JSON.stringify(structuredProposalJsonSchema),
+        JSON.stringify(outputSchema),
       ];
 }
 

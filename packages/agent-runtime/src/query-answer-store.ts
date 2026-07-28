@@ -8,6 +8,15 @@ import { isProposalId, validateProposal, type StructuredProposal } from './propo
 import { ProposalStore, type StoredProposal } from './proposal-store.js';
 import { isAnswerId, validateQueryAnswer, type QueryAnswer } from './query-answer.js';
 
+/** Provenance for the proposal-generation step that follows a saved answer. */
+export interface QueryAnswerPromotionProvenance {
+  /** The exact prompt supplied to the proposal-generating agent. */
+  readonly prompt: string;
+  /** The version of the prompt template used for that execution. */
+  readonly promptVersion: string;
+  readonly agentVersion?: string;
+}
+
 /** Persists query answers without changing wiki content. */
 export class QueryAnswerStore {
   public constructor(private readonly entityDirectory: string) {}
@@ -35,9 +44,16 @@ export class QueryAnswerStore {
   public async promote(
     answerId: string,
     proposal: StructuredProposal,
+    provenance: QueryAnswerPromotionProvenance,
     proposalStore: ProposalStore = new ProposalStore(this.entityDirectory),
   ): Promise<StoredProposal> {
     const answer = await this.load(answerId);
+    if (answer.raws.length === 0) {
+      throw new ProposalValidationError([
+        'A query answer without raw evidence cannot be promoted to a proposal.',
+      ]);
+    }
+    this.validatePromotionProvenance(provenance);
     validateProposal(proposal);
     const permittedRaws = new Set(answer.raws.map((raw) => raw.path));
     const outOfScope = proposal.sources.find((source) => !permittedRaws.has(source.rawPath));
@@ -52,8 +68,9 @@ export class QueryAnswerStore {
       {
         id: proposal.id,
         agent: answer.agent,
-        prompt: answer.question,
-        promptVersion: 'query-answer/v1',
+        prompt: provenance.prompt,
+        promptVersion: provenance.promptVersion,
+        ...(provenance.agentVersion === undefined ? {} : { agentVersion: provenance.agentVersion }),
         rawSources: answer.raws.map((raw) => raw.path),
       },
       proposal,
@@ -66,5 +83,25 @@ export class QueryAnswerStore {
 
   private assertAnswerId(id: string): void {
     if (!isAnswerId(id)) throw new Error('Query answer id is invalid.');
+  }
+
+  private validatePromotionProvenance(provenance: QueryAnswerPromotionProvenance): void {
+    if (typeof provenance.prompt !== 'string' || provenance.prompt.trim().length === 0) {
+      throw new ProposalValidationError(['Proposal promotion must record the executed prompt.']);
+    }
+    if (
+      typeof provenance.promptVersion !== 'string' ||
+      provenance.promptVersion.trim().length === 0
+    ) {
+      throw new ProposalValidationError(['Proposal promotion must record a prompt version.']);
+    }
+    if (
+      provenance.agentVersion !== undefined &&
+      (typeof provenance.agentVersion !== 'string' || provenance.agentVersion.trim().length === 0)
+    ) {
+      throw new ProposalValidationError([
+        'Proposal promotion agent version must be a non-empty string.',
+      ]);
+    }
   }
 }

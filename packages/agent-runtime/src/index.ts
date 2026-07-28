@@ -38,7 +38,7 @@ export {
   type QueryAnswerValidationResult,
   type QueryCitation,
 } from './query-answer.js';
-export { QueryAnswerStore } from './query-answer-store.js';
+export { QueryAnswerStore, type QueryAnswerPromotionProvenance } from './query-answer-store.js';
 export { QUERY_ANSWER_SCHEMA_ID, queryAnswerJsonSchema } from './query-answer-schema.js';
 export { AgentRuntime } from './runtime.js';
 export {

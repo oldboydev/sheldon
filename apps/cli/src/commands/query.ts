@@ -5,6 +5,7 @@ import {
   createClaudeQueryAdapter,
   createCodexCommandAdapter,
   createCodexQueryAdapter,
+  validateQueryAnswer,
   type AgentKind,
   type CommandExecutor,
   type QueryAnswer,
@@ -55,8 +56,9 @@ export async function queryVault(
       contextResult.concepts.length === 0
         ? uncoveredAnswer(answerId, options, contextResult.gaps)
         : await answerFromAgent(answerId, options, contextResult, entity, context, dependencies);
-    assertAnswerEvidence(answer, contextResult.citations);
-    context.write(JSON.stringify(await answers.save(answer), null, 2));
+    const validated = validateQueryAnswer(answer).answer;
+    assertAnswerEvidence(validated, contextResult.citations);
+    context.write(JSON.stringify(await answers.save(validated), null, 2));
   } finally {
     service.close();
   }
@@ -75,6 +77,11 @@ export async function promoteAnswer(
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const answers = new QueryAnswerStore(entity);
   const answer = await answers.load(answerId);
+  if (answer.raws.length === 0) {
+    throw new Error(
+      'The saved answer has no cited raw evidence and cannot be promoted to a review proposal.',
+    );
+  }
   const executor =
     dependencies.agentExecutor ?? new JsonCommandExecutor({ environment: context.environment });
   const adapter =
@@ -98,7 +105,17 @@ export async function promoteAnswer(
   if (execution.proposal.id !== proposalId) {
     throw new Error('The promoted proposal id does not match the requested proposal id.');
   }
-  context.write(JSON.stringify(await answers.promote(answerId, execution.proposal), null, 2));
+  context.write(
+    JSON.stringify(
+      await answers.promote(answerId, execution.proposal, {
+        prompt: options.prompt,
+        promptVersion: 'query-answer-promotion/v1',
+        agentVersion: execution.agentVersion,
+      }),
+      null,
+      2,
+    ),
+  );
 }
 
 async function answerFromAgent(
@@ -126,7 +143,14 @@ async function answerFromAgent(
     rawSources: result.citations
       .filter((citation) => citation.kind === 'raw')
       .map((citation) => citation.path),
-    gaps: result.gaps.map((gap) => gap.message),
+    gaps: [
+      ...result.gaps.map((gap) => gap.message),
+      ...(result.truncated
+        ? [
+            'The local context excludes additional matching index results due to the root-hit limit.',
+          ]
+        : []),
+    ],
     workingDirectory: entity,
   });
   if (execution.status !== 'answer') {
@@ -193,5 +217,8 @@ function assertAnswerEvidence(
   const raw = answer.raws.find((citation) => !permittedRaws.has(citation.path));
   if (raw !== undefined) {
     throw new Error(`The query answer cites raw evidence outside its context: ${raw.path}.`);
+  }
+  if (permittedConcepts.size > 0 && answer.concepts.length === 0) {
+    throw new Error('The query answer omits citations for the selected wiki context.');
   }
 }

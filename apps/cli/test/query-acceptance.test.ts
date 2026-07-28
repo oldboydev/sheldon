@@ -2,7 +2,11 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { CommandExecutor, QueryAgentTask } from '@sheldon/agent-runtime';
+import {
+  QueryAnswerStore,
+  type CommandExecutor,
+  type QueryAgentTask,
+} from '@sheldon/agent-runtime';
 import { VaultService } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -138,6 +142,20 @@ describe('cited query and answer promotion CLI', () => {
       ),
     ).resolves.toContain('"status": "pending"');
     await expect(
+      readFile(
+        join(
+          vaultPath,
+          'topics',
+          'memory',
+          'outputs',
+          'proposals',
+          'proposal-001',
+          'metadata.json',
+        ),
+        'utf8',
+      ),
+    ).resolves.toContain('"prompt": "Propose a durable wiki note from the answer."');
+    await expect(
       readFile(join(vaultPath, 'topics', 'memory', 'wiki', 'recall.md'), 'utf8'),
     ).resolves.toBe(originalWiki);
   });
@@ -178,6 +196,108 @@ describe('cited query and answer promotion CLI', () => {
     });
     expect(result.stdout).toContain('## Gaps');
   });
+
+  it('rejects an agent answer that cites wiki evidence outside the selected context', async () => {
+    const { root, vaultPath } = await createVault();
+    await writeRaw(vaultPath, 'raw/study/retrieval.md', 'Retrieval evidence.');
+    await writeConcept(vaultPath, 'recall.md', {
+      id: 'recall',
+      title: 'Retrieval practice',
+      sources: ['raw/study/retrieval.md'],
+      body: 'Practice recall.',
+    });
+    const dependencies = cliDependencies(root, {
+      executeQuery: async (command) => ({
+        status: 'answer',
+        agentVersion: 'test',
+        answer: {
+          schemaVersion: 1,
+          id: command.input.answerId,
+          question: command.input.question,
+          agent: 'codex',
+          concepts: [{ path: 'wiki/unselected.md', citation: 'fabricated citation' }],
+          raws: [],
+          createdAt: '2026-07-28T12:00:00.000Z',
+          text: '## Wiki facts\n- wiki/unselected.md\n\n## Inferences\n- None.\n\n## Gaps\n- None.',
+        },
+      }),
+    });
+
+    const result = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-outside-context',
+        '--question',
+        'retrieval',
+        '--agent',
+        'codex',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('outside its context');
+    await expect(
+      readFile(
+        join(
+          vaultPath,
+          'topics',
+          'memory',
+          'outputs',
+          'answers',
+          'answer-outside-context',
+          'answer.json',
+        ),
+        'utf8',
+      ),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('rejects an answer without raw evidence before invoking a promotion agent', async () => {
+    const { root, vaultPath } = await createVault();
+    const answers = new QueryAnswerStore(join(vaultPath, 'topics', 'memory'));
+    await answers.save({
+      schemaVersion: 1,
+      id: 'answer-without-raws',
+      question: 'What is missing?',
+      agent: 'codex',
+      concepts: [],
+      raws: [],
+      createdAt: '2026-07-28T12:00:00.000Z',
+      text: '## Wiki facts\n- None.\n\n## Inferences\n- None.\n\n## Gaps\n- Ingest a source.',
+    });
+    let promotionCalls = 0;
+    const dependencies = cliDependencies(root, {
+      execute: async () => {
+        promotionCalls += 1;
+        throw new Error('The promotion agent must not run.');
+      },
+    });
+
+    const result = await runCli(
+      [
+        'answer',
+        'promote',
+        'topic',
+        'memory',
+        'answer-without-raws',
+        'proposal-without-raws',
+        '--prompt',
+        'Propose a wiki note.',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('has no cited raw evidence');
+    expect(promotionCalls).toBe(0);
+  });
 });
 
 async function createVault(): Promise<{ readonly root: string; readonly vaultPath: string }> {
@@ -189,10 +309,7 @@ async function createVault(): Promise<{ readonly root: string; readonly vaultPat
   return { root, vaultPath };
 }
 
-function cliDependencies(
-  root: string,
-  overrides: Pick<CommandExecutor, 'executeQuery'>,
-): CliDependencies {
+function cliDependencies(root: string, overrides: Partial<CommandExecutor> = {}): CliDependencies {
   const agentExecutor: CommandExecutor = {
     execute: async (command) => ({
       status: 'proposal',

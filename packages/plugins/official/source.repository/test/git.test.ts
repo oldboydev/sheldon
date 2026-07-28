@@ -170,7 +170,7 @@ function cleanRunner(
   };
 }
 
-describe('committed Git boundary', () => {
+describe('committed Git boundary', { timeout: 15_000 }, () => {
   it('validates a clean HEAD and exposes canonical commit, tree, and stable tracked-file metadata', async () => {
     const repository = await cleanRepositoryDirectory();
     const commands: GitCommand[] = [];
@@ -883,7 +883,7 @@ describe('committed Git boundary', () => {
 
     expect(committedBytes.byteLength).toBe(bytes('ORIGINAL\n').byteLength);
     expect(new TextDecoder().decode(committedBytes)).toBe('ORIGINAL\n');
-  });
+  }, 15_000);
 
   it.each(['--assume-unchanged', '--skip-worktree'])(
     'rejects a modified tracked file hidden by update-index %s',

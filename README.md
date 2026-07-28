@@ -48,13 +48,13 @@ O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que vali
 
 ## Busca, consultas e write-back (M4)
 
-`search` é sempre lexical e local: não inicia Codex nem Claude. Ele reconstrói a projeção descartável antes de pesquisar e imprime resultados JSON com score, snippet, origem do match e conceitos relacionados. Os filtros de tópico, projeto, tipo, tag, status e data reduzem o conjunto antes da resposta.
+`search` é sempre lexical e local: não inicia Codex nem Claude. Ele reconstrói a projeção descartável antes de pesquisar e imprime resultados JSON com score, snippet e origem do match. Os filtros de tópico, projeto, tipo, tag, status e data reduzem o conjunto antes da resposta.
 
 ```powershell
 npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowledge\sheldon
 ```
 
-Para uma síntese, `query` restringe a seleção a uma entidade, começa pelos resultados lexicais e pode seguir links Markdown locais até dois saltos (`--link-depth`, padrão 1). O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
+Para uma síntese, `query` restringe a seleção a uma entidade, começa pelos resultados lexicais e pode seguir links Markdown de saída locais até dois saltos (`--link-depth`, padrão 1). O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
 
 ```powershell
 npm run sheldon -- query topic memory retrieval-answer-001 `

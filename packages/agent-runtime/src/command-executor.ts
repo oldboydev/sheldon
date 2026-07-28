@@ -212,9 +212,8 @@ function parseExecution(
   try {
     const proposal =
       kind === 'codex'
-        ? (parseProposal(lastMessage) ??
-          parseCodexJsonLines<StructuredProposal>(bytes.toString('utf8')))
-        : parseClaudeResponse<StructuredProposal>(bytes.toString('utf8'));
+        ? (parseProposal(lastMessage) ?? parseCodexJsonLines(bytes.toString('utf8'), parseProposal))
+        : parseClaudeResponse(bytes.toString('utf8'), parseProposal);
     if (proposal !== undefined) return { status: 'proposal', proposal, agentVersion: 'unknown' };
   } catch {
     // Agent output is untrusted and intentionally not returned to callers.
@@ -241,7 +240,7 @@ function parseQueryExecution(
 
 function parseClaudeResponse<T>(
   output: string,
-  parse: (value: unknown) => T | undefined = parseProposal as (value: unknown) => T | undefined,
+  parse: (value: unknown) => T | undefined,
 ): T | undefined {
   const result = parseJsonObject(output);
   if (result === undefined) return undefined;
@@ -250,7 +249,7 @@ function parseClaudeResponse<T>(
 
 function parseCodexJsonLines<T>(
   output: string,
-  parse: (value: unknown) => T | undefined = parseProposal as (value: unknown) => T | undefined,
+  parse: (value: unknown) => T | undefined,
 ): T | undefined {
   let result: T | undefined;
   for (const line of output.split(/\r?\n/)) {

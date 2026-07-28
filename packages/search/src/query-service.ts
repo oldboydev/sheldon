@@ -1,5 +1,5 @@
 import { readFile, stat } from 'node:fs/promises';
-import { basename, join, relative, resolve } from 'node:path';
+import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import { entityDirectory } from '@sheldon/vault';
 
@@ -51,6 +51,8 @@ export interface QueryGap {
 
 export interface QueryResult {
   readonly question: string;
+  /** True when the configured root-hit limit excluded otherwise matching index results. */
+  readonly truncated: boolean;
   readonly concepts: readonly QueryConcept[];
   readonly citations: readonly QueryCitation[];
   readonly gaps: readonly QueryGap[];
@@ -72,19 +74,15 @@ export class QueryService {
     private readonly index: SearchIndex,
   ) {}
 
-  public static open(vaultRoot: string): QueryService {
-    return new QueryService(resolve(vaultRoot), SearchIndex.open(vaultRoot));
-  }
-
   public close(): void {
     this.index.close();
   }
 
   public async query(request: QueryRequest): Promise<QueryResult> {
     validateRequest(request);
-    const roots = this.index
-      .search(request.question, request.filters)
-      .slice(0, request.maxResults ?? 8);
+    const hits = this.index.search(request.question, request.filters);
+    const rootLimit = request.maxResults ?? 8;
+    const roots = hits.slice(0, rootLimit);
     if (roots.length === 0) return uncoveredResult(request.question);
 
     const candidates = new Map(this.index.search('').map((result) => [conceptKey(result), result]));
@@ -123,6 +121,7 @@ export class QueryService {
     const citations = uniqueCitations(concepts.flatMap((concept) => concept.citations));
     return {
       question: request.question,
+      truncated: hits.length > rootLimit,
       concepts,
       citations,
       gaps: uniqueGaps(gaps),
@@ -201,6 +200,7 @@ function validateBoundedInteger(
 function uncoveredResult(question: string): QueryResult {
   return {
     question,
+    truncated: false,
     concepts: [],
     citations: [],
     gaps: [
@@ -292,7 +292,10 @@ async function isRegularFile(path: string): Promise<boolean> {
 
 function isWithin(root: string, target: string): boolean {
   const path = relative(resolve(root), resolve(target));
-  return path === '' || (!path.startsWith('..') && !path.includes('..\\'));
+  return (
+    path === '' ||
+    (!isAbsolute(path) && path !== '..' && !path.startsWith('../') && !path.startsWith('..\\'))
+  );
 }
 
 function uniqueCitations(citations: readonly QueryCitation[]): readonly QueryCitation[] {
@@ -308,7 +311,7 @@ function uniqueGaps(gaps: readonly QueryGap[]): readonly QueryGap[] {
   const unique = new Map<string, QueryGap>();
   for (const gap of gaps) unique.set(`${gap.code}:${gap.message}`, gap);
   return [...unique.values()].sort((left, right) =>
-    `${left.code}:${left.message}`.localeCompare(`${right.code}:${right.message}`),
+    compareStrings(`${left.code}:${left.message}`, `${right.code}:${right.message}`),
   );
 }
 
