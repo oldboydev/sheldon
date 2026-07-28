@@ -237,6 +237,8 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).not.toContain('/share/licenses/');
     expect(builder).toContain('$queue.Enqueue($builtExecutable.FullName)');
     expect(builder).toContain('$inspection.StdOut -split "`r?`n"');
+    expect(builder).toContain("$tar = Join-Path $msysRoot 'usr\\bin\\bsdtar.exe'");
+    expect(builder).toContain("Invoke-WatchedProcess -FilePath $tar");
     expect(builder).toContain("'eng.traineddata'");
     expect(builder).toContain("'por.traineddata'");
     expect(builder.split('$env:PATH = $previousPath')).toHaveLength(3);

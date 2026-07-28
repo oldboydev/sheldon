@@ -238,8 +238,12 @@ $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $msysRoot = if ([string]::IsNullOrWhiteSpace($env:MSYS2_ROOT)) { 'C:\msys64' } else { $env:MSYS2_ROOT }
 $mingwBin = Join-Path $msysRoot 'mingw64\bin'
 $pacman = Join-Path $msysRoot 'usr\bin\pacman.exe'
+$tar = Join-Path $msysRoot 'usr\bin\bsdtar.exe'
 if (-not (Test-Path $pacman)) {
   throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 package manager $pacman."
+}
+if (-not (Test-Path $tar)) {
+  throw "OCR_RUNTIME_DEPENDENCY_INVALID: Missing MSYS2 archive extractor $tar."
 }
 $graphQuery = Invoke-WatchedProcess -FilePath $pacman -ArgumentList @('-Q') -Stage 'graph-query' `
   -TimeoutSeconds 300 -TimeoutCode 'OCR_RUNTIME_GRAPH_TIMEOUT'
@@ -329,7 +333,7 @@ try {
      $dependencyRoot = Join-Path $workRoot "dependency-$Index"
      New-Item -ItemType Directory -Path $dependencyRoot | Out-Null
      Get-PinnedFile $dependency.sourceUrl $dependencyArchive $dependency.sourceSha256
-     $extractResult = Invoke-WatchedProcess -FilePath 'tar' `
+     $extractResult = Invoke-WatchedProcess -FilePath $tar `
        -ArgumentList @('--extract', '--file', $dependencyArchive, '--directory', $dependencyRoot) `
        -Stage 'extract-dependency' -TimeoutSeconds 300 -TimeoutCode 'OCR_RUNTIME_ARCHIVE_TIMEOUT'
      if ($extractResult.ExitCode -ne 0) {
@@ -354,7 +358,7 @@ try {
    Get-PinnedFile $sources.tesseract.url $sourceArchive $sources.tesseract.sha256
    Get-PinnedFile $sources.models.eng.url (Join-Path $modelsRoot 'eng.traineddata') $sources.models.eng.sha256
    Get-PinnedFile $sources.models.por.url (Join-Path $modelsRoot 'por.traineddata') $sources.models.por.sha256
-   $tesseractExtract = Invoke-WatchedProcess -FilePath 'tar' `
+   $tesseractExtract = Invoke-WatchedProcess -FilePath $tar `
      -ArgumentList @('--extract', '--gzip', '--file', $sourceArchive, '--directory', $sourceRoot, '--strip-components=1') `
      -Stage 'extract-tesseract' -TimeoutSeconds 300 -TimeoutCode 'OCR_RUNTIME_ARCHIVE_TIMEOUT'
    if ($tesseractExtract.ExitCode -ne 0) {
