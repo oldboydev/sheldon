@@ -71,6 +71,13 @@ describe('official release builder', () => {
     expect(linuxImage.file('source.image/runtime/linux-x64/tesseract')?.unixPermissions).toBe(
       0o100755,
     );
+    const linuxYoutube = await JSZip.loadAsync(
+      await readFile(join(first, 'source.youtube-linux-x64.zip')),
+    );
+    expect(linuxYoutube.file('source.youtube/runtime/linux-x64/yt-dlp')?.unixPermissions).toBe(
+      0o100755,
+    );
+    expect(linuxYoutube.file('source.youtube/runtime/win32-x64/yt-dlp.exe')).toBeNull();
   });
 
   it('publishes every additional staged image language for all supported platforms', async () => {
@@ -108,6 +115,17 @@ describe('official release builder', () => {
     await expect(
       buildOfficialArtifacts(input, join(root, 'out'), '2026-07-21T00:00:00.000Z'),
     ).rejects.toThrow('OFFICIAL_RELEASE_IMAGE_RUNTIME_MISSING');
+  });
+
+  it('requires the managed yt-dlp runtime and notices for every platform', async () => {
+    const root = await temporaryRoot();
+    const input = join(root, 'stage');
+    await writeStage(input);
+    await rm(join(input, 'source.youtube', 'runtime', 'linux-x64'), { recursive: true });
+
+    await expect(
+      buildOfficialArtifacts(input, join(root, 'out'), '2026-07-21T00:00:00.000Z'),
+    ).rejects.toThrow('OFFICIAL_RELEASE_YOUTUBE_RUNTIME_MISSING');
   });
 
   it('signs only with a supplied process environment value', async () => {
@@ -192,5 +210,13 @@ async function writeStage(root: string): Promise<void> {
       join(runtime, platform === 'win32-x64' ? 'tesseract.exe' : 'tesseract'),
       'fixture',
     );
+  }
+
+  const youtube = join(root, 'source.youtube');
+  for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64']) {
+    const runtime = join(youtube, 'runtime', platform);
+    await mkdir(runtime, { recursive: true });
+    await writeFile(join(runtime, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'), 'fixture');
+    await writeFile(join(runtime, 'THIRD_PARTY_NOTICES'), 'yt-dlp notices\n');
   }
 }

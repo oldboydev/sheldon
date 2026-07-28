@@ -26,12 +26,15 @@ describe('official release staging', () => {
         'packages/plugins/official',
         '--runtime-artifacts',
         'release/runtime-artifacts',
+        '--youtube-runtime',
+        'release/youtube-runtime',
         '--output',
         'release/stage',
       ]),
     ).toEqual({
       source: 'packages/plugins/official',
       runtimeArtifacts: 'release/runtime-artifacts',
+      youtubeRuntime: 'release/youtube-runtime',
       output: 'release/stage',
     });
     expect(() =>
@@ -80,11 +83,12 @@ describe('official release staging', () => {
     ).rejects.toThrow('OFFICIAL_RELEASE_STAGE_SYMLINK');
   });
 
-  it('copies built package payloads and image runtime assets without source or tests', async () => {
+  it('copies built package payloads and managed runtime assets without source or tests', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-release-stage-'));
     temporaryRoots.push(root);
     const source = join(root, 'plugins');
     const output = join(root, 'stage');
+    const youtubeRuntime = join(root, 'youtube-runtime');
     for (const id of ['source.file', 'source.image', 'source.url', 'source.youtube']) {
       const plugin = join(source, id);
       await mkdir(join(plugin, 'dist'), { recursive: true });
@@ -104,12 +108,17 @@ describe('official release staging', () => {
     await mkdir(join(source, 'source.image', 'runtime', 'linux-x64'), { recursive: true });
     await writeFile(join(source, 'source.image', 'data', 'tessdata', 'eng.traineddata'), 'eng');
     await writeFile(join(source, 'source.image', 'runtime', 'linux-x64', 'tesseract'), 'runtime');
+    await mkdir(join(youtubeRuntime, 'runtime', 'linux-x64'), { recursive: true });
+    await writeFile(join(youtubeRuntime, 'runtime', 'linux-x64', 'yt-dlp'), 'runtime');
 
-    await stageOfficialArtifacts(source, output);
+    await stageOfficialArtifacts(source, output, undefined, youtubeRuntime);
 
     await expect(access(join(output, 'source.file', 'dist', 'index.js'))).resolves.toBeUndefined();
     await expect(
       access(join(output, 'source.image', 'runtime', 'linux-x64', 'tesseract')),
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'source.youtube', 'runtime', 'linux-x64', 'yt-dlp')),
     ).resolves.toBeUndefined();
     await expect(access(join(output, 'source.file', 'src', 'index.ts'))).rejects.toThrow();
   });

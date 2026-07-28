@@ -15,7 +15,7 @@
       "id": "yt-dlp",
       "kind": "executable",
       "required": true,
-      "remediation": "Install yt-dlp and ensure it is available on PATH."
+      "remediation": "Reinstall the official source.youtube plugin for this platform."
     }
   ]
 }
