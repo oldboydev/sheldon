@@ -12,18 +12,23 @@ jobs:
   build:
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.timeoutMinutes }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - platform: win32-x64
             runner: windows-2022
+            timeoutMinutes: 30
           - platform: darwin-arm64
             runner: macos-14
+            timeoutMinutes: 360
           - platform: darwin-x64
-            runner: macos-13
+            runner: macos-15-intel
+            timeoutMinutes: 360
           - platform: linux-x64
             runner: ubuntu-22.04
+            timeoutMinutes: 360
         platform: [win32-x64, darwin-arm64, darwin-x64, linux-x64]
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0

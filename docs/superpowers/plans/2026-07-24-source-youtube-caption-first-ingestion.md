@@ -30,12 +30,17 @@
 
 **Interfaces:**
 
-~~~ts
-export interface CanonicalYoutubeVideo { readonly id: string; readonly canonicalUri: string; }
+```ts
+export interface CanonicalYoutubeVideo {
+  readonly id: string;
+  readonly canonicalUri: string;
+}
 export function canonicalYoutubeVideo(value: string): CanonicalYoutubeVideo;
 export function isYoutubeVideo(value: unknown): value is string;
 export interface YoutubeCaptionCandidate {
-  readonly path: string; readonly language: string; readonly kind: 'manual' | 'automatic';
+  readonly path: string;
+  readonly language: string;
+  readonly kind: 'manual' | 'automatic';
 }
 export interface YoutubeExtraction {
   readonly infoJson: Readonly<Record<string, unknown>>;
@@ -44,31 +49,57 @@ export interface YoutubeExtraction {
   readonly ytDlpVersion: string;
 }
 export interface YoutubeRunner {
-  run(file: string, arguments_: readonly string[], options: {
-    readonly cwd: string; readonly signal: AbortSignal; readonly shell: false;
-  }): Promise<{ readonly stdout: string; readonly stderr: string }>;
+  run(
+    file: string,
+    arguments_: readonly string[],
+    options: {
+      readonly cwd: string;
+      readonly signal: AbortSignal;
+      readonly shell: false;
+    },
+  ): Promise<{ readonly stdout: string; readonly stderr: string }>;
 }
-export async function extractYoutubeVideo(input: {
-  readonly video: CanonicalYoutubeVideo; readonly outputDirectory: string;
-  readonly languages: readonly string[]; readonly signal: AbortSignal;
-}, dependencies?: { readonly executable?: string; readonly runner?: YoutubeRunner }): Promise<YoutubeExtraction>;
-~~~
+export async function extractYoutubeVideo(
+  input: {
+    readonly video: CanonicalYoutubeVideo;
+    readonly outputDirectory: string;
+    readonly languages: readonly string[];
+    readonly signal: AbortSignal;
+  },
+  dependencies?: { readonly executable?: string; readonly runner?: YoutubeRunner },
+): Promise<YoutubeExtraction>;
+```
 
 - [ ] **Step 1: Write failing tests**
 
-~~~ts
+```ts
 expect(canonicalYoutubeVideo('https://youtu.be/AbCdEf12345?t=9')).toEqual({
-  id: 'AbCdEf12345', canonicalUri: 'https://www.youtube.com/watch?v=AbCdEf12345',
+  id: 'AbCdEf12345',
+  canonicalUri: 'https://www.youtube.com/watch?v=AbCdEf12345',
 });
-expect(() => canonicalYoutubeVideo('https://www.youtube.com/playlist?list=PLx'))
-  .toThrow('YOUTUBE_INPUT_INVALID');
-await expect(extractYoutubeVideo({ video, outputDirectory, languages: ['pt', 'en'], signal }, {
-  runner: fakeRunner({ stdout: '{"id":"AbCdEf12345"}\n' }),
-})).resolves.toMatchObject({ infoJson: { id: 'AbCdEf12345' } });
-expect(fakeRunner).toHaveBeenCalledWith('yt-dlp', expect.arrayContaining([
-  '--no-config', '--no-playlist', '--skip-download', '--write-subs', '--write-auto-subs',
-]), expect.objectContaining({ cwd: outputDirectory, shell: false }));
-~~~
+expect(() => canonicalYoutubeVideo('https://www.youtube.com/playlist?list=PLx')).toThrow(
+  'YOUTUBE_INPUT_INVALID',
+);
+await expect(
+  extractYoutubeVideo(
+    { video, outputDirectory, languages: ['pt', 'en'], signal },
+    {
+      runner: fakeRunner({ stdout: '{"id":"AbCdEf12345"}\n' }),
+    },
+  ),
+).resolves.toMatchObject({ infoJson: { id: 'AbCdEf12345' } });
+expect(fakeRunner).toHaveBeenCalledWith(
+  'yt-dlp',
+  expect.arrayContaining([
+    '--no-config',
+    '--no-playlist',
+    '--skip-download',
+    '--write-subs',
+    '--write-auto-subs',
+  ]),
+  expect.objectContaining({ cwd: outputDirectory, shell: false }),
+);
+```
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -88,10 +119,10 @@ Expected: PASS with injected runners and no network.
 
 - [ ] **Step 5: Commit**
 
-~~~bash
+```bash
 git add packages/plugins/official/source.youtube/src/youtube-url.ts packages/plugins/official/source.youtube/src/yt-dlp.ts packages/plugins/official/source.youtube/test/youtube-url.test.ts packages/plugins/official/source.youtube/test/yt-dlp.test.ts
 git commit -m "feat(youtube): add bounded yt-dlp adapter"
-~~~
+```
 
 ### Task 2: Select and normalize captions deterministically
 
@@ -102,9 +133,11 @@ git commit -m "feat(youtube): add bounded yt-dlp adapter"
 
 **Interfaces:**
 
-~~~ts
+```ts
 export interface SelectedYoutubeCaption {
-  readonly candidate: YoutubeCaptionCandidate; readonly text: string; readonly warnings: readonly string[];
+  readonly candidate: YoutubeCaptionCandidate;
+  readonly text: string;
+  readonly warnings: readonly string[];
 }
 export function selectYoutubeCaption(input: {
   readonly candidates: readonly YoutubeCaptionCandidate[];
@@ -112,23 +145,35 @@ export function selectYoutubeCaption(input: {
   readonly readCaption: (path: string) => Promise<string>;
 }): Promise<SelectedYoutubeCaption>;
 export function normalizeYoutubeMarkdown(input: {
-  readonly canonicalUri: string; readonly info: Readonly<Record<string, unknown>>;
-  readonly caption: SelectedYoutubeCaption; readonly ytDlpVersion: string;
+  readonly canonicalUri: string;
+  readonly info: Readonly<Record<string, unknown>>;
+  readonly caption: SelectedYoutubeCaption;
+  readonly ytDlpVersion: string;
 }): { readonly content: string; readonly warnings: readonly string[] };
-~~~
+```
 
 - [ ] **Step 1: Write failing tests**
 
-~~~ts
-await expect(selectYoutubeCaption({
-  candidates: [automaticPt, manualEn, manualPt], languages: ['pt', 'en'], readCaption,
-})).resolves.toMatchObject({ candidate: manualPt, text: 'Primeira linha\nSegunda linha\n' });
-expect(normalizeYoutubeMarkdown({
-  canonicalUri, info: { title: 'Talk', description: 'Notes' }, caption, ytDlpVersion: '2026.07.01',
-}).content).toContain('## Transcript');
-await expect(selectYoutubeCaption({ candidates: [], languages: ['pt'], readCaption }))
-  .rejects.toThrow('YOUTUBE_CAPTIONS_UNAVAILABLE');
-~~~
+```ts
+await expect(
+  selectYoutubeCaption({
+    candidates: [automaticPt, manualEn, manualPt],
+    languages: ['pt', 'en'],
+    readCaption,
+  }),
+).resolves.toMatchObject({ candidate: manualPt, text: 'Primeira linha\nSegunda linha\n' });
+expect(
+  normalizeYoutubeMarkdown({
+    canonicalUri,
+    info: { title: 'Talk', description: 'Notes' },
+    caption,
+    ytDlpVersion: '2026.07.01',
+  }).content,
+).toContain('## Transcript');
+await expect(
+  selectYoutubeCaption({ candidates: [], languages: ['pt'], readCaption }),
+).rejects.toThrow('YOUTUBE_CAPTIONS_UNAVAILABLE');
+```
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -148,10 +193,10 @@ Expected: PASS with manual preference, automatic fallback, and actionable no-cap
 
 - [ ] **Step 5: Commit**
 
-~~~bash
+```bash
 git add packages/plugins/official/source.youtube/src/captions.ts packages/plugins/official/source.youtube/test/captions.test.ts
 git commit -m "feat(youtube): normalize preferred captions"
-~~~
+```
 
 ### Task 3: Replace the scaffold with a contract-valid plugin
 
@@ -168,30 +213,40 @@ git commit -m "feat(youtube): normalize preferred captions"
 
 **Interfaces:**
 
-~~~ts
+```ts
 export interface OfficialSourceYoutubeDependencies {
-  readonly executable?: string; readonly runner?: YoutubeRunner;
+  readonly executable?: string;
+  readonly runner?: YoutubeRunner;
   readonly version?: () => Promise<string>;
 }
 export function createOfficialSourceYoutubePlugin(
   dependencies?: OfficialSourceYoutubeDependencies,
 ): PluginImplementation;
-~~~
+```
 
 - [ ] **Step 1: Write failing tests**
 
-~~~ts
-const artifacts = await createOfficialSourceYoutubePlugin({ runner: fixtureRunner })
-  .ingest({ input: { url: 'https://youtu.be/AbCdEf12345' }, options: {}, temporaryDirectory }, context);
+```ts
+const artifacts = await createOfficialSourceYoutubePlugin({ runner: fixtureRunner }).ingest(
+  { input: { url: 'https://youtu.be/AbCdEf12345' }, options: {}, temporaryDirectory },
+  context,
+);
 expect(artifacts.map(({ path }) => path)).toEqual([
-  'original.info.json', 'content.md', 'assets/pt.manual.vtt',
+  'original.info.json',
+  'content.md',
+  'assets/pt.manual.vtt',
 ]);
 expect(artifacts[1]?.metadata).toMatchObject({
   canonicalUri: 'https://www.youtube.com/watch?v=AbCdEf12345',
-  extractor: 'yt-dlp', extractionStatus: 'complete', language: 'pt', captionKind: 'manual',
+  extractor: 'yt-dlp',
+  extractionStatus: 'complete',
+  language: 'pt',
+  captionKind: 'manual',
 });
-await expect(plugin.ingest(noCaptionRequest, context)).rejects.toThrow('YOUTUBE_CAPTIONS_UNAVAILABLE');
-~~~
+await expect(plugin.ingest(noCaptionRequest, context)).rejects.toThrow(
+  'YOUTUBE_CAPTIONS_UNAVAILABLE',
+);
+```
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -211,10 +266,10 @@ Expected: PASS, including source.youtube protocol validation and diagnostic pres
 
 - [ ] **Step 5: Commit**
 
-~~~bash
+```bash
 git add packages/plugins/official/source.youtube packages/plugin-host/src/process-runner.ts packages/plugin-host/test/process-runner.test.ts scripts/verify-plugin-contract.mjs
 git commit -m "feat(youtube): ingest captioned public videos"
-~~~
+```
 
 ### Task 4: Wire language option, documentation, and automatic selection
 
@@ -229,24 +284,26 @@ git commit -m "feat(youtube): ingest captioned public videos"
 
 **Interfaces:**
 
-~~~ts
+```ts
 export interface UrlIngestionOptions extends VaultOption {
-  readonly plugin?: string; readonly language?: string;
+  readonly plugin?: string;
+  readonly language?: string;
 }
 // Commander: ingest url <kind> <slug> <url> [--language <tags>] [--plugin <id>]
-~~~
+```
 
 - [ ] **Step 1: Write failing selection and forwarding tests**
 
-~~~ts
-const youtube = await runCli([
-  ...ingestArguments('https://youtu.be/AbCdEf12345'), '--language', 'en,pt',
-], dependencies);
+```ts
+const youtube = await runCli(
+  [...ingestArguments('https://youtu.be/AbCdEf12345'), '--language', 'en,pt'],
+  dependencies,
+);
 expect(youtube).toMatchObject({ exitCode: 0 });
 expect(selectedYoutubeFixture.lastOptions).toEqual({ language: 'en,pt' });
 const page = await runCli(ingestArguments('https://example.test/article'), dependencies);
 expect(selectedUrlFixture.calls).toHaveLength(1);
-~~~
+```
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -266,10 +323,10 @@ Expected: PASS; videos select YouTube, ordinary pages select source.url, and no 
 
 - [ ] **Step 5: Commit**
 
-~~~bash
+```bash
 git add apps/cli/src/commands/memory.ts apps/cli/src/main.ts apps/cli/test/url-ingestion-acceptance.test.ts README.md CHANGELOG.md docs/roadmap.md
 git commit -m "feat(cli): route captioned YouTube videos"
-~~~
+```
 
 ### Task 5: Independent review gates and final verification
 
@@ -293,10 +350,10 @@ Inspect for shell execution, implicit downloads, cookies/credentials, playlist/c
 
 - [ ] **Step 4: Commit review remediation**
 
-~~~bash
+```bash
 git add <only reviewer-approved source.youtube, CLI, host, test, and documentation files>
 git commit -m "fix(youtube): address review findings"
-~~~
+```
 
 ## Plan self-review
 

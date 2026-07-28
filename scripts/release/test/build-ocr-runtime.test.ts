@@ -120,7 +120,13 @@ describe('Native OCR runtime workflow', () => {
       on?: { workflow_dispatch?: unknown };
       jobs?: {
         build?: {
-          strategy?: { matrix?: { platform?: unknown } };
+          'timeout-minutes'?: string;
+          strategy?: {
+            matrix?: {
+              include?: Array<{ platform?: string; runner?: string; timeoutMinutes?: number }>;
+              platform?: unknown;
+            };
+          };
           steps?: Array<{
             name?: string;
             uses?: string;
@@ -138,6 +144,15 @@ describe('Native OCR runtime workflow', () => {
       'darwin-x64',
       'linux-x64',
     ]);
+    expect(workflow.jobs?.build?.['timeout-minutes']).toBe('${{ matrix.timeoutMinutes }}');
+    expect(workflow.jobs?.build?.strategy?.matrix?.include).toEqual(
+      expect.arrayContaining([
+        { platform: 'win32-x64', runner: 'windows-2022', timeoutMinutes: 30 },
+        { platform: 'darwin-arm64', runner: 'macos-14', timeoutMinutes: 360 },
+        { platform: 'darwin-x64', runner: 'macos-15-intel', timeoutMinutes: 360 },
+        { platform: 'linux-x64', runner: 'ubuntu-22.04', timeoutMinutes: 360 },
+      ]),
+    );
     expect(workflow.jobs?.build?.steps).toContainEqual(
       expect.objectContaining({
         uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',
@@ -177,14 +192,42 @@ describe('Native OCR runtime workflow', () => {
   it("uses the MSYS2 Leptonica installation instead of Tesseract's unavailable SW path", async () => {
     const builder = await readFile('scripts/release/build-native-ocr-runtime.ps1', 'utf8');
 
+    expect(builder).toContain('function Invoke-WatchedProcess');
+    expect(builder).toContain('$startInfo.UseShellExecute = $false');
+    expect(builder).toContain('$startInfo.RedirectStandardInput = $true');
+    expect(builder).toContain('$startInfo.RedirectStandardOutput = $true');
+    expect(builder).toContain('$startInfo.RedirectStandardError = $true');
+    expect(builder).toContain('$startInfo.ArgumentList.Add($argument)');
+    expect(builder).toContain('$stdout = [System.Text.StringBuilder]::new()');
+    expect(builder).toContain('$stderr = [System.Text.StringBuilder]::new()');
+    expect(builder).toContain(
+      '$process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)',
+    );
+    expect(builder).toContain(
+      '$process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)',
+    );
+    expect(builder).toContain('$stdout.Append($stdoutChunk)');
+    expect(builder).toContain('$stderr.Append($stderrChunk)');
+    expect(builder).toContain('[Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")');
+    expect(builder).toContain('[Console]::Error.Write("OCR_RUNTIME_STDERR: $stderrChunk")');
+    expect(builder).toContain('$process.WaitForExit(0)');
+    expect(builder).toContain('$process.Kill($true)');
+    expect(builder).toContain('catch [System.InvalidOperationException]');
+    expect(builder).toContain('if (-not $process.HasExited) { throw }');
+    expect(builder).toContain(
+      'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
+    );
+    expect(builder).toContain('$process.WaitForExit()');
+    expect(builder).toContain('$process.Dispose()');
+    expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
+    expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');
+    expect(builder).toContain('Write-Host "OCR_RUNTIME_STAGE: $Stage"');
+    expect(builder).toContain('-TimeoutSeconds 180');
+    expect(builder).toContain('-TimeoutSeconds 900');
     expect(builder).toContain('-DSW_BUILD=OFF');
-    expect(builder).toContain('& $pacman -Qo $packagePath');
-    expect(builder).toContain('& $pacman -Q');
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'graph-lock'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'sources'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'dependency-preflight'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'download'");
-    expect(builder).toContain("windows-ocr-runtime-cli.mjs' 'dependency-notice'");
+    expect(builder).not.toMatch(/(?:^|\s)&\s+\$?(?:pacman|objdump|executable)/mu);
+    expect(builder).not.toContain('Start-Process');
+    expect(builder).not.toContain('taskkill');
     expect(builder).not.toContain('node --input-type=module --eval');
     expect(builder).not.toContain(
       '51342815a262a5c1d000bab44503ddbf71ef210053375d504f619ca7a3b381bd',
@@ -194,13 +237,77 @@ describe('Native OCR runtime workflow', () => {
     expect(builder.indexOf("'graph-lock'")).toBeLessThan(builder.indexOf('$workRoot ='));
     expect(builder).not.toContain('/share/licenses/');
     expect(builder).toContain('$queue.Enqueue($builtExecutable.FullName)');
+    expect(builder).toContain('$inspection.StdOut -split "`r?`n"');
+    expect(builder).toContain("$tar = Join-Path $msysRoot 'usr\\bin\\bsdtar.exe'");
+    expect(builder).toContain('Invoke-WatchedProcess -FilePath $tar');
     expect(builder).toContain("'eng.traineddata'");
     expect(builder).toContain("'por.traineddata'");
     expect(builder.split('$env:PATH = $previousPath')).toHaveLength(3);
     expect(builder).toContain('OCR_RUNTIME_MSYS2_GRAPH_INVALID');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_INVALID');
     expect(builder).toContain('OCR_RUNTIME_NOTICES_INVALID');
+
+    const stages = [
+      'graph-query',
+      'graph-lock',
+      'read-sources',
+      'download-source',
+      'preflight-dependencies',
+      'extract-dependency',
+      'render-notice',
+      'extract-tesseract',
+      'configure',
+      'build',
+      'inspect-dll',
+      'package-owner',
+      'health-check',
+    ];
+    const stageOffsets = stages.map((stage) => builder.indexOf(`-Stage '${stage}'`));
+    for (const stageOffset of stageOffsets) {
+      expect(stageOffset).toBeGreaterThanOrEqual(0);
+    }
+    for (let index = 1; index < stageOffsets.length; index += 1) {
+      expect(stageOffsets[index - 1]).toBeLessThan(stageOffsets[index]);
+    }
   });
+
+  it.skipIf(process.platform !== 'win32')(
+    'times out a large stdin write when the child never reads it',
+    async () => {
+      const root = await temporaryRoot();
+
+      await expect(
+        runWindowsRunnerTimeoutHarness(
+          root,
+          'Start-Sleep -Seconds 15',
+          "-StandardInput ('x' * 1048576)",
+        ),
+      ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
+    },
+  );
+
+  it.skipIf(process.platform !== 'win32')(
+    'times out and cleans a descendant that keeps the redirected streams open after its parent exits',
+    async () => {
+      const root = await temporaryRoot();
+
+      await expect(
+        runWindowsRunnerTimeoutHarness(
+          root,
+          `
+$childInfo = [System.Diagnostics.ProcessStartInfo]::new()
+$childInfo.FileName = Join-Path $PSHOME 'pwsh.exe'
+$childInfo.UseShellExecute = $false
+[void]$childInfo.ArgumentList.Add('-NoProfile')
+[void]$childInfo.ArgumentList.Add('-Command')
+[void]$childInfo.ArgumentList.Add('Start-Sleep -Seconds 15')
+[void][System.Diagnostics.Process]::Start($childInfo)
+[Console]::Out.WriteLine('DESCENDANT_READY')
+`,
+        ),
+      ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
+    },
+  );
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
     const macosBuilder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
@@ -381,9 +488,14 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     ]);
 
     expect(windowsBuilder).toContain("'dependency-preflight'");
-    expect(windowsBuilder).toContain('& $pacman -Q $packageName');
+    expect(windowsBuilder).toContain("-ArgumentList @('-Q', $packageName)");
     expect(windowsBuilder).toContain('$dependency.sourceUrl');
     expect(windowsBuilder).toContain('$dependency.sourceSha256');
+    expect(windowsBuilder).toContain(
+      '$licensePaths = @($dependency.licenses | ForEach-Object { $_.path })',
+    );
+    expect(windowsBuilder).toContain("'--directory', $dependencyRoot, '--') + $licensePaths");
+    expect(windowsBuilder).toContain('$notices += @($msys2LicenseNotices | ForEach-Object { $_ })');
     expect(windowsBuilder).toContain("'dependency-notice'");
     expect(windowsBuilder).not.toContain('/share/licenses/');
 
@@ -431,4 +543,48 @@ function testSources() {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+async function runWindowsRunnerTimeoutHarness(
+  root: string,
+  childScript: string,
+  standardInputArgument = '',
+): Promise<string> {
+  const childPath = join(root, 'watchdog-child.ps1');
+  const harnessPath = join(root, 'watchdog-harness.ps1');
+  const builderPath = resolve('scripts/release/build-native-ocr-runtime.ps1');
+  await writeFile(childPath, childScript, 'utf8');
+  await writeFile(
+    harnessPath,
+    `$ErrorActionPreference = 'Stop'
+$tokens = $null
+$errors = $null
+$builder = [System.Management.Automation.Language.Parser]::ParseFile('${escapePowerShellPath(builderPath)}', [ref]$tokens, [ref]$errors)
+if ($errors.Count -gt 0) { throw $errors[0] }
+$jobFactory = $builder.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'New-OcrRuntimeJob' }, $true)
+$runner = $builder.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-WatchedProcess' }, $true)
+. ([scriptblock]::Create($jobFactory.Extent.Text))
+. ([scriptblock]::Create($runner.Extent.Text))
+$expected = 'OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.'
+$watch = [System.Diagnostics.Stopwatch]::StartNew()
+try {
+  Invoke-WatchedProcess -FilePath (Join-Path $PSHOME 'pwsh.exe') -ArgumentList @('-NoProfile', '-File', '${escapePowerShellPath(childPath)}') -Stage 'stdin-harness' -TimeoutSeconds 1 -TimeoutCode 'OCR_RUNTIME_TEST_TIMEOUT' ${standardInputArgument}
+  throw 'The watchdog unexpectedly completed.'
+} catch {
+  if ($_.Exception.Message -ne $expected) { throw }
+  if ($watch.Elapsed.TotalSeconds -gt 3) { throw 'The watchdog exceeded the harness deadline.' }
+  Write-Output $_.Exception.Message
+}
+`,
+    'utf8',
+  );
+  const result = await execFileAsync('pwsh', ['-NoProfile', '-File', harnessPath], {
+    shell: false,
+    timeout: 4000,
+  });
+  return result.stdout;
+}
+
+function escapePowerShellPath(value: string): string {
+  return value.replaceAll("'", "''");
 }

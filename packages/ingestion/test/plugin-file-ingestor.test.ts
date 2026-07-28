@@ -125,8 +125,9 @@ describe('plugin file ingestion publication', () => {
     expect(result.manifest.original_name).toBe('example-test-article.html');
   });
 
-  it.each(['.', '..', '...', 'folder/article.html', 'folder\\article.html'])
-    ('rejects an unsafe original name: %s', async (originalName) => {
+  it.each(['.', '..', '...', 'folder/article.html', 'folder\\article.html'])(
+    'rejects an unsafe original name: %s',
+    async (originalName) => {
       const directory = await fixtureDirectory();
       const temporaryDirectory = join(directory, 'lease');
       await mkdir(temporaryDirectory);
@@ -139,7 +140,8 @@ describe('plugin file ingestion publication', () => {
           fixedClock,
         ),
       ).rejects.toMatchObject({ code: 'PLUGIN_FILE_ORIGINAL_NAME_INVALID' });
-    });
+    },
+  );
 
   it('keeps URL-shaped source identities byte-based and links distinct revisions', async () => {
     const directory = await fixtureDirectory();
@@ -152,7 +154,8 @@ describe('plugin file ingestion publication', () => {
     const canonicalUri = 'https://example.test/article';
     for (const fixtureLease of [firstLease, nextLease]) {
       const normalized = fixtureLease.artifacts.find((artifact) => artifact.role === 'normalized');
-      if (normalized?.metadata === undefined) throw new Error('Fixture requires normalized metadata.');
+      if (normalized?.metadata === undefined)
+        throw new Error('Fixture requires normalized metadata.');
       Object.assign(normalized.metadata, { canonicalUri });
     }
 
