@@ -17,6 +17,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- No Windows, o Vitest executa arquivos de teste em série para isolar processos Git, Git Bash e o supervisor nativo; o cleanup de aceitação de plugins também tenta novamente locks transitórios.
 - Testes de integração que invocam Git e Git Bash usam limites explícitos de 15 segundos, evitando timeouts espúrios sob carga paralela no Windows sem remover o limite de execução.
 - A validação de `source.repository` agora exige que os arquivos regulares do checkout sejam byte
   por byte idênticos aos blobs de `HEAD`, sem usar `git status` nem conversões de worktree. Diferenças

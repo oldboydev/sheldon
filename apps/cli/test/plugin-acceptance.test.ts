@@ -110,7 +110,11 @@ function isProcessAlive(pid: number): boolean {
 
 afterEach(async () => {
   while (databases.length > 0) databases.pop()?.close();
-  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+  await Promise.all(
+    roots
+      .splice(0)
+      .map((root) => rm(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })),
+  );
 });
 
 describe('PRD 002 acceptance', () => {

@@ -552,10 +552,8 @@ describe('committed Git boundary', () => {
 
   it('fails locally instead of fetching a missing promised HEAD object', async () => {
     const repository = await actualCommittedRepository();
-    const remote = join(repository, '..', 'remote.git');
-    await runFixtureGit(repository, ['clone', '--quiet', '--bare', '--no-local', '.', remote]);
+    const remote = join(repository, '..', 'unreachable-origin.git');
     const missingCommit = await runFixtureGit(repository, ['rev-parse', 'HEAD']);
-    await runFixtureGit(remote, ['cat-file', '-e', `${missingCommit}^{commit}`]);
     await runFixtureGit(repository, ['remote', 'add', 'origin', remote]);
     await runFixtureGit(repository, ['config', 'remote.origin.promisor', 'true']);
     await runFixtureGit(repository, ['config', 'remote.origin.partialclonefilter', 'blob:none']);
