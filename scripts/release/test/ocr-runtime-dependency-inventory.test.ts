@@ -17,7 +17,9 @@ describe('OCR runtime dependency inventory', () => {
   });
 
   it.each([
+    ['homebrew', 'jpeg-turbo', '3.2.0'],
     ['homebrew', 'libtiff', '4.7.1_1'],
+    ['homebrew', 'libtiff', '4.7.2'],
     ['homebrew', 'openjpeg', '2.5.4'],
     ['homebrew', 'webp', '1.6.0'],
     ['homebrew', 'xz', '5.8.3'],
@@ -143,6 +145,22 @@ describe('OCR runtime dependency inventory', () => {
       },
       {
         provider: 'homebrew',
+        name: 'jpeg-turbo',
+        version: '3.2.0',
+        sourceUrl:
+          'https://github.com/libjpeg-turbo/libjpeg-turbo/releases/download/3.2.0/libjpeg-turbo-3.2.0.tar.gz',
+        sourceSha256: '6f30092cef9fb839779646608f4ee14ae3cbac989c47fa05e841b0841f09878e',
+        licenses: [
+          {
+            path: 'libjpeg-turbo-3.2.0/LICENSE.md',
+            sha256: 'ba6bceebcba0fdd35488477c2cca8c4632ce82c74dbfbc87d886ce6fc4433579',
+            spdx: 'IJG AND Zlib AND BSD-3-Clause',
+          },
+        ],
+        spdx: 'IJG AND Zlib AND BSD-3-Clause',
+      },
+      {
+        provider: 'homebrew',
         name: 'giflib',
         version: '6.1.3',
         sourceUrl:
@@ -166,6 +184,21 @@ describe('OCR runtime dependency inventory', () => {
         licenses: [
           {
             path: 'tiff-4.7.1/LICENSE.md',
+            sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
+            spdx: 'libtiff AND BSD-4-Clause',
+          },
+        ],
+        spdx: 'libtiff AND BSD-4-Clause',
+      },
+      {
+        provider: 'homebrew',
+        name: 'libtiff',
+        version: '4.7.2',
+        sourceUrl: 'https://download.osgeo.org/libtiff/tiff-4.7.2.tar.gz',
+        sourceSha256: '672bd7d10aee4606171afb864f3570b83340f6a33e2c186dc0512f7145ffdf6a',
+        licenses: [
+          {
+            path: 'tiff-4.7.2/LICENSE.md',
             sha256: '0e27c2382d7b8147972bbb746e04059a1152c8d0fda9d03ef1399d1a433c4ade',
             spdx: 'libtiff AND BSD-4-Clause',
           },
