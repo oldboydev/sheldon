@@ -1,6 +1,7 @@
+import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { dirname, join, relative, resolve } from 'node:path';
-import { DatabaseSync } from 'node:sqlite';
+import { DatabaseSync, type StatementSync } from 'node:sqlite';
 
 import { vaultPaths } from '@sheldon/vault';
 import { parse } from 'yaml';
@@ -45,11 +46,6 @@ export interface SearchResult {
 export type SearchMatchField =
   'title' | 'description' | 'aliases' | 'tags' | 'body' | 'sources' | 'path';
 
-export interface SearchIndexStatus {
-  readonly rebuildable: true;
-  readonly sourceOfTruth: false;
-}
-
 interface IndexedConcept {
   readonly entityId: string;
   readonly entityKind: SearchEntityKind;
@@ -64,6 +60,7 @@ interface IndexedConcept {
   readonly status: string;
   readonly createdAt: string;
   readonly updatedAt: string;
+  readonly updatedAtEpoch: number;
   readonly sources: readonly string[];
   readonly path: string;
   readonly body: string;
@@ -89,13 +86,13 @@ export class SearchIndex {
   public static async rebuild(vaultRoot: string): Promise<SearchIndex> {
     const root = resolve(vaultRoot);
     const databasePath = vaultPaths(root).searchDatabase;
+    const concepts = await readVaultConcepts(root);
     await mkdir(dirname(databasePath), { recursive: true });
     const database = new DatabaseSync(databasePath, { allowExtension: false });
     const index = new SearchIndex(root, database);
 
     try {
-      index.resetSchema();
-      for (const concept of await readVaultConcepts(root)) index.insert(concept);
+      index.replaceContents(concepts);
       return index;
     } catch (error) {
       database.close();
@@ -105,10 +102,27 @@ export class SearchIndex {
 
   public static open(vaultRoot: string): SearchIndex {
     const root = resolve(vaultRoot);
-    return new SearchIndex(
-      root,
-      new DatabaseSync(vaultPaths(root).searchDatabase, { allowExtension: false }),
-    );
+    const databasePath = vaultPaths(root).searchDatabase;
+    if (!existsSync(databasePath)) {
+      throw new SearchIndexError(
+        'Search index is missing. Run SearchIndex.rebuild(vaultRoot) first.',
+      );
+    }
+    const database = new DatabaseSync(databasePath, { allowExtension: false });
+    try {
+      const schema = database
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'concepts'")
+        .get();
+      if (schema === undefined) {
+        throw new SearchIndexError(
+          'Search index is incomplete. Run SearchIndex.rebuild(vaultRoot).',
+        );
+      }
+      return new SearchIndex(root, database);
+    } catch (error) {
+      database.close();
+      throw error;
+    }
   }
 
   public search(query: string, filters: SearchFilters = {}): SearchResult[] {
@@ -141,12 +155,34 @@ export class SearchIndex {
     return rows.map((row) => toSearchResult(row as QueryRow, terms));
   }
 
-  public getStatus(): SearchIndexStatus {
-    return { rebuildable: true, sourceOfTruth: false };
-  }
-
   public close(): void {
     this.database.close();
+  }
+
+  private replaceContents(concepts: readonly IndexedConcept[]): void {
+    this.database.exec('BEGIN IMMEDIATE;');
+    try {
+      this.resetSchema();
+      const conceptStatement = this.database.prepare(
+        `INSERT INTO concepts (
+          entity_id, entity_kind, entity_slug, entity_title, concept_id, type, title, description,
+          aliases_json, tags_json, status, created_at, updated_at, updated_at_epoch, sources_json, path, body
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      const documentStatement = this.database.prepare(
+        `INSERT INTO search_documents (rowid, title, description, aliases, tags, body, sources, path)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      );
+      for (const concept of concepts) this.insert(concept, conceptStatement, documentStatement);
+      this.database.exec('COMMIT;');
+    } catch (error) {
+      try {
+        this.database.exec('ROLLBACK;');
+      } catch {
+        // A failed BEGIN does not create a transaction to roll back.
+      }
+      throw error;
+    }
   }
 
   private resetSchema(): void {
@@ -167,14 +203,16 @@ export class SearchIndex {
         status TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
+        updated_at_epoch INTEGER NOT NULL,
         sources_json TEXT NOT NULL,
-        path TEXT NOT NULL UNIQUE,
-        body TEXT NOT NULL
+        path TEXT NOT NULL,
+        body TEXT NOT NULL,
+        UNIQUE (entity_kind, entity_slug, path)
       ) STRICT;
       CREATE INDEX concepts_entity_scope ON concepts (entity_kind, entity_slug);
       CREATE INDEX concepts_type ON concepts (type);
       CREATE INDEX concepts_status ON concepts (status);
-      CREATE INDEX concepts_updated_at ON concepts (updated_at);
+      CREATE INDEX concepts_updated_at_epoch ON concepts (updated_at_epoch);
       CREATE VIRTUAL TABLE search_documents USING fts5(
         title, description, aliases, tags, body, sources, path,
         tokenize = 'unicode61 remove_diacritics 2'
@@ -182,47 +220,40 @@ export class SearchIndex {
     `);
   }
 
-  private insert(concept: IndexedConcept): void {
-    const conceptRow = this.database
-      .prepare(
-        `INSERT INTO concepts (
-          entity_id, entity_kind, entity_slug, entity_title, concept_id, type, title, description,
-          aliases_json, tags_json, status, created_at, updated_at, sources_json, path, body
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        concept.entityId,
-        concept.entityKind,
-        concept.entitySlug,
-        concept.entityTitle,
-        concept.conceptId,
-        concept.type,
-        concept.title,
-        concept.description,
-        JSON.stringify(concept.aliases),
-        JSON.stringify(concept.tags),
-        concept.status,
-        concept.createdAt,
-        concept.updatedAt,
-        JSON.stringify(concept.sources),
-        concept.path,
-        concept.body,
-      );
-    this.database
-      .prepare(
-        `INSERT INTO search_documents (rowid, title, description, aliases, tags, body, sources, path)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        Number(conceptRow.lastInsertRowid),
-        concept.title,
-        concept.description,
-        concept.aliases.join(' '),
-        concept.tags.join(' '),
-        concept.body,
-        concept.sources.join(' '),
-        concept.path,
-      );
+  private insert(
+    concept: IndexedConcept,
+    conceptStatement: StatementSync,
+    documentStatement: StatementSync,
+  ): void {
+    const conceptRow = conceptStatement.run(
+      concept.entityId,
+      concept.entityKind,
+      concept.entitySlug,
+      concept.entityTitle,
+      concept.conceptId,
+      concept.type,
+      concept.title,
+      concept.description,
+      JSON.stringify(concept.aliases),
+      JSON.stringify(concept.tags),
+      concept.status,
+      concept.createdAt,
+      concept.updatedAt,
+      concept.updatedAtEpoch,
+      JSON.stringify(concept.sources),
+      concept.path,
+      concept.body,
+    );
+    documentStatement.run(
+      Number(conceptRow.lastInsertRowid),
+      concept.title,
+      concept.description,
+      concept.aliases.join(' '),
+      concept.tags.join(' '),
+      concept.body,
+      concept.sources.join(' '),
+      concept.path,
+    );
   }
 }
 
@@ -248,6 +279,7 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
       for (const file of await findWikiFiles(join(entityRoot, 'wiki'))) {
         const content = await readFile(file, 'utf8');
         const frontmatter = parseFrontmatter(content, relative(entityRoot, file));
+        const title = requiredString(frontmatter, 'title', file);
         concepts.push({
           entityId: metadata.id,
           entityKind: kind,
@@ -255,13 +287,14 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
           entityTitle: metadata.title,
           conceptId: requiredString(frontmatter, 'id', file),
           type: requiredString(frontmatter, 'type', file),
-          title: requiredString(frontmatter, 'title', file),
+          title,
           description: requiredString(frontmatter, 'description', file),
           aliases: stringList(frontmatter, 'aliases', file),
           tags: stringList(frontmatter, 'tags', file),
           status: requiredString(frontmatter, 'status', file),
           createdAt: timestamp(frontmatter, 'created_at', file),
           updatedAt: timestamp(frontmatter, 'updated_at', file),
+          updatedAtEpoch: timestampEpoch(frontmatter, 'updated_at', file),
           sources: stringList(frontmatter, 'sources', file),
           path: `wiki/${relative(join(entityRoot, 'wiki'), file).replace(/\\/g, '/')}`,
           body: markdownBody(content),
@@ -269,7 +302,12 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
       }
     }
   }
-  return concepts.sort((left, right) => left.path.localeCompare(right.path));
+  return concepts.sort(
+    (left, right) =>
+      compareStrings(left.entityKind, right.entityKind) ||
+      compareStrings(left.entitySlug, right.entitySlug) ||
+      compareStrings(left.path, right.path),
+  );
 }
 
 async function readEntityMetadata(entityRoot: string): Promise<EntityMetadata> {
@@ -308,7 +346,7 @@ async function findWikiFiles(root: string): Promise<string[]> {
     }
   };
   await visit(root);
-  return found.sort();
+  return found.sort(compareStrings);
 }
 
 function parseFrontmatter(content: string, path: string): Record<string, unknown> {
@@ -354,11 +392,21 @@ function timestamp(value: Record<string, unknown>, field: string, path: string):
   return candidate;
 }
 
+function timestampEpoch(value: Record<string, unknown>, field: string, path: string): number {
+  return Date.parse(timestamp(value, field, path));
+}
+
 function markdownBody(content: string): string {
-  return content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '').trim();
+  return content
+    .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
+    .replace(/^#[^#\r\n][^\r\n]*(?:\r?\n)?/, '')
+    .trim();
 }
 
 function addFilters(constraints: string[], values: string[], filters: SearchFilters): void {
+  if (filters.topic !== undefined && filters.project !== undefined) {
+    throw new SearchIndexError('Search filters may specify either topic or project, not both.');
+  }
   if (filters.topic !== undefined) {
     constraints.push('concepts.entity_kind = ? AND concepts.entity_slug = ?');
     values.push('topic', filters.topic);
@@ -380,20 +428,20 @@ function addFilters(constraints: string[], values: string[], filters: SearchFilt
     values.push(filters.status);
   }
   if (filters.updatedAfter !== undefined) {
-    constraints.push('concepts.updated_at >= ?');
-    values.push(validFilterTimestamp(filters.updatedAfter));
+    constraints.push('concepts.updated_at_epoch >= ?');
+    values.push(String(validFilterTimestamp(filters.updatedAfter)));
   }
   if (filters.updatedBefore !== undefined) {
-    constraints.push('concepts.updated_at <= ?');
-    values.push(validFilterTimestamp(filters.updatedBefore));
+    constraints.push('concepts.updated_at_epoch <= ?');
+    values.push(String(validFilterTimestamp(filters.updatedBefore)));
   }
 }
 
-function validFilterTimestamp(value: string): string {
+function validFilterTimestamp(value: string): number {
   if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || Number.isNaN(Date.parse(value))) {
     throw new SearchIndexError('Date filters must use ISO-8601 timestamps.');
   }
-  return value;
+  return Date.parse(value);
 }
 
 function searchTerms(query: string): string[] {
@@ -433,9 +481,9 @@ function toSearchResult(row: QueryRow, terms: readonly string[]): SearchResult {
     sources,
     path: String(row.path),
     snippet: String(row.snippet),
-    score: -Number(row.score),
+    score: terms.length === 0 ? 0 : -Number(row.score),
     matchFields: (Object.keys(fields) as SearchMatchField[]).filter((field) =>
-      terms.some((term) => normalize(fields[field]).includes(normalize(term))),
+      terms.some((term) => matchesTerm(fields[field], term)),
     ),
   };
 }
@@ -452,11 +500,25 @@ function normalize(value: string): string {
   return value.normalize('NFD').replace(/\p{M}/gu, '').toLocaleLowerCase();
 }
 
+function matchesTerm(value: string, term: string): boolean {
+  const termTokens = tokenize(term);
+  const fieldTokens = new Set(tokenize(value));
+  return termTokens.length > 0 && termTokens.every((token) => fieldTokens.has(token));
+}
+
+function tokenize(value: string): string[] {
+  return normalize(value).match(/[\p{L}\p{N}_]+/gu) ?? [];
+}
+
 function compareDirectoryEntries(
   left: { readonly name: string },
   right: { readonly name: string },
 ): number {
-  return left.name.localeCompare(right.name);
+  return compareStrings(left.name, right.name);
+}
+
+function compareStrings(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function isMissing(error: unknown): boolean {

@@ -17,6 +17,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- O índice M4 passou a reconstruir transacionalmente depois de validar o vault, usa chaves de caminho por entidade e compara filtros de data por instante normalizado.
 - No Windows, o Vitest executa arquivos de teste em série para isolar processos Git, Git Bash e o supervisor nativo; o cleanup de aceitação de plugins também tenta novamente locks transitórios.
 - Testes de integração que invocam Git e Git Bash usam limites explícitos de 15 segundos, evitando timeouts espúrios sob carga paralela no Windows sem remover o limite de execução.
 - `source.youtube` agora usa o runtime verificado de `yt-dlp` gerenciado pelo próprio plugin. O

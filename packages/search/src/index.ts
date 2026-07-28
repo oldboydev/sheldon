@@ -3,7 +3,6 @@ export {
   SearchIndex,
   type SearchEntityKind,
   type SearchFilters,
-  type SearchIndexStatus,
   type SearchMatchField,
   type SearchResult,
 } from './search-index.js';

@@ -1,8 +1,8 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { SearchIndex } from '@sheldon/search';
+import { SearchIndex, SearchIndexError } from '@sheldon/search';
 import { VaultService, vaultPaths } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -11,7 +11,11 @@ const indexes: SearchIndex[] = [];
 
 afterEach(async () => {
   for (const index of indexes.splice(0)) index.close();
-  await Promise.all(temporaryDirectories.splice(0).map((path) => rm(path, { recursive: true })));
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })),
+  );
 });
 
 describe('SearchIndex', () => {
@@ -53,7 +57,6 @@ describe('SearchIndex', () => {
       conceptId: 'recall',
       matchFields: ['body'],
     });
-    expect(index.getStatus()).toEqual({ rebuildable: true, sourceOfTruth: false });
   });
 
   it('applies topic, project, type, tag, date, and status filters without leaking other concepts', async () => {
@@ -144,6 +147,119 @@ describe('SearchIndex', () => {
     const withoutStaleRows = await SearchIndex.rebuild(root);
     indexes.push(withoutStaleRows);
     expect(withoutStaleRows.search('retrieval')).toEqual([]);
+  });
+
+  it('keeps duplicate wiki paths separate by entity and compares date filters by instant', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'topic-boundary',
+        type: 'practice',
+        title: 'Topic recall',
+        description: 'A topic concept.',
+        aliases: [],
+        tags: ['learning'],
+        sources: ['raw/study/content.md'],
+        updatedAt: '2026-07-20T00:00:00Z',
+        body: 'Recall.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'projects',
+      'sheldon',
+      'recall.md',
+      concept({
+        id: 'project-offset',
+        type: 'decision',
+        title: 'Project recall',
+        description: 'A project concept.',
+        aliases: [],
+        tags: ['architecture'],
+        sources: ['raw/design/content.md'],
+        updatedAt: '2026-07-19T23:00:00-05:00',
+        body: 'Recall.',
+      }),
+    );
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    expect(index.search('', { updatedBefore: '2026-07-20T00:00:00.000Z' })).toEqual([
+      expect.objectContaining({ conceptId: 'topic-boundary', path: 'wiki/recall.md' }),
+    ]);
+    expect(index.search('', { updatedAfter: '2026-07-20T00:00:00.000Z' })).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ conceptId: 'topic-boundary' }),
+        expect.objectContaining({ conceptId: 'project-offset' }),
+      ]),
+    );
+  });
+
+  it('preserves the prior index when the next rebuild cannot validate the vault', async () => {
+    const root = await createVault();
+    const path = await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'recall',
+        type: 'practice',
+        title: 'Active recall',
+        description: 'Retrieve knowledge.',
+        aliases: ['retrieval'],
+        tags: ['learning'],
+        sources: ['raw/study/content.md'],
+        body: 'Practice recall.',
+      }),
+    );
+    const original = await SearchIndex.rebuild(root);
+    indexes.push(original);
+    original.close();
+    indexes.splice(indexes.indexOf(original), 1);
+    await writeFile(path, '# Missing frontmatter\n', 'utf8');
+
+    await expect(SearchIndex.rebuild(root)).rejects.toBeInstanceOf(SearchIndexError);
+
+    const preserved = SearchIndex.open(root);
+    indexes.push(preserved);
+    expect(preserved.search('retrieval')).toEqual([
+      expect.objectContaining({ conceptId: 'recall' }),
+    ]);
+  });
+
+  it('fails closed for an absent index, incompatible scopes, and token-only match origins', async () => {
+    const root = await createVault();
+    expect(() => SearchIndex.open(root)).toThrow(SearchIndexError);
+    await expect(access(vaultPaths(root).searchDatabase)).rejects.toBeDefined();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'feline.md',
+      concept({
+        id: 'cat',
+        type: 'note',
+        title: 'Cat behavior',
+        description: 'An animal behavior concept.',
+        aliases: ['memória'],
+        tags: ['learning'],
+        sources: ['raw/study/content.md'],
+        body: 'Do not concatenate this word with the query.',
+      }),
+    );
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    expect(index.search('cat')[0]).toMatchObject({ matchFields: ['title'] });
+    expect(index.search('memoria')[0]).toMatchObject({ matchFields: ['aliases'] });
+    expect(() => index.search('', { topic: 'memory', project: 'sheldon' })).toThrow(
+      SearchIndexError,
+    );
   });
 });
 
