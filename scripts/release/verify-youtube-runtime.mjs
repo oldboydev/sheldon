@@ -18,7 +18,14 @@ export async function verifyYoutubeRuntime({
   prepare = prepareYoutubeRuntime,
   run = runVersion,
 }) {
-  if (typeof platform !== 'string' || sources.artifacts[platform] === undefined) {
+  const artifacts =
+    sources !== null &&
+    typeof sources === 'object' &&
+    sources.artifacts !== null &&
+    typeof sources.artifacts === 'object'
+      ? sources.artifacts
+      : undefined;
+  if (typeof platform !== 'string' || artifacts?.[platform] === undefined) {
     throw releaseError(
       'YOUTUBE_RUNTIME_PLATFORM_INVALID',
       'An unsupported yt-dlp runtime platform was requested.',
@@ -27,7 +34,7 @@ export async function verifyYoutubeRuntime({
   const root = output ?? (await mkdtemp(join(tmpdir(), 'sheldon-youtube-runtime-verify-')));
   try {
     await prepare({ output: root, platforms: [platform], sources });
-    const executable = join(root, 'runtime', platform, sources.artifacts[platform].file);
+    const executable = join(root, 'runtime', platform, artifacts[platform].file);
     const version = (await run(executable)).trim();
     if (version !== sources.version) {
       throw releaseError(

@@ -35,4 +35,21 @@ describe('managed yt-dlp runtime verification', () => {
       }),
     ).rejects.toThrow('YOUTUBE_RUNTIME_EXECUTION_FAILED');
   });
+
+  it('rejects malformed custom runtime sources with a controlled diagnostic', async () => {
+    const prepare = vi.fn(async () => undefined);
+    const run = vi.fn(async () => 'unexpected');
+
+    await expect(
+      verifyYoutubeRuntime({
+        platform: 'linux-x64',
+        output: '/runtime-root',
+        sources: {},
+        prepare,
+        run,
+      }),
+    ).rejects.toThrow('YOUTUBE_RUNTIME_PLATFORM_INVALID');
+    expect(prepare).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
 });
