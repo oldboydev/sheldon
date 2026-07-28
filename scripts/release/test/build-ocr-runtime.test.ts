@@ -479,7 +479,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
     expect(builder).toContain('canonical_path "$cellar_candidate"');
     expect(builder).toContain('if (( cmp_status > 1 )); then');
     expect(builder).not.toContain('done < <(find "$cellar"');
-  });
+  }, 15_000);
 
   it('builds native dependency notices from verified pinned source records', async () => {
     const [windowsBuilder, macosBuilder] = await Promise.all([

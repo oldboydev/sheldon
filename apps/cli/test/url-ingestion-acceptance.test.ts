@@ -54,7 +54,9 @@ afterEach(async () => {
   await Promise.all(
     temporaryDirectories
       .splice(0)
-      .map((directory) => rm(directory, { recursive: true, force: true })),
+      .map((directory) =>
+        rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+      ),
   );
 });
 
@@ -80,7 +82,7 @@ describe('URL ingestion CLI flow', () => {
     expect(page).toMatchObject({ exitCode: 0, stderr: '' });
     await expect(harness.selectedUrlFixture.calls()).resolves.toHaveLength(1);
     await expect(harness.selectedUrlFixture.lastOptions()).resolves.toEqual({});
-  });
+  }, 15_000);
 
   it('shows an honest actionable diagnostic when YouTube captions are unavailable', async () => {
     await installYoutubePlugin(harness.root, 'YOUTUBE_CAPTIONS_UNAVAILABLE');

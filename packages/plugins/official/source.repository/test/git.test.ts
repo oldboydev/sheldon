@@ -553,8 +553,8 @@ describe('committed Git boundary', () => {
   it('fails locally instead of fetching a missing promised HEAD object', async () => {
     const repository = await actualCommittedRepository();
     const remote = join(repository, '..', 'remote.git');
-    await runFixtureGit(repository, ['clone', '--quiet', '--bare', '--no-local', '.', remote]);
     const missingCommit = await runFixtureGit(repository, ['rev-parse', 'HEAD']);
+    await runFixtureGit(repository, ['clone', '--quiet', '--bare', '--no-local', '.', remote]);
     await runFixtureGit(remote, ['cat-file', '-e', `${missingCommit}^{commit}`]);
     await runFixtureGit(repository, ['remote', 'add', 'origin', remote]);
     await runFixtureGit(repository, ['config', 'remote.origin.promisor', 'true']);
@@ -573,7 +573,7 @@ describe('committed Git boundary', () => {
       code: 'REPOSITORY_HEAD_UNRESOLVED',
     });
     await expect(access(missingObjectPath)).rejects.toBeDefined();
-  });
+  }, 15_000);
 
   it('rejects a staged index mismatch before reading blobs', async () => {
     const repository = await cleanRepositoryDirectory();

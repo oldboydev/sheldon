@@ -20,6 +20,7 @@ export default defineConfig({
       '@sheldon/ingestion': sourcePath('./packages/ingestion/src/index.ts'),
       '@sheldon/agent-runtime': sourcePath('./packages/agent-runtime/src/index.ts'),
       '@sheldon/review': sourcePath('./packages/review/src/index.ts'),
+      '@sheldon/search': sourcePath('./packages/search/src/index.ts'),
       '@sheldon/plugin-source-file': sourcePath(
         './packages/plugins/official/source.file/src/index.ts',
       ),
@@ -38,6 +39,9 @@ export default defineConfig({
     },
   },
   test: {
+    // Git Bash, Node child processes, and the native Job Object supervisor contend for
+    // temporary files on Windows. File-level parallelism makes their integration tests flaky.
+    fileParallelism: process.platform !== 'win32',
     exclude: ['**/node_modules/**', '**/.git/**', '**/.worktrees/**'],
     globalSetup: ['./vitest.global-setup.ts'],
     coverage: {

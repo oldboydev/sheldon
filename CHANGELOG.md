@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Índice local SQLite/FTS5 reconstruível de conceitos aprovados, com busca lexical e filtros de metadados para o M4.
 - Plugin `source.repository` e comando `ingest repository` para publicar snapshots determinísticos de commits de repositórios Git locais limpos, com deduplicação, vínculo de revisão, inventário de seleção e recusa pré-publicação de segredos.
 - Catálogo oficial assinado para instalação opcional de plugins e comandos explícitos para gerenciar idiomas do `source.image`.
 - Plugins `source.url` e `source.youtube` para captura de uma página pública e de vídeos únicos com legendas; a CLI seleciona automaticamente o vídeo e encaminha `--language` como preferência de legendas.
@@ -16,6 +17,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- O índice M4 passou a reconstruir transacionalmente depois de validar o vault, usa chaves de caminho por entidade e compara filtros de data por instante normalizado.
+- No Windows, o Vitest executa arquivos de teste em série para isolar processos Git, Git Bash e o supervisor nativo; o cleanup de aceitação de plugins também tenta novamente locks transitórios.
+- Testes de integração que invocam Git e Git Bash usam limites explícitos de 15 segundos, evitando timeouts espúrios sob carga paralela no Windows sem remover o limite de execução.
 - `source.youtube` agora usa o runtime verificado de `yt-dlp` gerenciado pelo próprio plugin. O
   artefato oficial por plataforma contém o executável e seus notices; não há pré-requisito de
   `PATH` nem instalação global pelo usuário.
