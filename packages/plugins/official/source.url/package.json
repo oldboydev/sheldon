@@ -7,6 +7,11 @@
     ".": "./dist/index.js"
   },
   "dependencies": {
-    "@sheldon/plugin-sdk": "*"
+    "@mixmark-io/domino": "^2.2.0",
+    "@sheldon/plugin-sdk": "*",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6"
   }
 }

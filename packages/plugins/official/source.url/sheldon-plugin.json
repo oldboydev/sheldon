@@ -6,7 +6,7 @@
   "protocolVersion": "1",
   "license": "MIT",
   "command": { "executable": "node", "arguments": ["plugin.mjs"] },
-  "capabilities": ["ingest-url"],
+  "capabilities": ["ingest-url", "ingest-site"],
   "priority": 100,
   "platforms": ["win32", "darwin", "linux"],
   "permissions": { "network": true, "cookies": false },

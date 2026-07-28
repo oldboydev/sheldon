@@ -39,10 +39,10 @@ packages/
   mcp/                  Ferramentas de consumo por agentes
 plugins/
   source.file/          Documentos e dados locais offline
-  source.image/         Imagens e OCR Tesseract empacotado
-  website/              Páginas e sites
-  youtube/              Vídeos, canais e playlists
-  repository/           Repositórios locais e remotos
+  source.image/         Imagens e OCR; somente release/manutenção do runtime nativo pausados
+  website/              Página pública e crawl público limitado
+  youtube/              Vídeo público único com legendas
+  repository/           Snapshots locais estritos de HEAD
 ```
 
 ## Vault central
@@ -77,7 +77,9 @@ Plugins se comunicam por JSON Lines sobre stdin/stdout. Logs e diagnósticos usa
 
 O host impõe timeout, limite de saída, cancelamento e diretório temporário. Resultados são validados antes de qualquer escrita atômica.
 
-Plugins oficiais são distribuídos opcionalmente por um catálogo de release assinado. A CLI só acessa o catálogo em comandos remotos explícitos ou instalação; listas locais e remoção de idiomas permanecem offline. Artefatos aprovados têm tamanho e SHA-256 validados antes da instalação atômica. O modelo `source.image` mantém seu Tesseract e `tessdata` privados, sem alterar `PATH` ou instalações do sistema.
+O registro local continua sendo a fonte do inventário instalado. Quando um catálogo oficial remoto assinado estiver publicado e acessível, `plugin list --remote` e `plugin info <id> --remote` poderão carregá-lo para descoberta explícita, sem instalar nem persistir plugins. Se o catálogo disponibilizar um artefato oficial compatível, `plugin install <id>` poderá baixá-lo; se disponibilizar um artefato de idioma, `image language install <code>` poderá baixá-lo para um `source.image` já instalado. Antes de instalar, a CLI valida a assinatura do catálogo, a política de host, a plataforma, o tamanho, o SHA-256 e o conteúdo extraído; URLs arbitrárias não são aceitas.
+
+`source.image`, OCR e o runtime nativo correspondente existem na implementação. Está pausado somente o trabalho de release e manutenção desse runtime, que permanece fora do escopo atual de conectores. Quando houver catálogo e artefatos assinados publicados e disponíveis, os comandos de catálogo e instalação apenas poderão consumi-los: não publicam plugins, não criam releases e não alteram essa decisão de manutenção.
 
 ## Agent runtime
 

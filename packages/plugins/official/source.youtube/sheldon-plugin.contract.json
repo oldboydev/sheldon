@@ -1,0 +1,14 @@
+{
+  "supportedProbe": {
+    "input": { "url": "https://youtu.be/AbCdEf12345" },
+    "minimumConfidence": 100
+  },
+  "unsupportedProbe": {
+    "input": { "url": "file:///contract-must-not-open-network" }
+  },
+  "ingest": {
+    "input": { "url": "file:///contract-must-not-open-network" },
+    "options": {},
+    "expectedDiagnosticCode": "YOUTUBE_INPUT_INVALID"
+  }
+}

@@ -80,7 +80,7 @@ const manifestProperties = {
   protocolVersion: nonEmptyStringSchema,
   license: { type: 'string', minLength: 1, format: 'spdx' },
   capabilities: { type: 'array', items: nonEmptyStringSchema },
-  priority: { type: 'integer', minimum: -100, maximum: 100 },
+  priority: { type: 'integer', minimum: -100, maximum: 200 },
   platforms: { type: 'array', items: { enum: platformNames } },
   permissions: permissionsSchema,
   dependencies: { type: 'array', items: dependencySchema },
@@ -325,7 +325,32 @@ export const contractFixtureSchema = {
   $schema: 'https://json-schema.org/draft/2020-12/schema',
   type: 'object',
   additionalProperties: false,
-  required: ['supportedProbe', 'unsupportedProbe', 'ingest', 'cancel'],
+  required: ['supportedProbe', 'unsupportedProbe', 'ingest'],
+  oneOf: [
+    {
+      type: 'object',
+      required: ['cancel'],
+      properties: {
+        ingest: {
+          type: 'object',
+          required: ['expectedRoles'],
+          properties: { expectedRoles: {} },
+        },
+        cancel: {},
+      },
+    },
+    {
+      type: 'object',
+      not: { required: ['cancel'], properties: { cancel: {} } },
+      properties: {
+        ingest: {
+          type: 'object',
+          required: ['expectedDiagnosticCode'],
+          properties: { expectedDiagnosticCode: {} },
+        },
+      },
+    },
+  ],
   properties: {
     supportedProbe: {
       type: 'object',
@@ -345,11 +370,29 @@ export const contractFixtureSchema = {
     ingest: {
       type: 'object',
       additionalProperties: false,
-      required: ['input', 'options', 'expectedRoles'],
+      required: ['input', 'options'],
+      oneOf: [
+        {
+          type: 'object',
+          required: ['expectedRoles'],
+          not: {
+            required: ['expectedDiagnosticCode'],
+            properties: { expectedDiagnosticCode: {} },
+          },
+          properties: { expectedRoles: {}, expectedDiagnosticCode: {} },
+        },
+        {
+          type: 'object',
+          required: ['expectedDiagnosticCode'],
+          not: { required: ['expectedRoles'], properties: { expectedRoles: {} } },
+          properties: { expectedRoles: {}, expectedDiagnosticCode: {} },
+        },
+      ],
       properties: {
         input: jsonRecordSchema,
         options: jsonRecordSchema,
         expectedRoles: { type: 'array', items: { enum: artifactRoles } },
+        expectedDiagnosticCode: nonEmptyStringSchema,
       },
     },
     cancel: {

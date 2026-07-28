@@ -1,0 +1,21 @@
+{
+  "schemaVersion": 1,
+  "id": "source.repository",
+  "name": "Official repository ingestion",
+  "version": "1.0.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": { "executable": "node", "arguments": ["plugin.mjs"] },
+  "capabilities": ["ingest-repository"],
+  "priority": 100,
+  "platforms": ["win32", "darwin", "linux"],
+  "permissions": { "network": false, "cookies": false },
+  "dependencies": [
+    {
+      "id": "git",
+      "kind": "executable",
+      "required": true,
+      "remediation": "Install Git and ensure it is available on PATH."
+    }
+  ]
+}

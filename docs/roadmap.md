@@ -44,9 +44,9 @@ Este marco é um checkpoint vertical: utiliza primeiro o caminho de arquivo loca
 
 **PRD:** 003
 
-**Status:** em andamento; `source.file` e a fundação opcional de `source.image` foram concluídos em 21 de julho de 2026. Sites inteiros, YouTube e repositórios continuam pendentes.
+**Status:** em andamento; `source.file`, a captura de URL pública única e o crawl público limitado por `ingest crawl`, o YouTube público de vídeo único com legendas e snapshots estritos de commits de repositórios Git locais foram concluídos em julho de 2026. O snapshot aceita somente um checkout byte por byte idêntico a `HEAD`. `source.image` e seu runtime nativo de OCR estão pausados; Git remoto/autenticado e STT local continuam adiados. Playlists e canais do YouTube também permanecem fora do escopo atual do usuário.
 
-Entrega: plugins oficiais opcionais para arquivos, imagens, sites inteiros, YouTube e repositórios. O catálogo assinado expõe as fontes, mas URL e YouTube não ingerem conteúdo antes de suas milestones próprias.
+Entrega: `source.file`, `source.url`, `source.youtube` e `source.repository` cobrem a fatia atual. A seleção automática direciona vídeos únicos ao `source.youtube`, páginas comuns e crawls limitados ao `source.url` e o comando `ingest repository` ao `source.repository`; este último recusa submódulos e checkouts sujeitos a conversão (`autocrlf`, `eol` ou filtros). O crawl exige limites explícitos de páginas e profundidade. OCR de imagens, Git remoto/autenticado, playlists/canais e STT local permanecem fora desta fatia.
 
 Saída: cada família possui fixtures, deduplicação e diagnóstico offline; nenhuma exige API paga.
 

@@ -1,0 +1,14 @@
+{
+  "supportedProbe": {
+    "input": { "url": "https://example.test/article" },
+    "minimumConfidence": 100
+  },
+  "unsupportedProbe": {
+    "input": { "url": "file:///contract-must-not-open-network" }
+  },
+  "ingest": {
+    "input": { "url": "file:///contract-must-not-open-network" },
+    "options": {},
+    "expectedDiagnosticCode": "URL_INPUT_INVALID"
+  }
+}

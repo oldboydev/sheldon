@@ -6,7 +6,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
-Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins locais sem misturar o estado operacional ao conhecimento. A família de arquivos do PRD 003 também está concluída como a primeira entrega do M3; sites, YouTube e repositórios continuam pendentes.
+Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins sem misturar o estado operacional ao conhecimento. No M3, `source.file`, URL pública única e crawl público limitado por `ingest crawl`, YouTube público de vídeo único com legendas e snapshots de commits Git locais já estão disponíveis. `source.image`, OCR e seu runtime nativo existem na implementação; estão pausados somente o trabalho de release e a manutenção do runtime nativo, fora do escopo atual de conectores. Git remoto/autenticado, playlists/canais e STT local continuam adiados.
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
@@ -44,42 +44,19 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 
-`npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell, além do plugin oficial `sheldon.file`; `npm run verify` já o inclui antes do lint de domínio.
+`npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell, além do plugin oficial `source.file`; `npm run verify` já o inclui antes do lint de domínio.
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
 ## Plugins oficiais e OCR
 
-Plugins oficiais são opcionais. `sheldon plugin list` consulta somente o registro local; use `sheldon plugin list --remote` ou `sheldon plugin info source.image --remote` para carregar o catálogo assinado da release oficial. A instalação valida assinatura do catálogo e tamanho/SHA-256 do artefato:
+Os plugins instalados são administrados pelo registro local. Quando um catálogo oficial remoto assinado estiver publicado e acessível, a CLI poderá consultá-lo: `plugin list --remote` e `plugin info <id> --remote` o carregam sem instalar nada; `plugin install <id>` poderá baixar e instalar um artefato oficial disponível após validar a assinatura do catálogo, a plataforma, o tamanho e o SHA-256. Se esse catálogo disponibilizar artefatos de idioma, `image language install <code>` poderá instalar um deles para o `source.image` já instalado.
 
-```powershell
-sheldon plugin install source.file
-sheldon plugin install source.image
-```
+`source.file` processa documentos e dados locais. Ele não reivindica imagens e não executa OCR. A ingestão de imagens pertence a `source.image`; sua implementação e o runtime nativo de OCR existem. Quando artefatos de idioma assinados forem publicados no catálogo, idiomas adicionais poderão ser administrados por ele. A manutenção e a publicação de novos releases desse runtime estão pausadas e não fazem parte do escopo atual de conectores.
 
-`source.file` processa documentos e dados locais; `source.image` é o único plugin que processa imagens e traz OCR Tesseract privado, com `por+eng` como padrão. Idiomas extras são dados locais do `source.image`; os modelos base não podem ser removidos:
+O instalador oficial baixa o artefato para uma área privada de staging, valida o manifesto e a árvore extraída e publica a instalação em `%APPDATA%\Sheldon\plugins\<id>` antes de persistir o registro YAML atômico. Identificadores já instalados são rejeitados, sem opção de sobrescrita.
 
-```powershell
-sheldon image language list
-sheldon image language install deu
-sheldon image language remove deu
-```
-
-Não há plugin público `ocr.tesseract`, alteração de `PATH` ou instalação do Tesseract no sistema. As operações locais de listagem e remoção não usam rede.
-
-As releases oficiais são construídas de um estágio explícito (`release/stage`) e contêm ZIPs por plataforma, `catalog.json`, assinatura, SBOM e notices. O catálogo é assinado apenas em CI pela variável secreta `SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM`; a chave privada não é gravada no repositório nem nos artefatos.
-
-O runtime privado de OCR do `source.image` é compilado de fontes e modelos com URLs, revisões imutáveis e SHA-256 fixados em [`scripts/release/ocr-runtime-sources.mjs`](scripts/release/ocr-runtime-sources.mjs). Para reproduzir localmente apenas o artefato Linux x64 (não substitui as verificações nativas de Windows e macOS), é necessário Docker com BuildKit e o comando é:
-
-```powershell
-npm run build:ocr-runtime -- --platform linux-x64 --output .\release\ocr-runtime-linux-x64
-```
-
-O workflow **Release official plugin catalog** sempre executa a matriz nativa, baixa e valida os quatro artefatos `ocr-runtime-*`, e então executa o build, a assinatura e a verificação offline do catálogo. `workflow_dispatch` é um dry run: ele jamais executa o upload de GitHub Release. Somente um push de tag `v*` pode publicar a release `official-catalog`. Ambos os caminhos que chegam à assinatura exigem o secret de Actions `SHELDON_OFFICIAL_CATALOG_SIGNING_KEY_PEM`; mantenha a chave privada somente nesse secret.
-
-Plugins locais são instalados exclusivamente a partir de um diretório local. Sheldon valida o manifesto e todos os links, copia os links sem segui-los para uma área privada de staging, valida novamente a árvore copiada e confirma que a identidade dessa raiz não mudou durante a publicação em `%APPDATA%\Sheldon\plugins\<id>`, antes de persistir o registro YAML atômico. Identificadores já usados por plugins oficiais ou instalados são rejeitados, sem opção de sobrescrita no M1.
-
-A instalação apenas copia arquivos: não executa código ou scripts de pacote, não instala dependências, não faz downloads e não acessa a rede. Instalações e remoções concorrentes são serializadas por processo e por um lock exclusivo no diretório da aplicação para impedir perda de registros. O lock registra token de propriedade, PID e horário, preserva locks de processos ativos e recupera com segurança locks abandonados por processos encerrados. A remoção aceita somente um identificador registrado e apaga apenas o filho exato correspondente dentro do diretório de plugins, respeitando a comparação de caminhos sem distinção entre maiúsculas e minúsculas no Windows.
+A instalação oficial usa a rede somente por solicitação explícita para baixar o catálogo e o artefato verificados; ela não executa código ou scripts de pacote, nem instala dependências. Instalações e remoções concorrentes são serializadas por processo e por um lock exclusivo no diretório da aplicação para impedir perda de registros. O lock registra token de propriedade, PID e horário, preserva locks de processos ativos e recupera com segurança locks abandonados por processos encerrados. A remoção aceita somente um identificador registrado e apaga apenas o filho exato correspondente dentro do diretório de plugins, respeitando a comparação de caminhos sem distinção entre maiúsculas e minúsculas no Windows.
 
 Cada operação `describe`, `probe` ou `healthcheck` inicia um processo novo com `shell: false`, diretório de trabalho na raiz do plugin e um ambiente sanitizado. Somente `PATH`, `PATHEXT`, `SystemRoot`, `WINDIR` e variáveis de locale são encaminhadas; `TEMP` e `TMP` apontam para um diretório exclusivo da operação. Entradas e ambiente não são copiados para o histórico operacional.
 
@@ -206,15 +183,15 @@ npm run sheldon -- compile-retry topic agentes-locais nota-revisada --from nota-
 
 ## Ingestão oficial de arquivos (M3)
 
-O comando `ingest file` descobre plugins com a capacidade `ingest-file`, executa os probes em ordem estável e seleciona automaticamente a melhor opção compatível. O plugin oficial `sheldon.file` reconhece o formato sem exigir uma opção de formato. Para escolher explicitamente um plugin compatível, use `--plugin`:
+O comando `ingest file` descobre plugins com a capacidade `ingest-file`, executa os probes em ordem estável e seleciona automaticamente a melhor opção compatível. O plugin oficial `source.file` reconhece o formato sem exigir uma opção de formato. Para escolher explicitamente um plugin compatível, use `--plugin`:
 
 ```powershell
 npm run sheldon -- ingest file topic agentes-locais C:\inbox\relatorio.pdf `
-  --plugin sheldon.file `
+  --plugin source.file `
   --vault C:\knowledge\sheldon
 ```
 
-O plugin oficial aceita PDF, DOCX, PPTX, XLSX, EPUB, HTML (`.html`, `.htm` e `.xhtml`), JSON, YAML, Markdown, texto `.txt` e imagens PNG, JPEG, GIF, TIFF, WebP e BMP. O original é sempre preservado; formatos não suportados são rejeitados com diagnóstico explícito em vez de produzir texto inventado.
+O plugin oficial aceita PDF, DOCX, PPTX, XLSX, EPUB, HTML (`.html`, `.htm` e `.xhtml`), JSON, YAML, Markdown e texto `.txt`. O original é sempre preservado; formatos não suportados são rejeitados com diagnóstico explícito em vez de produzir texto inventado. Imagens não são aceitas por `source.file`, pois a ingestão de imagens e o OCR pertencem a `source.image`.
 
 Cada captura é publicada atomicamente dentro da entidade escolhida:
 
@@ -228,13 +205,88 @@ raw/<source-id>/
 
 O `source-id` deriva por SHA-256 dos bytes originais e das opções relevantes serializadas de forma estável. Repetir a mesma entrada com as mesmas opções devolve o raw existente. Quando o conteúdo da mesma URI canônica muda com as mesmas opções, Sheldon cria outro raw e registra `previous_source_id` no novo `manifest.yaml`, formando o vínculo de versão sem alterar capturas anteriores.
 
-Todos os extratores embarcados funcionam offline. O manifesto de `sheldon.file` declara `network: false` e `cookies: false`; a ingestão, o probe e o healthcheck não baixam engines, modelos nem conteúdo e não exigem API paga. OCR de imagens é opcional e usa somente uma instalação local do Tesseract com o modelo do idioma solicitado. Sem ela, o original é preservado, a extração registra a lacuna e o diagnóstico continua saudável com um aviso acionável:
+Todos os extratores embarcados de `source.file` funcionam offline. Seu manifesto declara `network: false` e `cookies: false`; a ingestão, o probe e o healthcheck não baixam engines, modelos nem conteúdo e não exigem API paga. OCR não é uma capacidade de `source.file`.
 
 ```powershell
-npm run sheldon -- plugin doctor sheldon.file
+npm run sheldon -- plugin doctor source.file
 ```
 
-Instale o Tesseract e o modelo de idioma solicitado indicado pela remediação e execute o doctor novamente; Sheldon nunca faz esse download automaticamente.
+## Ingestão de uma URL pública
+
+O comando `ingest url` captura uma única página pública por execução e publica a resposta original junto do Markdown normalizado. Ele aceita somente URLs absolutas HTTP(S), sem credenciais ou fragmentos:
+
+```powershell
+npm run sheldon -- ingest url topic agentes-locais https://example.com/artigo `
+  --vault C:\knowledge\sheldon
+```
+
+A captura segue no máximo cinco redirecionamentos, revalidando cada destino, e limita a resposta a 5 MiB. Endereços locais, privados, link-local, não especificados e multicast são recusados. Somente HTML/XHTML, texto simples e Markdown são aceitos.
+
+Cada invocação processa apenas a página informada: não percorre links, não autentica, não envia cookies e não contorna paywalls ou DRM. Para escolher explicitamente outro plugin compatível, use `--plugin <id>`.
+
+## Crawl público limitado (M3)
+
+Para capturar uma fatia limitada de um site público, use o comando separado `ingest crawl`. Os limites são obrigatórios: no máximo 1 a 10 tentativas de páginas e profundidade de 0 a 2.
+
+```powershell
+npm run sheldon -- ingest crawl topic agentes-locais https://example.com/guia `
+  --max-pages 10 `
+  --max-depth 2 `
+  --vault C:\knowledge\sheldon
+```
+
+O crawl usa `source.url` com a capacidade `ingest-site`. Ele começa na URL pública informada e restringe a travessia ao origin efetivo, preservando um inventário determinístico de URLs visitadas, puladas e com falha. Não autentica, não envia cookies e não contorna paywalls ou DRM. `ingest url` permanece uma captura de página única.
+
+## Vídeo único do YouTube com legendas (M3)
+
+O mesmo comando `ingest url` seleciona automaticamente `source.youtube` para uma URL pública HTTPS de um único vídeo do YouTube; páginas comuns continuam selecionando `source.url`. Instale o [yt-dlp](https://github.com/yt-dlp/yt-dlp) e deixe o executável disponível no `PATH` antes de ingerir vídeos. No Windows, uma opção é:
+
+```powershell
+winget install yt-dlp.yt-dlp
+```
+
+```powershell
+npm run sheldon -- ingest url topic agentes-locais https://youtu.be/AbCdEf12345 `
+  --language en,pt `
+  --vault C:\knowledge\sheldon
+```
+
+`--language <tags>` é uma preferência opcional de tags BCP-47 separadas por vírgula; sem ela, o plugin prefere `pt,en`. Para cada idioma preferido, ele usa uma legenda manual utilizável antes de uma legenda automática. A captura consulta metadados e legendas com `yt-dlp --skip-download`: não baixa mídia, não usa STT e não baixa modelos automaticamente. STT local está adiado. Se não houver legenda utilizável nos idiomas pedidos, tente outro idioma ou forneça uma fonte com legendas. Playlists e canais não fazem parte do escopo atual.
+
+## Snapshot de repositório Git local (M3)
+
+O comando `ingest repository` seleciona um plugin com a capacidade `ingest-repository`. O plugin
+oficial `source.repository` exige uma instalação local do Git e aceita somente um worktree local
+legível, sem links simbólicos, com `HEAD` resolvido e cujos arquivos regulares no checkout sejam
+byte por byte idênticos à árvore confirmada em `HEAD`:
+
+```powershell
+npm run sheldon -- ingest repository topic agentes-locais C:\src\meu-repositorio `
+  --vault C:\knowledge\sheldon
+```
+
+A captura lê os blobs rastreados diretamente do commit em `HEAD`, sem usar o conteúdo mutável dos
+arquivos do worktree. A seleção determinística considera apenas extensões de texto e código, com
+limites fixos de 500 arquivos, 1 MiB por arquivo e 10 MiB agregados. O raw publicado contém o
+original de metadados do commit, `content.md` e o inventário `assets/tree.json`; repetir o mesmo
+commit deduplica a captura, e um commit seguinte recebe `previous_source_id`.
+
+Essa seleção tem orçamento próprio e acontece somente depois da validação bruta do checkout. A
+validação percorre no máximo 10.000 entradas de diretório fora de `.git` e calcula até 64 MiB
+agregados de arquivos regulares; exceder qualquer limite retorna
+`REPOSITORY_GIT_OUTPUT_LIMIT`, sem classificar o worktree como sujo.
+
+Todos os blobs selecionados são verificados antes da materialização. Se um padrão de segredo de
+alta confiança for detectado, a operação retorna `REPOSITORY_SECRET_DETECTED`, não inclui o valor no
+diagnóstico e não publica nenhum raw.
+
+Esta fatia é estritamente local e offline: não acessa remotos nem a rede Git. Ela não clona URLs,
+autentica em remotos, percorre submódulos, materializa Git LFS ou aceita qualquer diferença bruta
+no checkout. Configurações inativas de filtros personalizados não são executadas nem recusadas por
+si só; somente conversões de checkout — por `core.autocrlf`, atributos `eol`, filtros ou outro
+mecanismo — que deixem os bytes diferentes dos blobs de `HEAD` são incompatíveis. Clone remoto e
+ingestão de repositórios hospedados continuam pendentes. Para escolher explicitamente outro plugin
+compatível, use `--plugin <id>`.
 
 ## Plugins
 
@@ -247,18 +299,21 @@ Os dados da plataforma vivem em `%APPDATA%\Sheldon` e não no vault de conhecime
   plugin-state.db           # saúde e resumos de execução reconstruíveis
 ```
 
-Compile antes de usar os comandos. Os cinco subcomandos são:
+Compile antes de usar os comandos. O catálogo remoto é opt-in para descoberta; instalações oficiais e downloads de idiomas são ações explícitas:
 
 ```powershell
 npm run build
-npm run sheldon -- plugin install C:\plugins\meu-plugin
+npm run sheldon -- plugin list --remote
+npm run sheldon -- plugin info source.image --remote
+npm run sheldon -- plugin install source.image
+npm run sheldon -- image language install deu
 npm run sheldon -- plugin list
-npm run sheldon -- plugin doctor meu.plugin
+npm run sheldon -- plugin doctor source.image
 npm run sheldon -- plugin test C:\plugins\meu-plugin
-npm run sheldon -- plugin remove meu.plugin
+npm run sheldon -- plugin remove source.image
 ```
 
-`install` aceita somente uma pasta local e nunca executa scripts, instala dependências, baixa conteúdo ou acessa a rede. `list` mostra cada plugin descoberto como `ready`, `invalid`, `incompatible` ou `collision`. `doctor` só executa `healthcheck` para entradas `ready` e apresenta `healthy`, `unhealthy` ou `unchecked`; a última saúde é reutilizada apenas quando identificador, versão e digest do manifesto ainda coincidem, portanto pode aparecer como estado conhecido anterior até a próxima verificação. `test` roda o contrato reutilizável contra uma raiz de plugin, e `remove` só remove uma instalação local registrada — plugins oficiais não podem ser removidos por esse comando.
+`plugin list` lê apenas o registro local. Quando um catálogo oficial assinado estiver publicado e acessível, `plugin list --remote` e `plugin info <id> --remote` poderão carregá-lo e mostrar a disponibilidade por plataforma e o estado local, sem persistir uma instalação. Nesse caso, `plugin install <id>` aceitará somente um identificador oficial presente no catálogo e validará o artefato antes da instalação; não aceita URLs ou diretórios arbitrários, nem executa scripts ou instala dependências. Se houver um artefato de idioma catalogado para `source.image`, `image language install <code>` poderá instalá-lo; `por` e `eng` são idiomas-base. `doctor` só executa `healthcheck` para entradas `ready` e apresenta `healthy`, `unhealthy` ou `unchecked`; a última saúde é reutilizada apenas quando identificador, versão e digest do manifesto ainda coincidem, portanto pode aparecer como estado conhecido anterior até a próxima verificação. `test` roda o contrato reutilizável contra uma raiz de plugin. `remove` só remove uma instalação local registrada. Esses comandos, quando houver catálogo e artefatos disponíveis, apenas os consomem: não publicam plugins, não criam releases e não retomam a manutenção do runtime nativo de OCR.
 
 ## Padrões do repositório
 

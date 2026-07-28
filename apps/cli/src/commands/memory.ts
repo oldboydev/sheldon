@@ -1,5 +1,5 @@
 import { lstat, open, realpath, stat } from 'node:fs/promises';
-import { join, resolve, sep } from 'node:path';
+import { basename, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import {
@@ -13,7 +13,7 @@ import {
   type CommandExecutor,
 } from '@sheldon/agent-runtime';
 import type { EntityKind } from '@sheldon/core';
-import { publishPluginFileIngestion } from '@sheldon/ingestion';
+import { publishPluginSourceIngestion } from '@sheldon/ingestion';
 import { PluginHostError, PluginSelector } from '@sheldon/plugin-host';
 import { ReviewService } from '@sheldon/review';
 import { entityDirectory, VaultService } from '@sheldon/vault';
@@ -28,6 +28,21 @@ export interface MemoryCommandDependencies {
 }
 
 export interface FileIngestionOptions extends VaultOption {
+  readonly plugin?: string;
+}
+
+export interface UrlIngestionOptions extends VaultOption {
+  readonly plugin?: string;
+  readonly language?: string;
+}
+
+export interface CrawlIngestionOptions extends VaultOption {
+  readonly plugin?: string;
+  readonly maxDepth: 0 | 1 | 2;
+  readonly maxPages: number;
+}
+
+export interface RepositoryIngestionOptions extends VaultOption {
   readonly plugin?: string;
 }
 
@@ -58,9 +73,9 @@ export async function ingestFile(
       );
     }
     const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) =>
-      publishPluginFileIngestion(
+      publishPluginSourceIngestion(
         {
-          filePath: sourcePath,
+          originalName: basename(sourcePath),
           rawDirectory: join(entity, 'raw'),
           plugin: selection.plugin.manifest,
           options: pluginOptions,
@@ -68,6 +83,141 @@ export async function ingestFile(
         lease,
       ),
     );
+    context.write(JSON.stringify(result, null, 2));
+  });
+}
+
+export async function ingestUrl(
+  kind: EntityKind,
+  slug: string,
+  value: string,
+  options: UrlIngestionOptions,
+  context: CommandContext,
+): Promise<void> {
+  const canonical = canonicalUrl(value);
+  const entity = await resolveEntity(kind, slug, options.vault, context);
+  const input = { url: canonical.href };
+  const pluginOptions: Readonly<Record<string, string>> =
+    options.language === undefined ? {} : { language: options.language };
+  await withPluginServices(context, async ({ discovery, runner }) => {
+    const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
+      capability: 'ingest-url',
+      ...(options.plugin === undefined ? {} : { pluginId: options.plugin }),
+    });
+    if (selection.status === 'ambiguous') {
+      const candidates = selection.candidates.map((candidate) => candidate.id).join(', ');
+      throw new PluginHostError(
+        'PLUGIN_SELECTION_AMBIGUOUS',
+        `More than one plugin supports this input: ${candidates}.`,
+        `${canonical.origin}${canonical.pathname}`,
+        'Retry with --plugin <id> to choose one of the listed plugins.',
+      );
+    }
+    const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) => {
+      const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
+      if (originals.length !== 1) {
+        throw new Error('Plugin URL ingestion requires exactly one original artifact.');
+      }
+      return publishPluginSourceIngestion(
+        {
+          originalName: basename(originals[0].path),
+          rawDirectory: join(entity, 'raw'),
+          plugin: selection.plugin.manifest,
+          options: pluginOptions,
+        },
+        lease,
+      );
+    });
+    context.write(JSON.stringify(result, null, 2));
+  });
+}
+
+export async function ingestCrawl(
+  kind: EntityKind,
+  slug: string,
+  seed: string,
+  options: CrawlIngestionOptions,
+  context: CommandContext,
+): Promise<void> {
+  const canonical = canonicalUrl(seed);
+  const entity = await resolveEntity(kind, slug, options.vault, context);
+  const input = { url: canonical.href };
+  const pluginOptions = {
+    maxDepth: options.maxDepth,
+    maxPages: options.maxPages,
+  };
+  await withPluginServices(context, async ({ discovery, runner }) => {
+    const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
+      capability: 'ingest-site',
+      ...(options.plugin === undefined ? {} : { pluginId: options.plugin }),
+    });
+    if (selection.status === 'ambiguous') {
+      const candidates = selection.candidates.map((candidate) => candidate.id).join(', ');
+      throw new PluginHostError(
+        'PLUGIN_SELECTION_AMBIGUOUS',
+        `More than one plugin supports this input: ${candidates}.`,
+        `${canonical.origin}${canonical.pathname}`,
+        'Retry with --plugin <id> to choose one of the listed plugins.',
+      );
+    }
+    const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) => {
+      const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
+      if (originals.length !== 1) {
+        throw new Error('Plugin site ingestion requires exactly one original artifact.');
+      }
+      return publishPluginSourceIngestion(
+        {
+          originalName: basename(originals[0].path),
+          rawDirectory: join(entity, 'raw'),
+          plugin: selection.plugin.manifest,
+          options: pluginOptions,
+        },
+        lease,
+      );
+    });
+    context.write(JSON.stringify(result, null, 2));
+  });
+}
+
+export async function ingestRepository(
+  kind: EntityKind,
+  slug: string,
+  repository: string,
+  options: RepositoryIngestionOptions,
+  context: CommandContext,
+): Promise<void> {
+  const entity = await resolveEntity(kind, slug, options.vault, context);
+  const input = { repositoryPath: repository };
+  const pluginOptions = {};
+  await withPluginServices(context, async ({ discovery, runner }) => {
+    const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
+      capability: 'ingest-repository',
+      ...(options.plugin === undefined ? {} : { pluginId: options.plugin }),
+    });
+    if (selection.status === 'ambiguous') {
+      const candidates = selection.candidates.map((candidate) => candidate.id).join(', ');
+      throw new PluginHostError(
+        'PLUGIN_SELECTION_AMBIGUOUS',
+        `More than one plugin supports this input: ${candidates}.`,
+        'repository input',
+        'Retry with --plugin <id> to choose one of the listed plugins.',
+      );
+    }
+    const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) => {
+      const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
+      if (originals.length !== 1) {
+        throw new Error('Plugin repository ingestion requires exactly one original artifact.');
+      }
+      return publishPluginSourceIngestion(
+        {
+          originalName: basename(originals[0].path),
+          rawDirectory: join(entity, 'raw'),
+          plugin: selection.plugin.manifest,
+          options: pluginOptions,
+        },
+        lease,
+      );
+    });
     context.write(JSON.stringify(result, null, 2));
   });
 }
@@ -210,6 +360,36 @@ function inputError(
     target,
     'Choose a readable regular file that is not a symbolic link and retry.',
     cause instanceof Error ? { cause } : undefined,
+  );
+}
+
+function canonicalUrl(value: string): URL {
+  let canonical: URL;
+  try {
+    canonical = new URL(value);
+  } catch {
+    return invalidUrlInput();
+  }
+  if (
+    (canonical.protocol !== 'http:' && canonical.protocol !== 'https:') ||
+    !canonical.hostname ||
+    canonical.username ||
+    canonical.password ||
+    canonical.port ||
+    value.includes('#')
+  ) {
+    return invalidUrlInput();
+  }
+  canonical.hash = '';
+  return canonical;
+}
+
+function invalidUrlInput(): never {
+  throw new PluginHostError(
+    'URL_INPUT_INVALID',
+    'The input must be an absolute HTTP(S) URL without credentials, a fragment, or a non-default port.',
+    'URL input',
+    'Choose one public HTTP(S) page URL and retry.',
   );
 }
 

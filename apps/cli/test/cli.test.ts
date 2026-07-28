@@ -150,4 +150,13 @@ describe('runCli', () => {
     expect(result).toMatchObject({ exitCode: 0, stderr: '' });
     expect(result.stdout).toContain('--plugin <id>');
   });
+
+  it('advertises an explicit plugin override for repository ingestion', async () => {
+    const { dependencies } = await makeEnvironment();
+
+    const result = await runCli(['ingest', 'repository', '--help'], dependencies);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(result.stdout).toContain('--plugin <id>');
+  });
 });
