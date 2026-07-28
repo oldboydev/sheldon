@@ -333,8 +333,9 @@ try {
      $dependencyRoot = Join-Path $workRoot "dependency-$Index"
      New-Item -ItemType Directory -Path $dependencyRoot | Out-Null
      Get-PinnedFile $dependency.sourceUrl $dependencyArchive $dependency.sourceSha256
+     $licensePaths = @($dependency.licenses | ForEach-Object { $_.path })
      $extractResult = Invoke-WatchedProcess -FilePath $tar `
-       -ArgumentList @('--extract', '--file', $dependencyArchive, '--directory', $dependencyRoot) `
+       -ArgumentList (@('--extract', '--file', $dependencyArchive, '--directory', $dependencyRoot, '--') + $licensePaths) `
        -Stage 'extract-dependency' -TimeoutSeconds 300 -TimeoutCode 'OCR_RUNTIME_ARCHIVE_TIMEOUT'
      if ($extractResult.ExitCode -ne 0) {
       throw "OCR_RUNTIME_NOTICES_INVALID: Unable to extract pinned source for $($dependency.provider)/$($dependency.name)@$($dependency.version)."
