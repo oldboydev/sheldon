@@ -24,7 +24,7 @@ jobs:
             runner: macos-14
             timeoutMinutes: 360
           - platform: darwin-x64
-            runner: macos-13
+            runner: macos-15-intel
             timeoutMinutes: 360
           - platform: linux-x64
             runner: ubuntu-22.04

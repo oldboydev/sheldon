@@ -149,7 +149,7 @@ describe('Native OCR runtime workflow', () => {
       expect.arrayContaining([
         { platform: 'win32-x64', runner: 'windows-2022', timeoutMinutes: 30 },
         { platform: 'darwin-arm64', runner: 'macos-14', timeoutMinutes: 360 },
-        { platform: 'darwin-x64', runner: 'macos-13', timeoutMinutes: 360 },
+        { platform: 'darwin-x64', runner: 'macos-15-intel', timeoutMinutes: 360 },
         { platform: 'linux-x64', runner: 'ubuntu-22.04', timeoutMinutes: 360 },
       ]),
     );
