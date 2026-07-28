@@ -266,7 +266,7 @@ async function defaultExtract(zipBytes: Uint8Array, destination: string): Promis
     } finally {
       await handle.close();
     }
-    if (entry.executable && isPackagedTesseract(entry.name)) await chmod(output, 0o700);
+    if (entry.executable && isPackagedRuntimeExecutable(entry.name)) await chmod(output, 0o700);
   }
   const root = join(destination, [...roots][0]!);
   try {
@@ -281,14 +281,14 @@ async function defaultExtract(zipBytes: Uint8Array, destination: string): Promis
   }
 }
 
-function isPackagedTesseract(entryName: string): boolean {
+function isPackagedRuntimeExecutable(entryName: string): boolean {
   const parts = entryName.split('/');
   if (parts.length !== 4 || parts[1] !== 'runtime') return false;
   const [platform, executable] = [parts[2], parts[3]];
+  const unix = platform === 'darwin-arm64' || platform === 'darwin-x64' || platform === 'linux-x64';
   return (
-    (platform === 'win32-x64' && executable === 'tesseract.exe') ||
-    ((platform === 'darwin-arm64' || platform === 'darwin-x64' || platform === 'linux-x64') &&
-      executable === 'tesseract')
+    (platform === 'win32-x64' && (executable === 'tesseract.exe' || executable === 'yt-dlp.exe')) ||
+    (unix && (executable === 'tesseract' || executable === 'yt-dlp'))
   );
 }
 

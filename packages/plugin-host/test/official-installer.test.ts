@@ -173,7 +173,7 @@ describe('installOfficialPlugin', () => {
   });
 
   it.skipIf(process.platform === 'win32')(
-    'preserves execute permission only for packaged Tesseract binaries',
+    'preserves execute permission only for packaged runtime binaries',
     async () => {
       const zip = new JSZip();
       zip.file('fixture.node/sheldon-plugin.json', manifest());
@@ -181,6 +181,7 @@ describe('installOfficialPlugin', () => {
       zip.file('fixture.node/runtime/linux-x64/tesseract', 'fixture', {
         unixPermissions: 0o100755,
       });
+      zip.file('fixture.node/runtime/linux-x64/yt-dlp', 'fixture', { unixPermissions: 0o100755 });
       zip.file('fixture.node/runtime/linux-x64/helper', 'fixture', { unixPermissions: 0o100755 });
       const payload = await zip.generateAsync({
         type: 'uint8array',
@@ -192,9 +193,11 @@ describe('installOfficialPlugin', () => {
 
       const tesseractMode = (await stat(join(installed.root, 'runtime', 'linux-x64', 'tesseract')))
         .mode;
+      const ytDlpMode = (await stat(join(installed.root, 'runtime', 'linux-x64', 'yt-dlp'))).mode;
       const pluginMode = (await stat(join(installed.root, 'plugin.mjs'))).mode;
       const helperMode = (await stat(join(installed.root, 'runtime', 'linux-x64', 'helper'))).mode;
       expect(tesseractMode & 0o111).not.toBe(0);
+      expect(ytDlpMode & 0o111).not.toBe(0);
       expect(pluginMode & 0o111).toBe(0);
       expect(helperMode & 0o111).toBe(0);
     },

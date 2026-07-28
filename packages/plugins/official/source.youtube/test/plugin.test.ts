@@ -146,13 +146,17 @@ describe('source.youtube', () => {
     const run = vi
       .fn<YoutubeRunner['run']>()
       .mockResolvedValue({ stdout: '2026.01.01\n', stderr: '' });
-    const plugin = createOfficialSourceYoutubePlugin({ runner: { run } });
+    const plugin = createOfficialSourceYoutubePlugin({
+      pluginRoot: '/managed/source.youtube',
+      platform: 'linux-x64',
+      runner: { run },
+    });
 
     await expect(plugin.healthcheck(context)).resolves.toMatchObject({
       checks: [expect.objectContaining({ id: 'yt-dlp', severity: 'info' })],
     });
     expect(run).toHaveBeenCalledWith(
-      'yt-dlp',
+      join('/managed/source.youtube', 'runtime', 'linux-x64', 'yt-dlp'),
       ['--no-config', '--version'],
       expect.objectContaining({ shell: false }),
     );
