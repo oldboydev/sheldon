@@ -408,7 +408,7 @@ try {
      if ($inspection.ExitCode -ne 0) {
        throw "OCR_RUNTIME_DEPENDENCY_INVALID: Unable to inspect private DLL dependencies for $candidate."
      }
-     $dependencies = $inspection.StdOut |
+     $dependencies = $inspection.StdOut -split "`r?`n" |
        Select-String -Pattern '^\s*DLL Name:\s*(.+)$' |
        ForEach-Object { $_.Matches[0].Groups[1].Value.Trim() }
     foreach ($dependency in $dependencies) {
