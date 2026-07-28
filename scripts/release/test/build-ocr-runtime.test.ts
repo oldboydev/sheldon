@@ -208,8 +208,8 @@ describe('Native OCR runtime workflow', () => {
     );
     expect(builder).toContain('$stdout.Append($stdoutChunk)');
     expect(builder).toContain('$stderr.Append($stderrChunk)');
-    expect(builder).toContain('OCR_RUNTIME_STDOUT: $stdoutChunk');
-    expect(builder).toContain('OCR_RUNTIME_STDERR: $stderrChunk');
+    expect(builder).toContain('[Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")');
+    expect(builder).toContain('[Console]::Error.Write("OCR_RUNTIME_STDERR: $stderrChunk")');
     expect(builder).toContain('$process.WaitForExit(0)');
     expect(builder).toContain('$process.Kill($true)');
     expect(builder).toContain('catch [System.InvalidOperationException]');
@@ -218,6 +218,7 @@ describe('Native OCR runtime workflow', () => {
       'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
     );
     expect(builder).toContain('$process.WaitForExit()');
+    expect(builder).toContain('$process.Dispose()');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
     expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');
     expect(builder).toContain('Write-Host "OCR_RUNTIME_STAGE: $Stage"');
@@ -270,25 +271,30 @@ describe('Native OCR runtime workflow', () => {
     }
   });
 
-  it('times out a large stdin write when the child never reads it', async () => {
-    const root = await temporaryRoot();
+  it.skipIf(process.platform !== 'win32')(
+    'times out a large stdin write when the child never reads it',
+    async () => {
+      const root = await temporaryRoot();
 
-    await expect(
-      runWindowsRunnerTimeoutHarness(
-        root,
-        'Start-Sleep -Seconds 15',
-        "-StandardInput ('x' * 1048576)",
-      ),
-    ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
-  });
+      await expect(
+        runWindowsRunnerTimeoutHarness(
+          root,
+          'Start-Sleep -Seconds 15',
+          "-StandardInput ('x' * 1048576)",
+        ),
+      ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
+    },
+  );
 
-  it('times out and cleans a descendant that keeps the redirected streams open after its parent exits', async () => {
-    const root = await temporaryRoot();
+  it.skipIf(process.platform !== 'win32')(
+    'times out and cleans a descendant that keeps the redirected streams open after its parent exits',
+    async () => {
+      const root = await temporaryRoot();
 
-    await expect(
-      runWindowsRunnerTimeoutHarness(
-        root,
-        `
+      await expect(
+        runWindowsRunnerTimeoutHarness(
+          root,
+          `
 $childInfo = [System.Diagnostics.ProcessStartInfo]::new()
 $childInfo.FileName = Join-Path $PSHOME 'pwsh.exe'
 $childInfo.UseShellExecute = $false
@@ -298,9 +304,10 @@ $childInfo.UseShellExecute = $false
 [void][System.Diagnostics.Process]::Start($childInfo)
 [Console]::Out.WriteLine('DESCENDANT_READY')
 `,
-      ),
-    ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
-  });
+        ),
+      ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
+    },
+  );
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
     const macosBuilder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');

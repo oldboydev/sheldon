@@ -177,7 +177,7 @@ function Invoke-WatchedProcess {
         if ($stdoutCount -gt 0) {
           $stdoutChunk = [string]::new($stdoutBuffer, 0, $stdoutCount)
           [void]$stdout.Append($stdoutChunk)
-          Write-Host "OCR_RUNTIME_STDOUT: $stdoutChunk"
+          [Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")
           $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
         } else {
           $stdoutRead = $null
@@ -188,7 +188,7 @@ function Invoke-WatchedProcess {
         if ($stderrCount -gt 0) {
           $stderrChunk = [string]::new($stderrBuffer, 0, $stderrCount)
           [void]$stderr.Append($stderrChunk)
-          Write-Host "OCR_RUNTIME_STDERR: $stderrChunk"
+          [Console]::Error.Write("OCR_RUNTIME_STDERR: $stderrChunk")
           $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
         } else {
           $stderrRead = $null
@@ -224,6 +224,7 @@ function Invoke-WatchedProcess {
     }
   } finally {
     if ($null -ne $job) { $job.Dispose() }
+    $process.Dispose()
   }
 }
 
