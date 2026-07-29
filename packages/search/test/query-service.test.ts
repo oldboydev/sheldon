@@ -407,7 +407,10 @@ describe('QueryService', () => {
     expect(
       result.concepts.reduce(
         (total, concept) =>
-          total + concept.result.path.length + concept.result.title.length + concept.body.length,
+          total +
+          Array.from(concept.result.path).length +
+          Array.from(concept.result.title).length +
+          Array.from(concept.body).length,
         0,
       ),
     ).toBeLessThanOrEqual(1_000);
@@ -443,6 +446,73 @@ describe('QueryService', () => {
     expect(result.gaps).toContainEqual(
       expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }),
     );
+  });
+
+  it('truncates bodies at Unicode code point boundaries', async () => {
+    const root = await createVault();
+    const unicode = fakeResult({
+      conceptId: 'unicode',
+      path: 'wiki/unicode.md',
+      title: 'Unicode root',
+    });
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'unicode.md',
+      concept({
+        id: 'unicode',
+        title: 'Unicode root',
+        description: 'needle-for-unicode-root',
+        sources: [],
+        body: '😀'.repeat(2_000),
+      }),
+    );
+    const service = new QueryService(root, {
+      search: () => [unicode],
+      findRelatedConcepts: () => [],
+      close: () => undefined,
+    });
+    services.push(service);
+
+    const result = await service.query({
+      question: 'needle-for-unicode-root',
+      maxContextChars: 1_000,
+    });
+    expect(result.truncated).toBe(true);
+    expect(result.concepts[0]!.body).toBe('😀'.repeat(973));
+  });
+
+  it('does not include a first root whose path and title exceed the context budget', async () => {
+    const root = await createVault();
+    const title = 'Large header '.repeat(100);
+    const result = fakeResult({ title, path: `wiki/${'nested/'.repeat(10)}large.md` });
+    const index: QueryIndex = {
+      search: () => [result],
+      findRelatedConcepts: () => [],
+      close: () => undefined,
+    };
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      `${'nested/'.repeat(10)}large.md`,
+      concept({
+        id: 'recall',
+        title,
+        description: 'A large header.',
+        sources: [],
+        body: 'Body that must not bypass the budget.',
+      }),
+    );
+    const service = new QueryService(root, index);
+    services.push(service);
+
+    const query = await service.query({ question: 'large-header', maxContextChars: 1_000 });
+
+    expect(query.concepts).toEqual([]);
+    expect(query.truncated).toBe(true);
+    expect(query.gaps).toContainEqual(expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }));
   });
 
   it('rejects a corrupted indexed concept path on another Windows volume before reading it', async () => {

@@ -142,6 +142,9 @@ const SEARCH_DOCUMENT_COLUMNS = [
   'sources',
   'path',
 ] as const;
+// Each selected key occupies three SQLite bind parameters. Keep this well below
+// SQLite's traditional 999-variable build limit as well as newer defaults.
+const SELECTED_KEYS_BATCH_SIZE = 300;
 
 /**
  * A rebuildable SQLite FTS5 projection of approved wiki concepts. Vault Markdown
@@ -244,21 +247,6 @@ export class SearchIndex {
     return this.toSearchResults(rows as QueryRow[], terms);
   }
 
-  /** Looks up one indexed concept by its entity scope and wiki-relative path. */
-  public findConcept(
-    entity: Pick<SearchResult['entity'], 'kind' | 'slug'>,
-    path: string,
-  ): SearchResult | undefined {
-    const row = this.database
-      .prepare(
-        `SELECT concepts.*, 0 AS score, substr(concepts.description, 1, 240) AS snippet
-         FROM concepts
-         WHERE concepts.entity_kind = ? AND concepts.entity_slug = ? AND concepts.path = ?`,
-      )
-      .get(entity.kind, entity.slug, path);
-    return row === undefined ? undefined : this.toSearchResults([row as QueryRow], [])[0];
-  }
-
   /**
    * Returns direct, same-entity graph relationships from the indexed
    * `concept_links` table. This is the traversal API for consumers; it also
@@ -294,28 +282,6 @@ export class SearchIndex {
       relation: relation.relation,
       result: relation.hasCandidate ? byPath.get(relation.path) : undefined,
     }));
-  }
-
-  /** Returns indexed concepts that link to this concept, scoped to the same entity. */
-  public findBacklinks(
-    entity: Pick<SearchResult['entity'], 'kind' | 'slug'>,
-    path: string,
-  ): SearchResult[] {
-    const rows = this.database
-      .prepare(
-        `SELECT concepts.*, 0 AS score, substr(concepts.description, 1, 240) AS snippet
-         FROM concept_links
-         JOIN concepts ON concepts.entity_kind = concept_links.entity_kind
-           AND concepts.entity_slug = concept_links.entity_slug
-           AND concepts.path = concept_links.source_path
-         WHERE concept_links.entity_kind = ?
-           AND concept_links.entity_slug = ?
-           AND concept_links.target_path = ?
-           AND concepts.path <> ?
-         ORDER BY concepts.path`,
-      )
-      .all(entity.kind, entity.slug, path, path);
-    return this.toSearchResults(rows as QueryRow[], []);
   }
 
   public close(): void {
@@ -364,53 +330,65 @@ export class SearchIndex {
 
   private loadRelationRows(keys: readonly IndexKey[]): RelationRow[] {
     if (keys.length === 0) return [];
-    const selected = keys.map(() => '(?, ?, ?)').join(', ');
-    const values = keys.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
-    return this.database
-      .prepare(
-        `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
-         SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
-                'outgoing' AS direction, concept_links.target_path AS candidate_path,
-                target.concept_id AS candidate_concept_id, target.title AS candidate_title
-         FROM selected
-         JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
-           AND concept_links.entity_slug = selected.entity_slug
-           AND concept_links.source_path = selected.path
-         LEFT JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
-           AND target.entity_slug = concept_links.entity_slug
-           AND target.path = concept_links.target_path
-         WHERE concept_links.target_path <> selected.path
-         UNION ALL
-         SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
-                'backlink' AS direction, concept_links.source_path AS candidate_path,
-                source.concept_id AS candidate_concept_id, source.title AS candidate_title
-         FROM selected
-         JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
-           AND concept_links.entity_slug = selected.entity_slug
-           AND concept_links.target_path = selected.path
-         JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
-           AND source.entity_slug = concept_links.entity_slug
-           AND source.path = concept_links.source_path
-         WHERE concept_links.source_path <> selected.path`,
-      )
-      .all(...values) as RelationRow[];
+    const relations: RelationRow[] = [];
+    for (const batch of batches(keys, SELECTED_KEYS_BATCH_SIZE)) {
+      const selected = batch.map(() => '(?, ?, ?)').join(', ');
+      const values = batch.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
+      relations.push(
+        ...(this.database
+          .prepare(
+            `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
+             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+                    'outgoing' AS direction, concept_links.target_path AS candidate_path,
+                    target.concept_id AS candidate_concept_id, target.title AS candidate_title
+             FROM selected
+             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+               AND concept_links.entity_slug = selected.entity_slug
+               AND concept_links.source_path = selected.path
+             LEFT JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
+               AND target.entity_slug = concept_links.entity_slug
+               AND target.path = concept_links.target_path
+             WHERE concept_links.target_path <> selected.path
+             UNION ALL
+             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+                    'backlink' AS direction, concept_links.source_path AS candidate_path,
+                    source.concept_id AS candidate_concept_id, source.title AS candidate_title
+             FROM selected
+             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+               AND concept_links.entity_slug = selected.entity_slug
+               AND concept_links.target_path = selected.path
+             JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
+               AND source.entity_slug = concept_links.entity_slug
+               AND source.path = concept_links.source_path
+             WHERE concept_links.source_path <> selected.path`,
+          )
+          .all(...values) as RelationRow[]),
+      );
+    }
+    return relations;
   }
 
   private findConceptRows(keys: readonly IndexKey[]): QueryRow[] {
     if (keys.length === 0) return [];
-    const selected = keys.map(() => '(?, ?, ?)').join(', ');
-    const values = keys.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
-    return this.database
-      .prepare(
-        `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
-         SELECT concepts.*, 0 AS score, substr(concepts.description, 1, 240) AS snippet
-         FROM selected
-         JOIN concepts ON concepts.entity_kind = selected.entity_kind
-           AND concepts.entity_slug = selected.entity_slug
-           AND concepts.path = selected.path
-         ORDER BY concepts.path`,
-      )
-      .all(...values) as QueryRow[];
+    const rows: QueryRow[] = [];
+    for (const batch of batches(keys, SELECTED_KEYS_BATCH_SIZE)) {
+      const selected = batch.map(() => '(?, ?, ?)').join(', ');
+      const values = batch.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
+      rows.push(
+        ...(this.database
+          .prepare(
+            `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
+             SELECT concepts.*, 0 AS score, substr(concepts.description, 1, 240) AS snippet
+             FROM selected
+             JOIN concepts ON concepts.entity_kind = selected.entity_kind
+               AND concepts.entity_slug = selected.entity_slug
+               AND concepts.path = selected.path
+             ORDER BY concepts.path`,
+          )
+          .all(...values) as QueryRow[]),
+      );
+    }
+    return rows;
   }
 
   private replaceContents(concepts: readonly IndexedConcept[]): void {
@@ -569,6 +547,12 @@ function rowToIndexKey(row: QueryRow): IndexKey {
 
 function uniqueKeys(keys: readonly IndexKey[]): IndexKey[] {
   return [...new Map(keys.map((key) => [keyOf(key), key])).values()];
+}
+
+function* batches<T>(values: readonly T[], size: number): Generator<readonly T[]> {
+  for (let start = 0; start < values.length; start += size) {
+    yield values.slice(start, start + size);
+  }
 }
 
 function combineRelations(rows: readonly RelationRow[]): Array<{

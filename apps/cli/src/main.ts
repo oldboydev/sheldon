@@ -201,7 +201,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     )
     .option(
       '--max-context-chars <characters>',
-      'maximum cited wiki context passed to the agent (1000-200000; default 24000)',
+      'maximum characters in selected wiki concept records (1000-200000; default 24000)',
       boundedInteger('--max-context-chars', 1_000, 200_000),
     )
     .option('--rebuild', 'rebuild the disposable local index before selecting context')

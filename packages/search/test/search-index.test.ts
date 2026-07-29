@@ -229,35 +229,6 @@ describe('SearchIndex', () => {
     expect(rebuilt.search('recall')).toEqual([expect.objectContaining({ conceptId: 'recall' })]);
   });
 
-  it('looks up an indexed concept by entity and wiki path without a lexical query', async () => {
-    const root = await createVault();
-    await writeConcept(
-      root,
-      'topics',
-      'memory',
-      'recall.md',
-      concept({
-        id: 'recall',
-        type: 'practice',
-        title: 'Active recall',
-        description: 'Retrieve knowledge.',
-        aliases: [],
-        tags: [],
-        sources: ['raw/study/recall.md'],
-        body: 'Practice recall.',
-      }),
-    );
-    const index = await SearchIndex.rebuild(root);
-    indexes.push(index);
-
-    expect(index.findConcept({ kind: 'topic', slug: 'memory' }, 'wiki/recall.md')).toEqual(
-      expect.objectContaining({ conceptId: 'recall' }),
-    );
-    expect(
-      index.findConcept({ kind: 'project', slug: 'memory' }, 'wiki/recall.md'),
-    ).toBeUndefined();
-  });
-
   it('projects deterministic, same-entity outgoing links and backlinks onto search results', async () => {
     const root = await createVault();
     await writeConcept(
@@ -344,7 +315,8 @@ describe('SearchIndex', () => {
     indexes.push(index);
 
     expect(
-      index.findConcept({ kind: 'topic', slug: 'memory' }, 'wiki/active.md')!.relatedConcepts,
+      index.search('active recall').find((result) => result.conceptId === 'active')
+        ?.relatedConcepts,
     ).toEqual([
       {
         conceptId: 'backlink',
@@ -361,11 +333,6 @@ describe('SearchIndex', () => {
         relation: 'bidirectional',
       },
     ]);
-    expect(
-      index
-        .findBacklinks({ kind: 'topic', slug: 'memory' }, 'wiki/active.md')
-        .map((result) => result.conceptId),
-    ).toEqual(['backlink', 'outgoing']);
     expect(index.findRelatedConcepts({ kind: 'topic', slug: 'memory' }, 'wiki/active.md')).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -376,6 +343,104 @@ describe('SearchIndex', () => {
       ]),
     );
   });
+
+  it('batches relationship lookups when an empty search returns more than 10,922 concepts', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'target.md',
+      concept({
+        id: 'target',
+        type: 'note',
+        title: 'Target concept',
+        description: 'The shared relationship target.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'Target.',
+      }),
+    );
+    const built = await SearchIndex.rebuild(root);
+    built.close();
+
+    const database = new DatabaseSync(vaultPaths(root).searchDatabase, { allowExtension: false });
+    const conceptStatement = database.prepare(
+      `INSERT INTO concepts (
+        entity_id, entity_kind, entity_slug, entity_title, concept_id, type, title, description,
+        aliases_json, tags_json, status, created_at, updated_at, updated_at_epoch, sources_json, path, body
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    );
+    const linkStatement = database.prepare(
+      `INSERT INTO concept_links (entity_kind, entity_slug, source_path, target_path)
+       VALUES (?, ?, ?, ?)`,
+    );
+    const timestamp = '2026-07-20T00:00:00.000Z';
+    database.exec('BEGIN;');
+    try {
+      for (let number = 0; number < 10_922; number += 1) {
+        const suffix = String(number).padStart(5, '0');
+        const path = `wiki/bulk/${suffix}.md`;
+        conceptStatement.run(
+          'topic-memory',
+          'topic',
+          'memory',
+          'Memory',
+          `bulk-${suffix}`,
+          'note',
+          `Bulk concept ${suffix}`,
+          'A bulk relationship source.',
+          '[]',
+          '[]',
+          'active',
+          timestamp,
+          timestamp,
+          Date.parse(timestamp),
+          '[]',
+          path,
+          '',
+        );
+        linkStatement.run('topic', 'memory', path, 'wiki/target.md');
+      }
+      database.exec('COMMIT;');
+    } catch (error) {
+      database.exec('ROLLBACK;');
+      throw error;
+    } finally {
+      database.close();
+    }
+
+    const index = SearchIndex.open(root);
+    indexes.push(index);
+    const results = index.search('');
+
+    expect(results).toHaveLength(10_923);
+    for (const conceptId of ['bulk-00000', 'bulk-10921']) {
+      expect(results.find((result) => result.conceptId === conceptId)?.relatedConcepts).toEqual([
+        expect.objectContaining({
+          conceptId: 'target',
+          path: 'wiki/target.md',
+          relation: 'outgoing',
+        }),
+      ]);
+    }
+    const targetRelations = index.findRelatedConcepts(
+      { kind: 'topic', slug: 'memory' },
+      'wiki/target.md',
+    );
+    expect(targetRelations).toHaveLength(10_922);
+    expect(targetRelations[0]).toMatchObject({
+      path: 'wiki/bulk/00000.md',
+      relation: 'backlink',
+      result: { conceptId: 'bulk-00000' },
+    });
+    expect(targetRelations.at(-1)).toMatchObject({
+      path: 'wiki/bulk/10921.md',
+      relation: 'backlink',
+      result: { conceptId: 'bulk-10921' },
+    });
+  }, 15_000);
 
   it('keeps duplicate wiki paths separate by entity and compares date filters by instant', async () => {
     const root = await createVault();

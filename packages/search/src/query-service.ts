@@ -12,7 +12,7 @@ import {
   type SearchResult,
 } from './search-index.js';
 
-/** Default maximum number of rendered concept characters supplied as query context. */
+/** Default maximum number of Unicode code points in selected concept context. */
 export const DEFAULT_MAX_CONTEXT_CHARS = 24_000;
 
 export interface QueryRequest {
@@ -24,8 +24,9 @@ export interface QueryRequest {
   /** Maximum number of same-entity wiki relationship hops (links and backlinks). Defaults to 1. */
   readonly linkDepth?: number;
   /**
-   * Maximum characters across the selected concepts' rendered paths, titles, and bodies. Defaults
-   * to {@link DEFAULT_MAX_CONTEXT_CHARS}. A selected concept body may be cut to fit this budget.
+   * Maximum Unicode code points across the selected concepts' paths, titles, and bodies. Defaults
+   * to {@link DEFAULT_MAX_CONTEXT_CHARS}. This bounds selected context only; prompt rendering is
+   * the responsibility of the caller. A selected concept body may be cut to fit this budget.
    */
   readonly maxContextChars?: number;
 }
@@ -61,7 +62,7 @@ export interface QueryGap {
 
 export interface QueryResult {
   readonly question: string;
-  /** True when the configured root-hit or context-character limit excluded selected context. */
+  /** True when the configured root-hit or selected-context limit excluded context. */
   readonly truncated: boolean;
   readonly concepts: readonly QueryConcept[];
   readonly citations: readonly QueryCitation[];
@@ -125,7 +126,6 @@ export class QueryService {
         current.result,
         loaded.body,
         maxContextChars - contextChars,
-        concepts.length === 0,
       );
       if (selection === undefined) {
         truncated = true;
@@ -281,19 +281,37 @@ function selectBodyWithinBudget(
   result: SearchResult,
   body: string,
   remaining: number,
-  isFirstConcept: boolean,
 ): { readonly body: string; readonly characters: number; readonly truncated: boolean } | undefined {
-  const headerCharacters = result.path.length + result.title.length;
-  if (remaining < headerCharacters && !isFirstConcept) return undefined;
+  const headerCharacters = codePointLength(result.path) + codePointLength(result.title);
+  if (remaining < headerCharacters) return undefined;
 
-  const bodyBudget = Math.max(0, remaining - headerCharacters);
-  const selectedBody = body.slice(0, bodyBudget);
-  const truncated = selectedBody.length < body.length;
+  const bodyBudget = remaining - headerCharacters;
+  const selectedBody = truncateToCodePointsAtWordBoundary(body, bodyBudget);
+  const truncated = codePointLength(selectedBody) < codePointLength(body);
   return {
     body: selectedBody,
-    characters: headerCharacters + selectedBody.length,
+    characters: headerCharacters + codePointLength(selectedBody),
     truncated,
   };
+}
+
+function codePointLength(value: string): number {
+  return Array.from(value).length;
+}
+
+/**
+ * Keeps a valid Unicode prefix while favouring a preceding whitespace boundary when one fits.
+ * A long first word still uses the available code-point budget rather than being discarded.
+ */
+function truncateToCodePointsAtWordBoundary(value: string, maximum: number): string {
+  const codePoints = Array.from(value);
+  if (codePoints.length <= maximum) return value;
+
+  const prefix = codePoints.slice(0, maximum);
+  for (let index = prefix.length - 1; index >= 0; index -= 1) {
+    if (/\s/u.test(prefix[index]!)) return prefix.slice(0, index).join('');
+  }
+  return prefix.join('');
 }
 
 function conceptKey(result: SearchResult): string {
