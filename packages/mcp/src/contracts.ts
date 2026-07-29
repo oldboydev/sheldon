@@ -67,6 +67,14 @@ export interface ReadConceptRequest {
   readonly conceptId: string;
 }
 
+/** The approved wiki body is loaded by the local host, never from the index cache. */
+export interface WikiConceptReader {
+  readConcept(
+    concept: KnowledgeConcept,
+    maximumCharacters: number,
+  ): Promise<{ readonly body: string; readonly truncated: boolean }>;
+}
+
 export interface ListRelatedRequest {
   readonly scope: KnowledgeScope;
   readonly path: string;

@@ -46,8 +46,7 @@ export class ScopedKnowledgeFacade {
     return this.index
       .search(request.query, filterFor(scope), { includeRelatedConcepts: false })
       .filter((concept) => sameScope(concept.entity, scope))
-      .map((concept) => toKnowledgeConcept(concept))
-      .sort(compareConcepts);
+      .map((concept) => toKnowledgeConcept(concept));
   }
 
   public readConcept(request: ReadConceptRequest): KnowledgeConcept | undefined {
@@ -79,6 +78,11 @@ export class ScopedKnowledgeFacade {
         relation: relation.relation,
         ...(relation.result === undefined ? {} : { concept: toKnowledgeConcept(relation.result) }),
       }));
+  }
+
+  /** Authorizes a supplied scope without materializing any indexed concepts. */
+  public assertScopeAuthorized(scope: KnowledgeScope): KnowledgeScope {
+    return this.requireAllowedScope(scope);
   }
 
   private requireAllowedScope(scope: KnowledgeScope | undefined): KnowledgeScope {
@@ -165,8 +169,4 @@ function nonEmptyString(value: unknown): value is string {
 function compareScopes(left: KnowledgeScope, right: KnowledgeScope): number {
   const kindOrder = (kind: KnowledgeScope['kind']): number => (kind === 'topic' ? 0 : 1);
   return kindOrder(left.kind) - kindOrder(right.kind) || left.slug.localeCompare(right.slug);
-}
-
-function compareConcepts(left: KnowledgeConcept, right: KnowledgeConcept): number {
-  return left.path.localeCompare(right.path) || left.id.localeCompare(right.id);
 }

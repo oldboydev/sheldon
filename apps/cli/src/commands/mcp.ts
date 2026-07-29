@@ -15,6 +15,7 @@ import {
 import { SearchIndex } from '@sheldon/search';
 import { atomicWriteFile, entityDirectory, VaultService } from '@sheldon/vault';
 import { parse, stringify } from 'yaml';
+import { markdownBody } from '@sheldon/core';
 
 import {
   consumerMcpConfigPath,
@@ -110,6 +111,7 @@ export async function doctorMcp(consumer: string, context: CommandContext): Prom
       rawExcerptReader: new LocalRawExcerptReader(configuration.vault),
       rawAccessAuditWriter: new LocalRawAudit(configuration.vault),
       feedbackWriter: new LocalFeedbackWriter(configuration.vault),
+      wikiConceptReader: new LocalWikiConceptReader(configuration.vault),
       sessionId: 'doctor-local-session',
     });
     const tools = await handler.handle({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
@@ -160,6 +162,7 @@ export async function serveMcp(consumerConfig: string): Promise<void> {
       rawExcerptReader: new LocalRawExcerptReader(configuration.vault),
       rawAccessAuditWriter: new LocalRawAudit(configuration.vault),
       feedbackWriter: new LocalFeedbackWriter(configuration.vault),
+      wikiConceptReader: new LocalWikiConceptReader(configuration.vault),
       sessionId: randomUUID(),
     });
   } finally {
@@ -411,6 +414,35 @@ class LocalRawExcerptReader {
       text: lines.slice(citation.startLine - 1, citation.endLine).join('\n'),
       startLine: citation.startLine,
       endLine: citation.endLine,
+    };
+  }
+}
+
+class LocalWikiConceptReader {
+  public constructor(private readonly vault: string) {}
+
+  public async readConcept(
+    concept: {
+      readonly scope: { readonly kind: 'topic' | 'project'; readonly slug: string };
+      readonly path: string;
+    },
+    maximumCharacters: number,
+  ): Promise<{ readonly body: string; readonly truncated: boolean }> {
+    const entity = entityDirectory(this.vault, concept.scope.kind, concept.scope.slug);
+    const wikiRoot = resolve(entity, 'wiki');
+    const source = resolve(entity, concept.path);
+    const relation = relative(wikiRoot, source);
+    if (relation.startsWith('..') || relation === '' || isAbsolute(relation)) {
+      throw new Error('Concept path resolves outside the authorized wiki directory.');
+    }
+    const stats = await lstat(source);
+    if (!stats.isFile()) throw new Error('Concept content must be a regular wiki file.');
+    const body = markdownBody(await readFile(source, 'utf8'));
+    const characters = Array.from(body);
+    if (characters.length <= maximumCharacters) return { body, truncated: false };
+    return {
+      body: `${characters.slice(0, Math.max(0, maximumCharacters - 14)).join('')}… [truncated]`,
+      truncated: true,
     };
   }
 }

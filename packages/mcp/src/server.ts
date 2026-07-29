@@ -1,3 +1,5 @@
+import { StringDecoder } from 'node:string_decoder';
+
 import type {
   FeedbackInput,
   FeedbackKind,
@@ -7,6 +9,7 @@ import type {
   RawAccessAuditWriter,
   RawExcerptReader,
   RawSourceCitation,
+  WikiConceptReader,
 } from './contracts.js';
 import { McpScopeError } from './errors.js';
 import { ScopedKnowledgeFacade } from './scoped-knowledge-facade.js';
@@ -18,6 +21,7 @@ export interface McpServerDependencies {
   readonly rawExcerptReader: RawExcerptReader;
   readonly rawAccessAuditWriter: RawAccessAuditWriter;
   readonly feedbackWriter: FeedbackWriter;
+  readonly wikiConceptReader: WikiConceptReader;
   /** A host-created, local session identity attached to audits and feedback. */
   readonly sessionId: string;
   readonly now?: () => Date;
@@ -64,8 +68,9 @@ export async function serveStdio(
 ): Promise<void> {
   const handler = createMcpRequestHandler(dependencies);
   let pending = '';
+  const decoder = new StringDecoder('utf8');
   for await (const chunk of input) {
-    pending += chunk.toString();
+    pending += typeof chunk === 'string' ? chunk : decoder.write(chunk);
     let newline = pending.indexOf('\n');
     while (newline >= 0) {
       const line = pending.slice(0, newline).trim();
@@ -77,6 +82,7 @@ export async function serveStdio(
       newline = pending.indexOf('\n');
     }
   }
+  pending += decoder.end();
   if (pending.trim().length > 0) {
     const response = await handler.handle(parseRequest(pending));
     if (response !== undefined) output.write(`${JSON.stringify(response)}\n`);
@@ -152,17 +158,11 @@ class McpToolServer {
         requireOnly(args, []);
         return this.dependencies.facade.listScopes();
       case 'search_knowledge':
-        requireOnly(args, ['scope', 'query']);
-        return this.dependencies.facade.searchKnowledge({
-          scope: scope(args.scope),
-          query: string(args.query, 'search_knowledge requires a query.'),
-        });
+        requireOnly(args, ['scope', 'query', 'limit']);
+        return this.searchKnowledge(args);
       case 'read_concept':
-        requireOnly(args, ['scope', 'concept_id']);
-        return this.dependencies.facade.readConcept({
-          scope: scope(args.scope),
-          conceptId: string(args.concept_id, 'read_concept requires a concept_id.'),
-        });
+        requireOnly(args, ['scope', 'concept_id', 'max_chars']);
+        return this.readConcept(args);
       case 'read_source_excerpt':
         requireOnly(args, ['scope', 'concept_id', 'source_path', 'start_line', 'end_line']);
         return this.readSourceExcerpt(args);
@@ -181,6 +181,30 @@ class McpToolServer {
       default:
         throw new RpcError(-32602, `Unknown Sheldon tool: ${name}.`);
     }
+  }
+
+  private searchKnowledge(args: Record<string, unknown>): unknown {
+    const limit = boundedInteger(args.limit, 'limit', 1, 100, 20);
+    const concepts = this.dependencies.facade.searchKnowledge({
+      scope: scope(args.scope),
+      query: string(args.query, 'search_knowledge requires a query.'),
+    });
+    return { concepts: concepts.slice(0, limit), truncated: concepts.length > limit };
+  }
+
+  private async readConcept(args: Record<string, unknown>): Promise<unknown> {
+    const concept = this.dependencies.facade.readConcept({
+      scope: scope(args.scope),
+      conceptId: string(args.concept_id, 'read_concept requires a concept_id.'),
+    });
+    if (concept === undefined) {
+      throw new McpScopeError('Requested concept was not found in the authorized scope.');
+    }
+    const content = await this.dependencies.wikiConceptReader.readConcept(
+      concept,
+      boundedInteger(args.max_chars, 'max_chars', 1_000, 24_000, 12_000),
+    );
+    return { ...concept, content: content.body, contentTruncated: content.truncated };
   }
 
   private async readSourceExcerpt(args: Record<string, unknown>): Promise<unknown> {
@@ -236,7 +260,7 @@ class McpToolServer {
     }
     if (requestedScope !== undefined) {
       // Feedback must be authorized even when it names no concept.
-      this.dependencies.facade.searchKnowledge({ scope: requestedScope, query: '' });
+      this.dependencies.facade.assertScopeAuthorized(requestedScope);
     }
     if (conceptId !== undefined && requestedScope !== undefined) {
       const concept = this.dependencies.facade.readConcept({ scope: requestedScope, conceptId });
@@ -272,13 +296,21 @@ function toolDefinitions(): readonly Record<string, unknown>[] {
     },
     {
       name: 'search_knowledge',
-      description: 'Search concepts inside one explicitly authorized scope.',
-      inputSchema: schema(scopeSchema, ['scope', 'query'], { query: { type: 'string' } }),
+      description:
+        'Search concepts inside one explicitly authorized scope. The local BM25 score is ascending: lower is more relevant.',
+      inputSchema: schema(scopeSchema, ['scope', 'query'], {
+        query: { type: 'string' },
+        limit: { type: 'integer', minimum: 1, maximum: 100 },
+      }),
     },
     {
       name: 'read_concept',
-      description: 'Read stable concept metadata and provenance inside one authorized scope.',
-      inputSchema: schema(scopeSchema, ['scope', 'concept_id'], { concept_id: { type: 'string' } }),
+      description:
+        'Read approved wiki content, stable metadata, and provenance inside one authorized scope.',
+      inputSchema: schema(scopeSchema, ['scope', 'concept_id'], {
+        concept_id: { type: 'string' },
+        max_chars: { type: 'integer', minimum: 1000, maximum: 24000 },
+      }),
     },
     {
       name: 'read_source_excerpt',
@@ -382,6 +414,20 @@ function rawPath(value: unknown): string {
 function positiveInteger(value: unknown, name: string): number {
   if (typeof value !== 'number' || !Number.isInteger(value) || value < 1)
     throw new RpcError(-32602, `${name} must be a positive integer.`);
+  return value;
+}
+
+function boundedInteger(
+  value: unknown,
+  name: string,
+  minimum: number,
+  maximum: number,
+  fallback: number,
+): number {
+  if (value === undefined) return fallback;
+  if (typeof value !== 'number' || !Number.isInteger(value) || value < minimum || value > maximum) {
+    throw new RpcError(-32602, `${name} must be an integer from ${minimum} to ${maximum}.`);
+  }
   return value;
 }
 

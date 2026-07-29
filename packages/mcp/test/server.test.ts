@@ -62,7 +62,42 @@ describe('local MCP request handler', () => {
 
     expect(fixture.searchKnowledge).toHaveBeenCalledWith({ scope: alphaScope, query: 'secret' });
     expect(response?.result).toMatchObject({
-      structuredContent: [expect.objectContaining({ id: 'alpha-secret', path: 'wiki/secret.md' })],
+      structuredContent: {
+        concepts: [expect.objectContaining({ id: 'alpha-secret', path: 'wiki/secret.md' })],
+        truncated: false,
+      },
+    });
+  });
+
+  it('reads bounded approved wiki content and returns a valid tool error for an absent concept', async () => {
+    const fixture = dependencies();
+    const handler = createMcpRequestHandler(fixture.dependencies);
+    const response = await handler.handle(
+      request('tools/call', {
+        name: 'read_concept',
+        arguments: { scope: alphaScope, concept_id: 'alpha-secret', max_chars: 1000 },
+      }),
+    );
+    expect(response?.result).toMatchObject({
+      structuredContent: expect.objectContaining({
+        content: 'Approved wiki body.',
+        contentTruncated: false,
+      }),
+    });
+
+    const absentFixture = dependencies();
+    (absentFixture.dependencies.facade.readConcept as ReturnType<typeof vi.fn>).mockReturnValue(
+      undefined,
+    );
+    const absent = await createMcpRequestHandler(absentFixture.dependencies).handle(
+      request('tools/call', {
+        name: 'read_concept',
+        arguments: { scope: alphaScope, concept_id: 'missing' },
+      }),
+    );
+    expect(absent?.result).toMatchObject({
+      isError: true,
+      content: [{ type: 'text', text: expect.any(String) }],
     });
   });
 
@@ -211,6 +246,9 @@ function dependencies(): {
       rawExcerptReader: { readExcerpt },
       rawAccessAuditWriter: { append: audit },
       feedbackWriter: { file: fileFeedback },
+      wikiConceptReader: {
+        readConcept: vi.fn(async () => ({ body: 'Approved wiki body.', truncated: false })),
+      },
       sessionId: 'session-a',
       now: () => new Date('2026-07-29T12:00:00.000Z'),
     },

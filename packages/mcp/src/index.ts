@@ -12,6 +12,7 @@ export type {
   ReadConceptRequest,
   RelatedKnowledgeConcept,
   SearchKnowledgeRequest,
+  WikiConceptReader,
   RawAccessAuditEntry,
   RawAccessAuditWriter,
   RawExcerptReader,

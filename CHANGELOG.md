@@ -23,6 +23,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- `read_concept` do MCP agora lê o corpo aprovado da wiki através de um adaptador local com orçamento explícito, enquanto buscas MCP preservam a ordem BM25, possuem limite padrão e o transporte decodifica UTF-8 entre chunks sem corromper texto.
 - Busca e consulta reutilizam o índice local existente por padrão, com `--rebuild` para forçar uma projeção nova; um schema de índice desatualizado também é recriado automaticamente. A consulta deixa de materializar o vault inteiro para seguir links e backlinks, aplica `--max-context-chars` e registra truncamento no output da resposta.
 - A projeção de relações passou a paginar consultas SQLite para vaults grandes; o orçamento de contexto conta pontos de código Unicode dos registros de conceito selecionados e não corta pares substitutos.
 - O corte de corpos longos preserva o orçamento quando uma fronteira de palavra distante seria ineficiente; respostas sem conceitos agora distinguem ausência de cobertura de cobertura excluída pelo orçamento.

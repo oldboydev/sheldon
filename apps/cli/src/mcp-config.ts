@@ -44,7 +44,7 @@ export function validateConsumerMcpConfiguration(
     if (
       !isRecord(scope) ||
       (scope.kind !== 'topic' && scope.kind !== 'project') ||
-      !nonEmpty(scope.slug)
+      !validSlug(scope.slug)
     ) {
       throw invalid(source, 'only non-empty topic or project scopes');
     }
@@ -105,9 +105,13 @@ function invalid(source: string, requirement: string): VaultError {
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function nonEmpty(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
+}
+
+function validSlug(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9][a-z0-9-]*$/u.test(value);
 }
