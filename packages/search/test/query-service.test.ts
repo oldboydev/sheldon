@@ -135,6 +135,82 @@ describe('QueryService', () => {
     });
   });
 
+  it('follows same-entity backlinks with the configured depth while avoiding cycles', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'active.md',
+      concept({
+        id: 'active',
+        title: 'Unique root',
+        description: 'Retrieve knowledge.',
+        sources: [],
+        body: 'The traversal root.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'spacing.md',
+      concept({
+        id: 'spacing',
+        title: 'Spacing',
+        description: 'A linked practice.',
+        sources: [],
+        body: '[Active](active.md) [Interleaving](interleaving.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'interleaving.md',
+      concept({
+        id: 'interleaving',
+        title: 'Interleaving',
+        description: 'A second hop.',
+        sources: [],
+        body: '[Spacing](spacing.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'projects',
+      'sheldon',
+      'active.md',
+      concept({
+        id: 'project-active',
+        title: 'Project active',
+        description: 'Separate scope.',
+        sources: [],
+        body: 'No cross-entity traversal.',
+      }),
+    );
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    await expect(
+      service.query({ question: 'unique', filters: { topic: 'memory' }, linkDepth: 1 }),
+    ).resolves.toMatchObject({
+      concepts: [
+        { result: { conceptId: 'active' }, depth: 0 },
+        { result: { conceptId: 'spacing' }, depth: 1 },
+      ],
+    });
+    await expect(
+      service.query({ question: 'unique', filters: { topic: 'memory' }, linkDepth: 2 }),
+    ).resolves.toMatchObject({
+      concepts: [
+        { result: { conceptId: 'active' }, depth: 0 },
+        { result: { conceptId: 'spacing' }, depth: 1 },
+        { result: { conceptId: 'interleaving' }, depth: 2 },
+      ],
+    });
+  });
+
   it('honors entity filters for index roots while expanding only links in their entity', async () => {
     const root = await createVault();
     await writeConcept(

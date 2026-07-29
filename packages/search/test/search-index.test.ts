@@ -227,6 +227,98 @@ describe('SearchIndex', () => {
     ).toBeUndefined();
   });
 
+  it('projects deterministic, same-entity outgoing links and backlinks onto search results', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'active.md',
+      concept({
+        id: 'active',
+        type: 'practice',
+        title: 'Active recall',
+        description: 'Retrieve knowledge.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: '[Self](active.md) [Outgoing](outgoing.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'outgoing.md',
+      concept({
+        id: 'outgoing',
+        type: 'note',
+        title: 'Outgoing concept',
+        description: 'A neighbour.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: '[Back to active](active.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'backlink.md',
+      concept({
+        id: 'backlink',
+        type: 'note',
+        title: 'Backlink concept',
+        description: 'Another neighbour.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: '[Active](active.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'projects',
+      'sheldon',
+      'active.md',
+      concept({
+        id: 'project-active',
+        type: 'note',
+        title: 'Project active',
+        description: 'A separate entity.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: '[Outside scope](../../topics/memory/wiki/active.md)',
+      }),
+    );
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    expect(index.search('active', { topic: 'memory' })[0]!.relatedConcepts).toEqual([
+      {
+        conceptId: 'backlink',
+        entity: expect.objectContaining({ kind: 'topic', slug: 'memory' }),
+        path: 'wiki/backlink.md',
+        title: 'Backlink concept',
+        relation: 'backlink',
+      },
+      {
+        conceptId: 'outgoing',
+        entity: expect.objectContaining({ kind: 'topic', slug: 'memory' }),
+        path: 'wiki/outgoing.md',
+        title: 'Outgoing concept',
+        relation: 'bidirectional',
+      },
+    ]);
+    expect(
+      index
+        .findBacklinks({ kind: 'topic', slug: 'memory' }, 'wiki/active.md')
+        .map((result) => result.conceptId),
+    ).toEqual(['backlink', 'outgoing']);
+  });
+
   it('keeps duplicate wiki paths separate by entity and compares date filters by instant', async () => {
     const root = await createVault();
     await writeConcept(
@@ -391,7 +483,7 @@ created_at: ${timestamp}
 updated_at: ${timestamp}
 status: ${input.status ?? 'active'}
 sources:
-${input.sources.map((value) => `  - ${value}`).join('\n')}
+${input.sources.map((value) => `  - ${value}`).join('\n') || '  []'}
 ---
 # ${input.title}
 

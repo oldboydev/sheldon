@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
-import { dirname, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 
 import { vaultPaths } from '@sheldon/vault';
@@ -42,6 +42,17 @@ export interface SearchResult {
   readonly snippet: string;
   readonly score: number;
   readonly matchFields: readonly SearchMatchField[];
+  /** Direct wiki neighbours in the same entity, ordered by their wiki path. */
+  readonly relatedConcepts: readonly SearchRelatedConcept[];
+}
+
+export interface SearchRelatedConcept {
+  readonly conceptId: string;
+  readonly entity: SearchResult['entity'];
+  readonly path: string;
+  readonly title: string;
+  /** Whether this concept links to the neighbour, is linked by it, or both. */
+  readonly relation: 'outgoing' | 'backlink' | 'bidirectional';
 }
 
 export type SearchMatchField =
@@ -65,6 +76,8 @@ interface IndexedConcept {
   readonly sources: readonly string[];
   readonly path: string;
   readonly body: string;
+  /** Wiki-relative destinations of local Markdown links, including unresolved targets. */
+  readonly links: readonly string[];
 }
 
 interface EntityMetadata {
@@ -112,9 +125,11 @@ export class SearchIndex {
     const database = new DatabaseSync(databasePath, { allowExtension: false });
     try {
       const schema = database
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'concepts'")
-        .get();
-      if (schema === undefined) {
+        .prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('concepts', 'concept_links')",
+        )
+        .all();
+      if (schema.length !== 2) {
         throw new SearchIndexError(
           'Search index is incomplete. Run SearchIndex.rebuild(vaultRoot).',
         );
@@ -168,7 +183,7 @@ export class SearchIndex {
             )
             .all(...values, terms.map((term) => `"${term}"`).join(' AND '));
 
-    return rows.map((row) => toSearchResult(row as QueryRow, terms));
+    return rows.map((row) => this.toSearchResult(row as QueryRow, terms));
   }
 
   /** Looks up one indexed concept by its entity scope and wiki-relative path. */
@@ -183,11 +198,110 @@ export class SearchIndex {
          WHERE concepts.entity_kind = ? AND concepts.entity_slug = ? AND concepts.path = ?`,
       )
       .get(entity.kind, entity.slug, path);
-    return row === undefined ? undefined : toSearchResult(row as QueryRow, []);
+    return row === undefined ? undefined : this.toSearchResult(row as QueryRow, []);
+  }
+
+  /** Returns indexed concepts that link to this concept, scoped to the same entity. */
+  public findBacklinks(
+    entity: Pick<SearchResult['entity'], 'kind' | 'slug'>,
+    path: string,
+  ): SearchResult[] {
+    const rows = this.database
+      .prepare(
+        `SELECT concepts.*, 0 AS score, substr(concepts.description, 1, 240) AS snippet
+         FROM concept_links
+         JOIN concepts ON concepts.entity_kind = concept_links.entity_kind
+           AND concepts.entity_slug = concept_links.entity_slug
+           AND concepts.path = concept_links.source_path
+         WHERE concept_links.entity_kind = ?
+           AND concept_links.entity_slug = ?
+           AND concept_links.target_path = ?
+           AND concepts.path <> ?
+         ORDER BY concepts.path`,
+      )
+      .all(entity.kind, entity.slug, path, path);
+    return rows.map((row) => this.toSearchResult(row as QueryRow, []));
   }
 
   public close(): void {
     this.database.close();
+  }
+
+  private toSearchResult(row: QueryRow, terms: readonly string[]): SearchResult {
+    return {
+      ...toSearchResultBase(row, terms),
+      relatedConcepts: this.relatedConcepts(row),
+    };
+  }
+
+  private relatedConcepts(row: QueryRow): readonly SearchRelatedConcept[] {
+    const entityKind = String(row.entity_kind);
+    const entitySlug = String(row.entity_slug);
+    const path = String(row.path);
+    const entity: SearchResult['entity'] = {
+      id: String(row.entity_id),
+      kind: entityKind as SearchEntityKind,
+      slug: entitySlug,
+      title: String(row.entity_title),
+    };
+    const neighbours = new Map<
+      string,
+      Omit<SearchRelatedConcept, 'relation'> & { directions: Set<string> }
+    >();
+    const add = (candidate: QueryRow, direction: 'outgoing' | 'backlink'): void => {
+      const candidatePath = String(candidate.path);
+      const existing = neighbours.get(candidatePath);
+      if (existing !== undefined) {
+        existing.directions.add(direction);
+        return;
+      }
+      neighbours.set(candidatePath, {
+        conceptId: String(candidate.concept_id),
+        entity,
+        path: candidatePath,
+        title: String(candidate.title),
+        directions: new Set([direction]),
+      });
+    };
+    const outgoing = this.database
+      .prepare(
+        `SELECT target.concept_id, target.path, target.title
+         FROM concept_links
+         JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
+           AND target.entity_slug = concept_links.entity_slug
+           AND target.path = concept_links.target_path
+         WHERE concept_links.entity_kind = ?
+           AND concept_links.entity_slug = ?
+           AND concept_links.source_path = ?
+           AND target.path <> ?
+         ORDER BY target.path`,
+      )
+      .all(entityKind, entitySlug, path, path);
+    for (const candidate of outgoing) add(candidate as QueryRow, 'outgoing');
+    const incoming = this.database
+      .prepare(
+        `SELECT source.concept_id, source.path, source.title
+         FROM concept_links
+         JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
+           AND source.entity_slug = concept_links.entity_slug
+           AND source.path = concept_links.source_path
+         WHERE concept_links.entity_kind = ?
+           AND concept_links.entity_slug = ?
+           AND concept_links.target_path = ?
+           AND source.path <> ?
+         ORDER BY source.path`,
+      )
+      .all(entityKind, entitySlug, path, path);
+    for (const candidate of incoming) add(candidate as QueryRow, 'backlink');
+    return [...neighbours.values()]
+      .map(({ directions, ...candidate }): SearchRelatedConcept => ({
+        ...candidate,
+        relation:
+          directions.size === 2
+            ? 'bidirectional'
+            : ([...directions][0]! as 'outgoing' | 'backlink'),
+      }))
+      .sort((left, right) => compareStrings(left.path, right.path));
   }
 
   private replaceContents(concepts: readonly IndexedConcept[]): void {
@@ -205,6 +319,15 @@ export class SearchIndex {
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       );
       for (const concept of concepts) this.insert(concept, conceptStatement, documentStatement);
+      const linkStatement = this.database.prepare(
+        `INSERT INTO concept_links (entity_kind, entity_slug, source_path, target_path)
+         VALUES (?, ?, ?, ?)`,
+      );
+      for (const concept of concepts) {
+        for (const targetPath of concept.links) {
+          linkStatement.run(concept.entityKind, concept.entitySlug, concept.path, targetPath);
+        }
+      }
       this.database.exec('COMMIT;');
     } catch (error) {
       try {
@@ -219,6 +342,7 @@ export class SearchIndex {
   private resetSchema(): void {
     this.database.exec(`
       DROP TABLE IF EXISTS search_documents;
+      DROP TABLE IF EXISTS concept_links;
       DROP TABLE IF EXISTS concepts;
       CREATE TABLE concepts (
         entity_id TEXT NOT NULL,
@@ -244,6 +368,14 @@ export class SearchIndex {
       CREATE INDEX concepts_type ON concepts (type);
       CREATE INDEX concepts_status ON concepts (status);
       CREATE INDEX concepts_updated_at_epoch ON concepts (updated_at_epoch);
+      CREATE TABLE concept_links (
+        entity_kind TEXT NOT NULL CHECK (entity_kind IN ('topic', 'project')),
+        entity_slug TEXT NOT NULL,
+        source_path TEXT NOT NULL,
+        target_path TEXT NOT NULL,
+        PRIMARY KEY (entity_kind, entity_slug, source_path, target_path)
+      ) STRICT;
+      CREATE INDEX concept_links_target ON concept_links (entity_kind, entity_slug, target_path);
       CREATE VIRTUAL TABLE search_documents USING fts5(
         title, description, aliases, tags, body, sources, path,
         tokenize = 'unicode61 remove_diacritics 2'
@@ -311,6 +443,7 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
         const content = await readFile(file, 'utf8');
         const frontmatter = parseFrontmatter(content, relative(entityRoot, file));
         const title = requiredString(frontmatter, 'title', file);
+        const path = `wiki/${relative(join(entityRoot, 'wiki'), file).replace(/\\/g, '/')}`;
         concepts.push({
           entityId: metadata.id,
           entityKind: kind,
@@ -327,8 +460,9 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
           updatedAt: timestamp(frontmatter, 'updated_at', file),
           updatedAtEpoch: timestampEpoch(frontmatter, 'updated_at', file),
           sources: stringList(frontmatter, 'sources', file),
-          path: `wiki/${relative(join(entityRoot, 'wiki'), file).replace(/\\/g, '/')}`,
+          path,
           body: markdownBody(content),
+          links: linkedWikiPaths(content, file, entityRoot),
         });
       }
     }
@@ -477,7 +611,10 @@ function searchTerms(query: string): string[] {
   return [...new Set(query.match(/[\p{L}\p{N}_-]+/gu) ?? [])];
 }
 
-function toSearchResult(row: QueryRow, terms: readonly string[]): SearchResult {
+function toSearchResultBase(
+  row: QueryRow,
+  terms: readonly string[],
+): Omit<SearchResult, 'relatedConcepts'> {
   const aliases = jsonStringList(row.aliases_json);
   const tags = jsonStringList(row.tags_json);
   const sources = jsonStringList(row.sources_json);
@@ -514,6 +651,51 @@ function toSearchResult(row: QueryRow, terms: readonly string[]): SearchResult {
       terms.some((term) => matchesTerm(fields[field], term)),
     ),
   };
+}
+
+function linkedWikiPaths(content: string, from: string, entityRoot: string): readonly string[] {
+  const wikiRoot = join(entityRoot, 'wiki');
+  const links = new Set<string>();
+  for (const destination of markdownLinks(content)) {
+    const target = resolveWikiLink(from, destination);
+    if (target === undefined || !isWithin(wikiRoot, target)) continue;
+    const path = relative(entityRoot, target).replace(/\\/g, '/');
+    if (path.endsWith('.md')) links.add(path);
+  }
+  return [...links].sort(compareStrings);
+}
+
+function markdownLinks(content: string): readonly string[] {
+  const links: string[] = [];
+  // Image destinations are not conceptual relationships even when they end in .md.
+  const expression = /(?<!!)\[[^\]]*\]\(<?([^\s)>]+)[^)]*\)/g;
+  for (const match of content.matchAll(expression)) links.push(match[1]!);
+  return links;
+}
+
+function resolveWikiLink(from: string, destination: string): string | undefined {
+  if (
+    destination.length === 0 ||
+    destination.startsWith('#') ||
+    destination.startsWith('//') ||
+    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(destination)
+  ) {
+    return undefined;
+  }
+  try {
+    const path = decodeURIComponent(destination.split('#', 1)[0]!);
+    return resolve(basename(from) === from ? from : resolve(from, '..'), path);
+  } catch {
+    return undefined;
+  }
+}
+
+function isWithin(root: string, target: string): boolean {
+  const path = relative(resolve(root), resolve(target));
+  return (
+    path === '' ||
+    (!isAbsolute(path) && path !== '..' && !path.startsWith('../') && !path.startsWith('..\\'))
+  );
 }
 
 function jsonStringList(value: unknown): readonly string[] {

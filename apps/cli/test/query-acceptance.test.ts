@@ -35,6 +35,12 @@ describe('cited query and answer promotion CLI', () => {
       sources: ['raw/study/spacing.md'],
       body: 'Space retrieval attempts.',
     });
+    await writeConcept(vaultPath, 'backlink.md', {
+      id: 'backlink',
+      title: 'Retrieval cue',
+      sources: [],
+      body: '[Retrieval practice](recall.md)',
+    });
     const tasks: QueryAgentTask[] = [];
     const dependencies = cliDependencies(root, {
       executeQuery: async (command) => {
@@ -95,6 +101,7 @@ describe('cited query and answer promotion CLI', () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]!.concepts.map((concept) => concept.path)).toEqual([
       'wiki/recall.md',
+      'wiki/backlink.md',
       'wiki/spacing.md',
     ]);
     const answerPath = join(
@@ -370,8 +377,9 @@ async function writeConcept(
     'created_at: 2026-07-28T00:00:00.000Z',
     'updated_at: 2026-07-28T00:00:00.000Z',
     'status: active',
-    'sources:',
-    ...input.sources.map((source) => `  - ${source}`),
+    ...(input.sources.length === 0
+      ? ['sources: []']
+      : ['sources:', ...input.sources.map((source) => `  - ${source}`)]),
     '---',
     `# ${input.title}`,
     '',

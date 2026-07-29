@@ -21,9 +21,17 @@ describe('local search CLI', () => {
     const vault = await VaultService.init(vaultPath);
     await vault.createEntity({ kind: 'topic', title: 'Memory' });
     await vault.createEntity({ kind: 'project', title: 'Sheldon' });
-    await writeConcept(vaultPath, 'topics', 'memory', 'recall.md', 'recall', 'Retrieval practice', [
-      'learning',
-    ]);
+    await writeConcept(
+      vaultPath,
+      'topics',
+      'memory',
+      'recall.md',
+      'recall',
+      'Retrieval practice',
+      ['learning'],
+      '[Study support](support.md)',
+    );
+    await writeConcept(vaultPath, 'topics', 'memory', 'support.md', 'support', 'Study support', []);
     await writeConcept(vaultPath, 'projects', 'sheldon', 'search.md', 'search', 'Search strategy', [
       'architecture',
     ]);
@@ -48,6 +56,13 @@ describe('local search CLI', () => {
       expect.objectContaining({
         conceptId: 'recall',
         entity: expect.objectContaining({ slug: 'memory' }),
+        relatedConcepts: [
+          expect.objectContaining({
+            conceptId: 'support',
+            path: 'wiki/support.md',
+            relation: 'outgoing',
+          }),
+        ],
       }),
     ]);
     const filtered = await runCli(
@@ -66,6 +81,7 @@ async function writeConcept(
   id: string,
   title: string,
   tags: readonly string[],
+  body = `${title} is indexed locally.`,
 ): Promise<void> {
   const target = join(root, collection, slug, 'wiki', path);
   await mkdir(join(target, '..'), { recursive: true });
@@ -76,8 +92,7 @@ async function writeConcept(
     `title: ${title}`,
     `description: ${title} description`,
     'aliases: []',
-    'tags:',
-    ...tags.map((tag) => `  - ${tag}`),
+    ...(tags.length === 0 ? ['tags: []'] : ['tags:', ...tags.map((tag) => `  - ${tag}`)]),
     'created_at: 2026-07-28T00:00:00.000Z',
     'updated_at: 2026-07-28T00:00:00.000Z',
     'status: active',
@@ -86,7 +101,7 @@ async function writeConcept(
     '---',
     `# ${title}`,
     '',
-    `${title} is indexed locally.`,
+    body,
     '',
   ].join('\n');
   await writeFile(target, content, 'utf8');

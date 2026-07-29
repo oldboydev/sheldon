@@ -18,7 +18,7 @@ export interface QueryRequest {
   readonly filters?: SearchFilters;
   /** Maximum number of index hits used as traversal roots. Defaults to 8. */
   readonly maxResults?: number;
-  /** Maximum number of outgoing wiki-link hops. Defaults to 1. */
+  /** Maximum number of same-entity wiki relationship hops (links and backlinks). Defaults to 1. */
   readonly linkDepth?: number;
 }
 
@@ -67,7 +67,7 @@ interface QueueItem {
 /**
  * Builds deterministic, citable context for a later answer-producing agent. It never invokes an
  * agent and never writes to the vault: lexical search selects the roots, then local Markdown
- * links expand only the selected context.
+ * links and backlinks expand only the selected entity context.
  */
 export class QueryService {
   public constructor(
@@ -108,13 +108,24 @@ export class QueryService {
       gaps.push(...loaded.gaps);
 
       if (current.depth >= maxDepth) continue;
+      const neighbours = new Map<string, SearchResult>();
       for (const path of linkedPaths(loaded.content, current.result, this.vaultRoot)) {
         const linked = this.index.findConcept(current.result.entity, path);
         if (linked === undefined) {
           gaps.push(unavailableLink(current.result, path));
-        } else if (!seen.has(conceptKey(linked))) {
-          queue.push({ result: linked, depth: current.depth + 1 });
+        } else {
+          neighbours.set(linked.path, linked);
         }
+      }
+      // The compatibility guard also lets existing custom index doubles retain their outgoing-only
+      // behavior while callers move to the index-backed backlink API.
+      const backlinks =
+        this.index.findBacklinks?.(current.result.entity, current.result.path) ?? [];
+      for (const backlink of backlinks) neighbours.set(backlink.path, backlink);
+      for (const linked of [...neighbours.values()].sort((left, right) =>
+        compareStrings(left.path, right.path),
+      )) {
+        if (!seen.has(conceptKey(linked))) queue.push({ result: linked, depth: current.depth + 1 });
       }
     }
 
@@ -228,7 +239,7 @@ function linkedPaths(content: string, result: SearchResult, vaultRoot: string): 
 
 function markdownLinks(content: string): readonly string[] {
   const links: string[] = [];
-  const expression = /!?\[[^\]]*\]\(<?([^\s)>]+)[^)]*\)/g;
+  const expression = /(?<!!)\[[^\]]*\]\(<?([^\s)>]+)[^)]*\)/g;
   for (const match of content.matchAll(expression)) links.push(match[1]!);
   return links;
 }

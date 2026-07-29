@@ -13,5 +13,6 @@ export {
   type SearchEntityKind,
   type SearchFilters,
   type SearchMatchField,
+  type SearchRelatedConcept,
   type SearchResult,
 } from './search-index.js';
