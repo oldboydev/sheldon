@@ -1,5 +1,9 @@
 export type {
   KnowledgeConcept,
+  FeedbackInput,
+  FeedbackKind,
+  FeedbackRecord,
+  FeedbackWriter,
   KnowledgeScope,
   KnowledgeSearchIndex,
   ListRelatedRequest,
@@ -8,6 +12,19 @@ export type {
   ReadConceptRequest,
   RelatedKnowledgeConcept,
   SearchKnowledgeRequest,
+  RawAccessAuditEntry,
+  RawAccessAuditWriter,
+  RawExcerptReader,
+  RawSourceCitation,
 } from './contracts.js';
 export { McpScopeError } from './errors.js';
 export { ScopedKnowledgeFacade } from './scoped-knowledge-facade.js';
+export {
+  createMcpRequestHandler,
+  MCP_PROTOCOL_VERSION,
+  serveStdio,
+  type JsonRpcRequest,
+  type JsonRpcResponse,
+  type McpRequestHandler,
+  type McpServerDependencies,
+} from './server.js';

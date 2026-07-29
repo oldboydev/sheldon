@@ -78,3 +78,56 @@ export interface RelatedKnowledgeConcept {
   /** Absent only for an unresolved local wiki link. */
   readonly concept?: KnowledgeConcept;
 }
+
+/** A line-bounded citation of a raw source that was declared by a concept. */
+export interface RawSourceCitation {
+  readonly scope: KnowledgeScope;
+  readonly conceptId: string;
+  readonly sourcePath: string;
+  readonly startLine: number;
+  readonly endLine: number;
+}
+
+/** Raw content is deliberately read by an embedding application's local adapter. */
+export interface RawExcerptReader {
+  readExcerpt(citation: RawSourceCitation): Promise<{
+    readonly path: string;
+    readonly text: string;
+    readonly startLine: number;
+    readonly endLine: number;
+  }>;
+}
+
+/** An append-only audit sink. The server refuses raw reads when it is unavailable. */
+export interface RawAccessAuditWriter {
+  append(entry: RawAccessAuditEntry): Promise<void>;
+}
+
+export interface RawAccessAuditEntry extends RawSourceCitation {
+  readonly consumerProjectId: string;
+  readonly sessionId: string;
+  readonly requestedAt: string;
+}
+
+export type FeedbackKind = 'insight' | 'correction' | 'gap';
+
+/** A pending feedback record. It is never a wiki or raw mutation. */
+export interface FeedbackInput {
+  readonly consumerProjectId: string;
+  readonly sessionId: string;
+  readonly scope?: KnowledgeScope;
+  readonly conceptId?: string;
+  readonly kind: FeedbackKind;
+  readonly message: string;
+  readonly createdAt: string;
+}
+
+export interface FeedbackRecord extends FeedbackInput {
+  readonly id: string;
+  readonly status: 'pending';
+}
+
+/** Durable, reviewable feedback storage supplied by the local host application. */
+export interface FeedbackWriter {
+  file(input: FeedbackInput): Promise<FeedbackRecord>;
+}
