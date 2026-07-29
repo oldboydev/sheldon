@@ -15,6 +15,13 @@ if (process.platform !== 'win32') {
     const build = spawn(process.execPath, [nodeGyp, 'rebuild'], {
       cwd: nativeDirectory,
       stdio: 'inherit',
+      // node-gyp 12 on Node 24 can fail to auto-detect an installed VS 2022
+      // outside a Developer PowerShell. Sheldon supports VS 2022 on Windows;
+      // retain an explicit caller choice while supplying that supported default.
+      env: {
+        ...process.env,
+        GYP_MSVS_VERSION: process.env.GYP_MSVS_VERSION ?? '2022',
+      },
     });
 
     build.once('error', reject);
