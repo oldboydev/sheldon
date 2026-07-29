@@ -56,6 +56,8 @@ npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowled
 
 Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown locais e backlinks até dois saltos (`--link-depth`, padrão 1). Os registros de conceito selecionados (path, título e corpo) são limitados deterministicamente a 24.000 caracteres por padrão (`--max-context-chars`), e qualquer corte fica marcado na resposta. O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
 
+Se uma cobertura indexada existir, mas seu path e título não couberem no orçamento, Sheldon também não chama o agente: a resposta registra que a cobertura foi excluída pelo limite, em vez de reportar incorretamente ausência de cobertura.
+
 ```powershell
 npm run sheldon -- query topic memory retrieval-answer-001 `
   --question "Como prática de recuperação e espaçamento se relacionam?" `

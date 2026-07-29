@@ -483,6 +483,85 @@ describe('QueryService', () => {
     expect(result.concepts[0]!.body).toBe('😀'.repeat(973));
   });
 
+  it('uses the full body budget when an early whitespace boundary would discard most context', async () => {
+    const cases = [
+      { name: 'a short prefix before a long token', body: `a ${'x'.repeat(2_000)}` },
+      { name: 'a short word before a large token', body: `brief ${'x'.repeat(2_000)}` },
+    ];
+
+    for (const testCase of cases) {
+      const root = await createVault();
+      const result = fakeResult({
+        conceptId: 'word-boundary',
+        path: 'wiki/unicode.md',
+        title: 'Unicode root',
+      });
+      await writeConcept(
+        root,
+        'topics',
+        'memory',
+        'unicode.md',
+        concept({
+          id: 'word-boundary',
+          title: 'Unicode root',
+          description: 'needle-for-word-boundary',
+          sources: [],
+          body: testCase.body,
+        }),
+      );
+      const service = new QueryService(root, {
+        search: () => [result],
+        findRelatedConcepts: () => [],
+        close: () => undefined,
+      });
+      services.push(service);
+
+      const query = await service.query({
+        question: 'needle-for-word-boundary',
+        maxContextChars: 1_000,
+      });
+
+      expect(query.concepts[0]!.body, testCase.name).toBe(testCase.body.slice(0, 973));
+      expect(Array.from(query.concepts[0]!.body), testCase.name).toHaveLength(973);
+    }
+  });
+
+  it('prefers a late whitespace boundary without giving up most of the body budget', async () => {
+    const root = await createVault();
+    const result = fakeResult({
+      conceptId: 'late-boundary',
+      path: 'wiki/unicode.md',
+      title: 'Unicode root',
+    });
+    const body = `${'x'.repeat(900)} ${'y'.repeat(2_000)}`;
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'unicode.md',
+      concept({
+        id: 'late-boundary',
+        title: 'Unicode root',
+        description: 'needle-for-late-boundary',
+        sources: [],
+        body,
+      }),
+    );
+    const service = new QueryService(root, {
+      search: () => [result],
+      findRelatedConcepts: () => [],
+      close: () => undefined,
+    });
+    services.push(service);
+
+    const query = await service.query({
+      question: 'needle-for-late-boundary',
+      maxContextChars: 1_000,
+    });
+
+    expect(query.concepts[0]!.body).toBe('x'.repeat(900));
+  });
+
   it('does not include a first root whose path and title exceed the context budget', async () => {
     const root = await createVault();
     const title = 'Large header '.repeat(100);

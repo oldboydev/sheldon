@@ -300,8 +300,9 @@ function codePointLength(value: string): number {
 }
 
 /**
- * Keeps a valid Unicode prefix while favouring a preceding whitespace boundary when one fits.
- * A long first word still uses the available code-point budget rather than being discarded.
+ * Keeps a valid Unicode prefix while favouring a preceding whitespace boundary that preserves a
+ * useful portion of the available budget. A whitespace boundary immediately before a long token
+ * would otherwise discard nearly all available context.
  */
 function truncateToCodePointsAtWordBoundary(value: string, maximum: number): string {
   const codePoints = Array.from(value);
@@ -309,7 +310,9 @@ function truncateToCodePointsAtWordBoundary(value: string, maximum: number): str
 
   const prefix = codePoints.slice(0, maximum);
   for (let index = prefix.length - 1; index >= 0; index -= 1) {
-    if (/\s/u.test(prefix[index]!)) return prefix.slice(0, index).join('');
+    if (/\s/u.test(prefix[index]!) && index >= maximum / 2) {
+      return prefix.slice(0, index).join('');
+    }
   }
   return prefix.join('');
 }

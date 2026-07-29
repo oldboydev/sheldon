@@ -178,9 +178,14 @@ async function answerFromAgent(
 function uncoveredAnswer(
   answerId: string,
   options: QueryCommandOptions,
-  gaps: readonly { readonly message: string; readonly suggestedSources: readonly string[] }[],
+  gaps: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly suggestedSources: readonly string[];
+  }[],
   truncated: boolean,
 ): QueryAnswer {
+  const budgetExcludedCoverage = gaps.some((gap) => gap.code === 'CONTEXT_BUDGET_EXCEEDED');
   return {
     schemaVersion: 1,
     id: answerId,
@@ -192,10 +197,14 @@ function uncoveredAnswer(
     createdAt: new Date().toISOString(),
     text: [
       '## Wiki facts',
-      '- No indexed wiki fact covers this question.',
+      budgetExcludedCoverage
+        ? '- Matching indexed wiki coverage could not be included within the configured context budget.'
+        : '- No indexed wiki fact covers this question.',
       '',
       '## Inferences',
-      '- None; Sheldon does not infer a wiki answer without coverage.',
+      budgetExcludedCoverage
+        ? '- None; Sheldon does not infer a wiki answer without selected context.'
+        : '- None; Sheldon does not infer a wiki answer without coverage.',
       '',
       '## Gaps',
       ...gaps.flatMap((gap) => [
