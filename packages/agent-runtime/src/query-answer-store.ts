@@ -37,6 +37,13 @@ export class QueryAnswerStore {
     return validateQueryAnswer(answer).answer;
   }
 
+  /** Loads answer evidence that is eligible to seed a proposal-generating agent. */
+  public async loadPromotable(id: string): Promise<QueryAnswer> {
+    const answer = await this.load(id);
+    this.assertRawEvidence(answer);
+    return answer;
+  }
+
   /**
    * Creates a pending proposal through the existing store.  The answer is
    * evidence only: promotion writes proposal output and never touches wiki.
@@ -47,12 +54,7 @@ export class QueryAnswerStore {
     provenance: QueryAnswerPromotionProvenance,
     proposalStore: ProposalStore = new ProposalStore(this.entityDirectory),
   ): Promise<StoredProposal> {
-    const answer = await this.load(answerId);
-    if (answer.raws.length === 0) {
-      throw new ProposalValidationError([
-        'A query answer without raw evidence cannot be promoted to a proposal.',
-      ]);
-    }
+    const answer = await this.loadPromotable(answerId);
     this.validatePromotionProvenance(provenance);
     validateProposal(proposal);
     const permittedRaws = new Set(answer.raws.map((raw) => raw.path));
@@ -101,6 +103,14 @@ export class QueryAnswerStore {
     ) {
       throw new ProposalValidationError([
         'Proposal promotion agent version must be a non-empty string.',
+      ]);
+    }
+  }
+
+  private assertRawEvidence(answer: QueryAnswer): void {
+    if (answer.raws.length === 0) {
+      throw new ProposalValidationError([
+        'A query answer without raw evidence cannot be promoted to a proposal.',
       ]);
     }
   }

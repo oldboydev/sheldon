@@ -4,7 +4,9 @@ import { resolveVaultPath } from '../config.js';
 import type { CommandContext } from '../runtime.js';
 import type { VaultOption } from './entities.js';
 
-export interface SearchCommandOptions extends VaultOption, SearchFilters {}
+export interface SearchCommandOptions extends VaultOption, SearchFilters {
+  readonly rebuild?: boolean;
+}
 
 /** Rebuilds the disposable local projection before returning deterministic local search results. */
 export async function searchVault(
@@ -13,7 +15,9 @@ export async function searchVault(
   context: CommandContext,
 ): Promise<void> {
   const root = await resolveVaultPath(context, options.vault);
-  const index = await SearchIndex.rebuild(root);
+  const index = options.rebuild
+    ? await SearchIndex.rebuild(root)
+    : await SearchIndex.openOrRebuild(root);
   try {
     const filters: SearchFilters = {
       topic: options.topic,

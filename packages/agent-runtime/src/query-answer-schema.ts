@@ -8,7 +8,17 @@ export const queryAnswerJsonSchema = {
   $id: QUERY_ANSWER_SCHEMA_ID,
   type: 'object',
   additionalProperties: false,
-  required: ['schemaVersion', 'id', 'question', 'agent', 'concepts', 'raws', 'createdAt', 'text'],
+  required: [
+    'schemaVersion',
+    'id',
+    'question',
+    'agent',
+    'concepts',
+    'raws',
+    'createdAt',
+    'truncated',
+    'text',
+  ],
   properties: {
     schemaVersion: { const: QUERY_ANSWER_SCHEMA_VERSION },
     id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$' },
@@ -17,6 +27,11 @@ export const queryAnswerJsonSchema = {
     concepts: { $ref: '#/$defs/citations' },
     raws: { $ref: '#/$defs/citations' },
     createdAt: { type: 'string', format: 'date-time' },
+    truncated: {
+      type: 'boolean',
+      description:
+        'Must exactly reflect whether matching index results were omitted from the selected context.',
+    },
     text: { type: 'string', minLength: 1 },
   },
   $defs: {

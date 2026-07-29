@@ -4,6 +4,7 @@ import { dirname, join, relative, resolve } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 
 import { vaultPaths } from '@sheldon/vault';
+import { isoTimestampEpoch, markdownBody } from '@sheldon/core';
 import { parse } from 'yaml';
 
 import { SearchIndexError } from './errors.js';
@@ -125,6 +126,21 @@ export class SearchIndex {
     }
   }
 
+  /** Opens an existing index, rebuilding the disposable projection only when it is absent. */
+  public static async openOrRebuild(vaultRoot: string): Promise<SearchIndex> {
+    try {
+      return SearchIndex.open(vaultRoot);
+    } catch (error) {
+      if (
+        error instanceof SearchIndexError &&
+        error.message.startsWith('Search index is missing.')
+      ) {
+        return SearchIndex.rebuild(vaultRoot);
+      }
+      throw error;
+    }
+  }
+
   public search(query: string, filters: SearchFilters = {}): SearchResult[] {
     const terms = searchTerms(query);
     const constraints: string[] = [];
@@ -153,6 +169,21 @@ export class SearchIndex {
             .all(...values, terms.map((term) => `"${term}"`).join(' AND '));
 
     return rows.map((row) => toSearchResult(row as QueryRow, terms));
+  }
+
+  /** Looks up one indexed concept by its entity scope and wiki-relative path. */
+  public findConcept(
+    entity: Pick<SearchResult['entity'], 'kind' | 'slug'>,
+    path: string,
+  ): SearchResult | undefined {
+    const row = this.database
+      .prepare(
+        `SELECT concepts.*, 0 AS score, substr(concepts.description, 1, 240) AS snippet
+         FROM concepts
+         WHERE concepts.entity_kind = ? AND concepts.entity_slug = ? AND concepts.path = ?`,
+      )
+      .get(entity.kind, entity.slug, path);
+    return row === undefined ? undefined : toSearchResult(row as QueryRow, []);
   }
 
   public close(): void {
@@ -386,21 +417,17 @@ function stringList(
 
 function timestamp(value: Record<string, unknown>, field: string, path: string): string {
   const candidate = requiredString(value, field, path);
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(candidate) || Number.isNaN(Date.parse(candidate))) {
+  if (isoTimestampEpoch(candidate) === undefined) {
     throw new SearchIndexError(`Wiki field '${field}' must be an ISO-8601 timestamp: ${path}`);
   }
   return candidate;
 }
 
 function timestampEpoch(value: Record<string, unknown>, field: string, path: string): number {
-  return Date.parse(timestamp(value, field, path));
-}
-
-function markdownBody(content: string): string {
-  return content
-    .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
-    .replace(/^#[^#\r\n][^\r\n]*(?:\r?\n)?/, '')
-    .trim();
+  const epoch = isoTimestampEpoch(timestamp(value, field, path));
+  if (epoch === undefined)
+    throw new SearchIndexError(`Wiki field '${field}' must be an ISO-8601 timestamp: ${path}`);
+  return epoch;
 }
 
 function addFilters(constraints: string[], values: string[], filters: SearchFilters): void {
@@ -438,10 +465,11 @@ function addFilters(constraints: string[], values: string[], filters: SearchFilt
 }
 
 function validFilterTimestamp(value: string): number {
-  if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || Number.isNaN(Date.parse(value))) {
+  const epoch = isoTimestampEpoch(value);
+  if (epoch === undefined) {
     throw new SearchIndexError('Date filters must use ISO-8601 timestamps.');
   }
-  return Date.parse(value);
+  return epoch;
 }
 
 function searchTerms(query: string): string[] {

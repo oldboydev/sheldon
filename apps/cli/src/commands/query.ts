@@ -22,6 +22,7 @@ export interface QueryCommandOptions extends VaultOption {
   readonly agent: AgentKind;
   readonly question: string;
   readonly linkDepth?: number;
+  readonly rebuild?: boolean;
 }
 
 export interface PromoteAnswerOptions extends VaultOption {
@@ -43,7 +44,9 @@ export async function queryVault(
 ): Promise<void> {
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const root = await resolveVaultPath(context, options.vault);
-  const index = await SearchIndex.rebuild(root);
+  const index = options.rebuild
+    ? await SearchIndex.rebuild(root)
+    : await SearchIndex.openOrRebuild(root);
   const service = new QueryService(root, index);
   try {
     const contextResult = await service.query({
@@ -54,7 +57,7 @@ export async function queryVault(
     const answers = new QueryAnswerStore(entity);
     const answer =
       contextResult.concepts.length === 0
-        ? uncoveredAnswer(answerId, options, contextResult.gaps)
+        ? uncoveredAnswer(answerId, options, contextResult.gaps, contextResult.truncated)
         : await answerFromAgent(answerId, options, contextResult, entity, context, dependencies);
     const validated = validateQueryAnswer(answer).answer;
     assertAnswerEvidence(validated, contextResult.citations);
@@ -76,12 +79,7 @@ export async function promoteAnswer(
 ): Promise<void> {
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const answers = new QueryAnswerStore(entity);
-  const answer = await answers.load(answerId);
-  if (answer.raws.length === 0) {
-    throw new Error(
-      'The saved answer has no cited raw evidence and cannot be promoted to a review proposal.',
-    );
-  }
+  const answer = await answers.loadPromotable(answerId);
   const executor =
     dependencies.agentExecutor ?? new JsonCommandExecutor({ environment: context.environment });
   const adapter =
@@ -151,6 +149,7 @@ async function answerFromAgent(
           ]
         : []),
     ],
+    truncated: result.truncated,
     workingDirectory: entity,
   });
   if (execution.status !== 'answer') {
@@ -166,6 +165,9 @@ async function answerFromAgent(
   if (execution.answer.question !== options.question || execution.answer.agent !== options.agent) {
     throw new Error('The query answer does not match the requested question and agent.');
   }
+  if (execution.answer.truncated !== result.truncated) {
+    throw new Error('The query answer does not match the selected-context truncation state.');
+  }
   return execution.answer;
 }
 
@@ -173,12 +175,14 @@ function uncoveredAnswer(
   answerId: string,
   options: QueryCommandOptions,
   gaps: readonly { readonly message: string; readonly suggestedSources: readonly string[] }[],
+  truncated: boolean,
 ): QueryAnswer {
   return {
     schemaVersion: 1,
     id: answerId,
     question: options.question,
     agent: options.agent,
+    truncated,
     concepts: [],
     raws: [],
     createdAt: new Date().toISOString(),

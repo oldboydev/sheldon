@@ -61,6 +61,8 @@ export interface QueryAgentTask {
   readonly concepts: readonly QueryConceptInput[];
   readonly rawSources: readonly string[];
   readonly gaps: readonly string[];
+  /** True when matching index results were omitted from the selected context. */
+  readonly truncated: boolean;
   /** Entity directory used as the agent working directory; cited raw access is a prompt contract. */
   readonly workingDirectory?: string;
 }
@@ -188,6 +190,7 @@ function renderQueryPrompt(task: QueryAgentTask): string {
     `Answer id: ${task.answerId}`,
     'Return a JSON query answer that conforms to the supplied JSON Schema, without Markdown fencing.',
     'The text field must have these explicit sections: "Wiki facts", "Inferences", and "Gaps".',
+    `Set truncated to ${String(task.truncated)}. It records whether the supplied selected context omitted matching index results; do not infer or change it.`,
     'Every material fact or inference must name one or more supplied wiki paths in its text.',
     'Do not state general knowledge as wiki fact. If coverage is absent or insufficient, say so under Gaps and suggest a source to ingest.',
     'Only cite paths from this supplied context. You may open a cited raw path only to resolve ambiguity.',

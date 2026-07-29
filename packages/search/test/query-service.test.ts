@@ -80,6 +80,61 @@ describe('QueryService', () => {
     expect(expanded.gaps).toEqual([]);
   });
 
+  it('looks up linked concepts directly instead of enumerating the whole index', async () => {
+    const root = await createVault();
+    const active = fakeResult({ path: 'wiki/active.md', title: 'Active recall' });
+    const spacing = fakeResult({
+      conceptId: 'spacing',
+      path: 'wiki/spacing.md',
+      title: 'Spaced repetition',
+    });
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'active.md',
+      concept({
+        id: 'active',
+        title: 'Active recall',
+        description: 'A retrieval practice.',
+        sources: [],
+        body: '[Spaced repetition](spacing.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'spacing.md',
+      concept({
+        id: 'spacing',
+        title: 'Spaced repetition',
+        description: 'A scheduling practice.',
+        sources: [],
+        body: 'Space reviews.',
+      }),
+    );
+    const service = new QueryService(root, {
+      search: (query: string) => {
+        if (query.length === 0) throw new Error('QueryService must not enumerate the index.');
+        return [active];
+      },
+      findConcept: (
+        _entity: { readonly kind: 'topic' | 'project'; readonly slug: string },
+        path: string,
+      ) => (path === 'wiki/spacing.md' ? spacing : undefined),
+      close: () => undefined,
+    } as unknown as SearchIndex);
+    services.push(service);
+
+    await expect(service.query({ question: 'active', linkDepth: 1 })).resolves.toMatchObject({
+      concepts: [
+        { result: { conceptId: 'recall' }, depth: 0 },
+        { result: { conceptId: 'spacing' }, depth: 1 },
+      ],
+    });
+  });
+
   it('honors entity filters for index roots while expanding only links in their entity', async () => {
     const root = await createVault();
     await writeConcept(
@@ -255,8 +310,36 @@ function fakeIndex(
   };
   return {
     search: (query: string) => (query.length === 0 ? [result] : [result]),
+    findConcept: () => result,
     close: () => undefined,
   } as unknown as SearchIndex;
+}
+
+function fakeResult(
+  overrides: Partial<{
+    readonly conceptId: string;
+    readonly path: string;
+    readonly title: string;
+  }> = {},
+) {
+  return {
+    conceptId: 'recall',
+    entity: { id: 'topic-memory', kind: 'topic' as const, slug: 'memory', title: 'Memory' },
+    type: 'note',
+    title: 'Recall',
+    description: 'Retrieve facts.',
+    aliases: [],
+    tags: [],
+    status: 'active',
+    createdAt: '2026-07-28T00:00:00.000Z',
+    updatedAt: '2026-07-28T00:00:00.000Z',
+    sources: [],
+    path: 'wiki/recall.md',
+    snippet: 'Recall',
+    score: 1,
+    matchFields: ['title'] as const,
+    ...overrides,
+  };
 }
 
 function otherVolumePath(root: string): string {

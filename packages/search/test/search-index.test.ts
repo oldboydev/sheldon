@@ -149,6 +149,84 @@ describe('SearchIndex', () => {
     expect(withoutStaleRows.search('retrieval')).toEqual([]);
   });
 
+  it('opens an existing projection and rebuilds only when the disposable database is absent', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'recall',
+        type: 'practice',
+        title: 'Active recall',
+        description: 'Retrieve knowledge.',
+        aliases: [],
+        tags: [],
+        sources: ['raw/study/recall.md'],
+        body: 'Practice recall.',
+      }),
+    );
+    const built = await SearchIndex.rebuild(root);
+    built.close();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'new.md',
+      concept({
+        id: 'new',
+        type: 'practice',
+        title: 'New concept',
+        description: 'Only visible after rebuilding.',
+        aliases: [],
+        tags: [],
+        sources: ['raw/study/new.md'],
+        body: 'New content.',
+      }),
+    );
+
+    const opened = await SearchIndex.openOrRebuild(root);
+    indexes.push(opened);
+    expect(opened.search('new')).toEqual([]);
+    opened.close();
+    indexes.splice(indexes.indexOf(opened), 1);
+    await rm(vaultPaths(root).searchDatabase);
+
+    const recreated = await SearchIndex.openOrRebuild(root);
+    indexes.push(recreated);
+    expect(recreated.search('new')).toEqual([expect.objectContaining({ conceptId: 'new' })]);
+  });
+
+  it('looks up an indexed concept by entity and wiki path without a lexical query', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'recall',
+        type: 'practice',
+        title: 'Active recall',
+        description: 'Retrieve knowledge.',
+        aliases: [],
+        tags: [],
+        sources: ['raw/study/recall.md'],
+        body: 'Practice recall.',
+      }),
+    );
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    expect(index.findConcept({ kind: 'topic', slug: 'memory' }, 'wiki/recall.md')).toEqual(
+      expect.objectContaining({ conceptId: 'recall' }),
+    );
+    expect(
+      index.findConcept({ kind: 'project', slug: 'memory' }, 'wiki/recall.md'),
+    ).toBeUndefined();
+  });
+
   it('keeps duplicate wiki paths separate by entity and compares date filters by instant', async () => {
     const root = await createVault();
     await writeConcept(

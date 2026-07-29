@@ -1,3 +1,5 @@
+import { isoTimestampEpoch } from '@sheldon/core';
+
 import { ProposalValidationError } from './errors.js';
 
 export const QUERY_ANSWER_SCHEMA_VERSION = 1;
@@ -16,6 +18,8 @@ export interface QueryAnswer {
   readonly concepts: readonly QueryCitation[];
   readonly raws: readonly QueryCitation[];
   readonly createdAt: string;
+  /** Whether the local index selection omitted matching hits due to its configured limit. */
+  readonly truncated: boolean;
   readonly text: string;
 }
 
@@ -49,6 +53,11 @@ export function validateQueryAnswer(candidate: unknown): QueryAnswerValidationRe
   }
   if (!isTimestamp(answer.createdAt)) {
     issues.push('The query answer timestamp must be ISO-8601.');
+  }
+  if (typeof answer.truncated !== 'boolean') {
+    issues.push(
+      'A query answer must explicitly record whether its selected context was truncated.',
+    );
   }
   if (typeof answer.text !== 'string' || answer.text.trim().length === 0) {
     issues.push('A query answer must include final text.');
@@ -142,7 +151,7 @@ function validateAnswerText(text: string, concepts: unknown, issues: string[]): 
 }
 
 function sectionPattern(section: string): RegExp {
-  return new RegExp(`(?:^|\\r?\\n)\\s*(?:#{1,6}\\s*)?${section}\\s*:?(?:\\s|$)`, 'i');
+  return new RegExp(`^##[\\t ]+${section}[\\t ]*\\r?$`, 'm');
 }
 
 function asQueryAnswer(candidate: unknown): QueryAnswer | undefined {
@@ -158,39 +167,5 @@ function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function isTimestamp(value: unknown): boolean {
-  if (typeof value !== 'string') return false;
-  const match =
-    /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.\d{1,3})?(Z|[+-]\d{2}:\d{2})$/.exec(
-      value,
-    );
-  if (match === null) return false;
-
-  const [, yearText, monthText, dayText, hourText, minuteText, secondText, offset] = match;
-  const [year, month, day, hour, minute, second] = [
-    yearText,
-    monthText,
-    dayText,
-    hourText,
-    minuteText,
-    secondText,
-  ].map(Number);
-  if (!Number.isFinite(Date.parse(value)) || (offset !== 'Z' && !isOffset(offset))) return false;
-
-  const calendar = new Date(0);
-  calendar.setUTCFullYear(year, month - 1, day);
-  calendar.setUTCHours(hour, minute, second, 0);
-  return (
-    calendar.getUTCFullYear() === year &&
-    calendar.getUTCMonth() === month - 1 &&
-    calendar.getUTCDate() === day &&
-    calendar.getUTCHours() === hour &&
-    calendar.getUTCMinutes() === minute &&
-    calendar.getUTCSeconds() === second
-  );
-}
-
-function isOffset(value: string): boolean {
-  const hours = Number(value.slice(1, 3));
-  const minutes = Number(value.slice(4, 6));
-  return hours <= 23 && minutes <= 59;
+  return typeof value === 'string' && isoTimestampEpoch(value) !== undefined;
 }

@@ -47,6 +47,7 @@ describe('cited query and answer promotion CLI', () => {
             id: command.input.answerId,
             question: command.input.question,
             agent: 'codex',
+            truncated: command.input.truncated,
             concepts: command.input.concepts.map((concept) => ({
               path: concept.path,
               citation: concept.title,
@@ -215,6 +216,7 @@ describe('cited query and answer promotion CLI', () => {
           id: command.input.answerId,
           question: command.input.question,
           agent: 'codex',
+          truncated: false,
           concepts: [{ path: 'wiki/unselected.md', citation: 'fabricated citation' }],
           raws: [],
           createdAt: '2026-07-28T12:00:00.000Z',
@@ -265,6 +267,7 @@ describe('cited query and answer promotion CLI', () => {
       id: 'answer-without-raws',
       question: 'What is missing?',
       agent: 'codex',
+      truncated: false,
       concepts: [],
       raws: [],
       createdAt: '2026-07-28T12:00:00.000Z',
@@ -295,7 +298,7 @@ describe('cited query and answer promotion CLI', () => {
     );
 
     expect(result.exitCode).toBe(1);
-    expect(result.stderr).toContain('has no cited raw evidence');
+    expect(result.stderr).toContain('without raw evidence cannot be promoted');
     expect(promotionCalls).toBe(0);
   });
 });

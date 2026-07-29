@@ -54,6 +54,7 @@ const queryTask: QueryAgentTask = {
   ],
   rawSources: ['raw/source-001/content.md'],
   gaps: [],
+  truncated: false,
 };
 
 function proposal(overrides: Partial<StructuredProposal> = {}): StructuredProposal {
@@ -83,6 +84,7 @@ function answer(overrides: Partial<QueryAnswer> = {}): QueryAnswer {
     concepts: [{ path: 'wiki/concepts/example.md', citation: 'Example concept' }],
     raws: [{ path: 'raw/source-001/content.md', citation: 'Lines 1-3' }],
     createdAt: '2026-07-28T12:00:00.000Z',
+    truncated: false,
     text: '## Wiki facts\n- wiki/concepts/example.md records an updated fact.\n\n## Inferences\n- None.\n\n## Gaps\n- None.',
     ...overrides,
   };
@@ -161,6 +163,7 @@ describe('query answer persistence and promotion', () => {
         'concepts',
         'raws',
         'createdAt',
+        'truncated',
         'text',
       ]),
     });
@@ -250,9 +253,10 @@ describe('query answer persistence and promotion', () => {
   });
 
   it('rejects malformed timestamps and answers without explicit, cited answer sections', () => {
-    expect(() => validateQueryAnswer(answer({ createdAt: '2026-02-31T12:00:00Z' }))).toThrow(
-      'timestamp',
-    );
+    for (const timestamp of ['2026-02-31T12:00:00Z', '2026-07-28T12:00:00+24:00']) {
+      expect(() => validateQueryAnswer(answer({ createdAt: timestamp }))).toThrow('timestamp');
+    }
+    expect(() => validateQueryAnswer(answer({ truncated: undefined }))).toThrow('truncated');
     expect(() => validateQueryAnswer(answer({ text: 'A free-form answer.' }))).toThrow(
       'Wiki facts',
     );
@@ -263,6 +267,25 @@ describe('query answer persistence and promotion', () => {
         }),
       ),
     ).toThrow('must cite a supplied wiki path');
+  });
+
+  it('does not mistake prose mentioning a section name for a Markdown heading', () => {
+    expect(() =>
+      validateQueryAnswer(
+        answer({
+          text: [
+            '## Wiki facts',
+            '- wiki/concepts/example.md says the gaps in coverage are known.',
+            '',
+            '## Inferences',
+            '- None.',
+            '',
+            '## Gaps',
+            '- None.',
+          ].join('\n'),
+        }),
+      ),
+    ).not.toThrow();
   });
 
   it('rejects promotion without raw evidence before creating proposal output', async () => {

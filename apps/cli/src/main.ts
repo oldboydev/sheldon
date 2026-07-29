@@ -183,6 +183,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
       '--updated-before <timestamp>',
       'restrict results updated at or before an ISO-8601 instant',
     )
+    .option('--rebuild', 'rebuild the disposable local index before searching')
     .option('--vault <path>', 'explicit vault path')
     .action((query: string, options: SearchCommandOptions) => searchVault(query, options, context));
   program
@@ -198,6 +199,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
       'maximum local wiki-link expansion depth (0-2; default 1)',
       boundedInteger('--link-depth', 0, 2),
     )
+    .option('--rebuild', 'rebuild the disposable local index before selecting context')
     .option('--vault <path>', 'explicit vault path')
     .action((kind: EntityKind, slug: string, answerId: string, options: QueryCommandOptions) =>
       queryVault(kind, slug, answerId, options, context, dependencies),

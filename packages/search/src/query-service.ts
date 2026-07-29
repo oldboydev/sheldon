@@ -2,6 +2,7 @@ import { readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve } from 'node:path';
 
 import { entityDirectory } from '@sheldon/vault';
+import { markdownBody } from '@sheldon/core';
 
 import { QueryServiceError } from './errors.js';
 import {
@@ -85,7 +86,6 @@ export class QueryService {
     const roots = hits.slice(0, rootLimit);
     if (roots.length === 0) return uncoveredResult(request.question);
 
-    const candidates = new Map(this.index.search('').map((result) => [conceptKey(result), result]));
     const maxDepth = request.linkDepth ?? 1;
     const queue: QueueItem[] = roots.map((result) => ({ result, depth: 0 }));
     const seen = new Set<string>();
@@ -109,7 +109,7 @@ export class QueryService {
 
       if (current.depth >= maxDepth) continue;
       for (const path of linkedPaths(loaded.content, current.result, this.vaultRoot)) {
-        const linked = candidates.get(conceptKeyFor(current.result.entity, path));
+        const linked = this.index.findConcept(current.result.entity, path);
         if (linked === undefined) {
           gaps.push(unavailableLink(current.result, path));
         } else if (!seen.has(conceptKey(linked))) {
@@ -258,19 +258,8 @@ function unavailableLink(result: SearchResult, path: string): QueryGap {
   };
 }
 
-function markdownBody(content: string): string {
-  return content
-    .replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '')
-    .replace(/^#[^#\r\n][^\r\n]*(?:\r?\n)?/, '')
-    .trim();
-}
-
 function conceptKey(result: SearchResult): string {
-  return conceptKeyFor(result.entity, result.path);
-}
-
-function conceptKeyFor(entity: SearchResult['entity'], path: string): string {
-  return `${entity.kind}:${entity.slug}:${path}`;
+  return `${result.entity.kind}:${result.entity.slug}:${result.path}`;
 }
 
 function toQueryEntity(result: SearchResult): QueryEntity {
