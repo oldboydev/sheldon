@@ -315,6 +315,10 @@ describe('SearchIndex', () => {
 
 [Later prose link](later.md)
 
+    [Four-space indented prose link](four-space.md)
+
+	[Tab-indented prose link](tab.md)
+
 - A list item whose continuation remains Markdown prose:
     [Indented continuation link](continuation.md)
 
@@ -388,6 +392,38 @@ describe('SearchIndex', () => {
       root,
       'topics',
       'memory',
+      'four-space.md',
+      concept({
+        id: 'four-space',
+        type: 'note',
+        title: 'Four-space indented prose concept',
+        description: 'A link intentionally indexed after a blank line.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'tab.md',
+      concept({
+        id: 'tab',
+        type: 'note',
+        title: 'Tab-indented prose concept',
+        description: 'A tab-indented link intentionally indexed after a blank line.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
       'same.md',
       concept({
         id: 'same',
@@ -411,9 +447,17 @@ describe('SearchIndex', () => {
         path: 'wiki/continuation.md',
         relation: 'outgoing',
       }),
+      // Indented non-list blocks remain indexable so prose nested in lists is
+      // not lost without a full Markdown parser distinguishing the two forms.
+      expect.objectContaining({
+        conceptId: 'four-space',
+        path: 'wiki/four-space.md',
+        relation: 'outgoing',
+      }),
       expect.objectContaining({ conceptId: 'later', path: 'wiki/later.md', relation: 'outgoing' }),
       expect.objectContaining({ conceptId: 'real', path: 'wiki/real.md', relation: 'outgoing' }),
       expect.objectContaining({ conceptId: 'same', path: 'wiki/same.md', relation: 'outgoing' }),
+      expect.objectContaining({ conceptId: 'tab', path: 'wiki/tab.md', relation: 'outgoing' }),
     ]);
     const relations = index.findRelatedConcepts(
       { kind: 'topic', slug: 'memory' },
@@ -421,10 +465,12 @@ describe('SearchIndex', () => {
     );
     expect(relations).toEqual([
       expect.objectContaining({ path: 'wiki/continuation.md', relation: 'outgoing' }),
+      expect.objectContaining({ path: 'wiki/four-space.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/later.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/real.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/same.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/stray.md', relation: 'outgoing', result: undefined }),
+      expect.objectContaining({ path: 'wiki/tab.md', relation: 'outgoing' }),
     ]);
     expect(relations[0]?.result).not.toHaveProperty('relatedConcepts');
   });

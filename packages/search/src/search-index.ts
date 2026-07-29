@@ -182,6 +182,29 @@ const SEARCH_DOCUMENT_COLUMNS = [
 // Each selected key occupies three SQLite bind parameters. Keep this well below
 // SQLite's traditional 999-variable build limit as well as newer defaults.
 const SELECTED_KEYS_BATCH_SIZE = 300;
+const RELATION_ROWS_SQL = `SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+       'outgoing' AS direction, concept_links.target_path AS candidate_path,
+       target.concept_id AS candidate_concept_id, target.title AS candidate_title
+FROM selected
+JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+  AND concept_links.entity_slug = selected.entity_slug
+  AND concept_links.source_path = selected.path
+LEFT JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
+  AND target.entity_slug = concept_links.entity_slug
+  AND target.path = concept_links.target_path
+WHERE concept_links.target_path <> selected.path
+UNION ALL
+SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+       'backlink' AS direction, concept_links.source_path AS candidate_path,
+       source.concept_id AS candidate_concept_id, source.title AS candidate_title
+FROM selected
+JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+  AND concept_links.entity_slug = selected.entity_slug
+  AND concept_links.target_path = selected.path
+JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
+  AND source.entity_slug = concept_links.entity_slug
+  AND source.path = concept_links.source_path
+WHERE concept_links.source_path <> selected.path`;
 
 /**
  * A rebuildable SQLite FTS5 projection of approved wiki concepts. Vault Markdown
@@ -469,54 +492,10 @@ export class SearchIndex {
       const query =
         maxRelations === undefined
           ? `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
-             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
-                    'outgoing' AS direction, concept_links.target_path AS candidate_path,
-                    target.concept_id AS candidate_concept_id, target.title AS candidate_title
-             FROM selected
-             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
-               AND concept_links.entity_slug = selected.entity_slug
-               AND concept_links.source_path = selected.path
-             LEFT JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
-               AND target.entity_slug = concept_links.entity_slug
-               AND target.path = concept_links.target_path
-             WHERE concept_links.target_path <> selected.path
-             UNION ALL
-             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
-                    'backlink' AS direction, concept_links.source_path AS candidate_path,
-                    source.concept_id AS candidate_concept_id, source.title AS candidate_title
-             FROM selected
-             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
-               AND concept_links.entity_slug = selected.entity_slug
-               AND concept_links.target_path = selected.path
-             JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
-               AND source.entity_slug = concept_links.entity_slug
-               AND source.path = concept_links.source_path
-             WHERE concept_links.source_path <> selected.path`
+             ${RELATION_ROWS_SQL}`
           : `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected}),
              raw_relations AS (
-             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
-                    'outgoing' AS direction, concept_links.target_path AS candidate_path,
-                    target.concept_id AS candidate_concept_id, target.title AS candidate_title
-             FROM selected
-             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
-               AND concept_links.entity_slug = selected.entity_slug
-               AND concept_links.source_path = selected.path
-             LEFT JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
-               AND target.entity_slug = concept_links.entity_slug
-               AND target.path = concept_links.target_path
-             WHERE concept_links.target_path <> selected.path
-             UNION ALL
-             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
-                    'backlink' AS direction, concept_links.source_path AS candidate_path,
-                    source.concept_id AS candidate_concept_id, source.title AS candidate_title
-             FROM selected
-             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
-               AND concept_links.entity_slug = selected.entity_slug
-               AND concept_links.target_path = selected.path
-             JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
-               AND source.entity_slug = concept_links.entity_slug
-               AND source.path = concept_links.source_path
-             WHERE concept_links.source_path <> selected.path
+             ${RELATION_ROWS_SQL}
              ), ranked_relations AS (
                SELECT raw_relations.*,
                       DENSE_RANK() OVER (
@@ -891,6 +870,12 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
   );
 }
 
+/**
+ * Canonicalizes known wiki-link casing only on `win32`. This deliberately
+ * models Windows case-insensitive lookup rather than generic filesystem
+ * detection: on a case-sensitive filesystem, differently cased paths may be
+ * distinct concepts and folding them would conflate those paths.
+ */
 function canonicalizeKnownWikiLinks(
   concepts: readonly IndexedConcept[],
 ): readonly IndexedConcept[] {
@@ -1111,7 +1096,9 @@ function markdownLinks(content: string): readonly string[] {
 /**
  * Keeps only Markdown prose where link syntax is active. Regex extraction is
  * intentional here, but it must never interpret examples, inline code, or
- * HTML comments as document relationships.
+ * HTML comments as document relationships. Indented blocks remain indexable:
+ * without a full Markdown parser, treating every four-space or tab-indented
+ * line as code would hide valid list prose after blank lines.
  */
 function sanitizeMarkdownLinkContexts(markdown: string): string {
   const withoutFences = withoutFencedCode(markdown);

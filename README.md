@@ -52,6 +52,8 @@ A reconstrução dessa projeção é uma operação de processo único: não exe
 
 `search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet, origem do match e relações diretas entre conceitos da mesma entidade. Essas relações são links Markdown locais e seus backlinks — não similaridade semântica. Os filtros de tópico, projeto, tipo, tag, status e data reduzem somente os resultados lexicais raiz; não escondem vizinhos já ligados a um resultado. Para manter a saída previsível, cada resultado da CLI projeta e serializa no máximo 100 relações, em ordem determinística, e declara `relatedConceptsTruncated: true` quando houver mais. Esse limite não reduz as relações indexadas durante a reconstrução nem a travessia independente de relações feita por `query`.
 
+Links escritos em blocos cercados, código inline ou comentários HTML não formam relações. Blocos Markdown somente indentados continuam sendo tratados como prosa para a projeção: essa escolha evita ocultar relações em continuações de listas, embora um exemplo de código indentado possa aparecer como relação local.
+
 ```powershell
 npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowledge\sheldon
 ```
