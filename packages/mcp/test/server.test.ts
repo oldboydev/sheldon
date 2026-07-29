@@ -138,13 +138,14 @@ describe('local MCP request handler', () => {
     const response = await handler.handle(
       request('tools/call', {
         name: 'file_feedback',
-        arguments: { kind: 'gap', message: 'Need an example.' },
+        arguments: { kind: 'gap', message: 'Need an example.', scope: alphaScope },
       }),
     );
 
     expect(fixture.fileFeedback).toHaveBeenCalledWith({
       consumerProjectId: 'consumer-a',
       sessionId: 'session-a',
+      scope: alphaScope,
       kind: 'gap',
       message: 'Need an example.',
       createdAt: '2026-07-29T12:00:00.000Z',
@@ -236,6 +237,12 @@ function dependencies(): {
   }));
   const facade = {
     listScopes: () => ({ consumerProject: { id: 'consumer-a' }, scopes: [alphaScope] }),
+    assertScopeAuthorized: (scope: KnowledgeScope) => {
+      if (scope.slug !== alphaScope.slug || scope.kind !== alphaScope.kind) {
+        throw new Error('Knowledge scope is not authorized.');
+      }
+      return scope;
+    },
     searchKnowledge,
     readConcept: vi.fn(() => concept),
     listRelated: vi.fn(() => []),

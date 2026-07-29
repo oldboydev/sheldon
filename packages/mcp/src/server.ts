@@ -250,19 +250,13 @@ class McpToolServer {
   }
 
   private async fileFeedback(args: Record<string, unknown>): Promise<unknown> {
-    const requestedScope = args.scope === undefined ? undefined : scope(args.scope);
+    const requestedScope = scope(args.scope);
     const conceptId =
       args.concept_id === undefined
         ? undefined
         : string(args.concept_id, 'concept_id must be a string.');
-    if (conceptId !== undefined && requestedScope === undefined) {
-      throw new RpcError(-32602, 'concept_id requires an explicit authorized scope.');
-    }
-    if (requestedScope !== undefined) {
-      // Feedback must be authorized even when it names no concept.
-      this.dependencies.facade.assertScopeAuthorized(requestedScope);
-    }
-    if (conceptId !== undefined && requestedScope !== undefined) {
+    this.dependencies.facade.assertScopeAuthorized(requestedScope);
+    if (conceptId !== undefined) {
       const concept = this.dependencies.facade.readConcept({ scope: requestedScope, conceptId });
       if (concept === undefined)
         throw new McpScopeError(`Concept ${conceptId} was not found in scope.`);
@@ -271,10 +265,10 @@ class McpToolServer {
     const input: FeedbackInput = {
       consumerProjectId: this.dependencies.facade.listScopes().consumerProject.id,
       sessionId: this.dependencies.sessionId,
-      ...(requestedScope === undefined ? {} : { scope: requestedScope }),
+      scope: requestedScope,
       ...(conceptId === undefined ? {} : { conceptId }),
       kind,
-      message: string(args.message, 'file_feedback requires a message.'),
+      message: boundedString(args.message, 'message', 10_000),
       createdAt: this.now().toISOString(),
     };
     return this.dependencies.feedbackWriter.file(input);
@@ -341,7 +335,7 @@ function toolDefinitions(): readonly Record<string, unknown>[] {
       name: 'file_feedback',
       description:
         'File a durable pending insight, correction, or gap for later review. It never modifies wiki or raw content.',
-      inputSchema: schema(scopeSchema, ['kind', 'message'], {
+      inputSchema: schema(scopeSchema, ['kind', 'message', 'scope'], {
         kind: { enum: ['insight', 'correction', 'gap'] },
         message: { type: 'string' },
         scope: scopeSchema,
@@ -429,6 +423,14 @@ function boundedInteger(
     throw new RpcError(-32602, `${name} must be an integer from ${minimum} to ${maximum}.`);
   }
   return value;
+}
+
+function boundedString(value: unknown, name: string, maximum: number): string {
+  const result = string(value, `file_feedback requires a ${name}.`);
+  if (Array.from(result).length > maximum) {
+    throw new RpcError(-32602, `${name} must contain at most ${maximum} characters.`);
+  }
+  return result;
 }
 
 function feedbackKind(value: unknown): FeedbackKind {

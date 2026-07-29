@@ -1,4 +1,4 @@
-import { appendFile, cp, lstat, readFile, readdir, realpath, stat } from 'node:fs/promises';
+import { appendFile, cp, lstat, readFile, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -60,9 +60,14 @@ export async function configureMcpConsumer(
     context.write('Preview only. Re-run with --apply to write these local files.');
     return;
   }
-  await writeConsumerMcpConfiguration(root, configuration);
-  await writeNewFile(codexPath, codexConfig(root));
-  await atomicWriteFile(claudePath, claudeContent);
+  try {
+    await writeConsumerMcpConfiguration(root, configuration);
+    await writeNewFile(codexPath, codexConfig(root));
+    await atomicWriteFile(claudePath, claudeContent);
+  } catch (error) {
+    await Promise.all([mcpPath, codexPath, claudePath].map((path) => rm(path, { force: true })));
+    throw error;
+  }
   context.write(`Configured local MCP consumer: ${root}`);
 }
 
@@ -149,7 +154,6 @@ export async function doctorMcp(consumer: string, context: CommandContext): Prom
 export async function serveMcp(consumerConfig: string): Promise<void> {
   const configuration = await readConsumerMcpConfiguration(consumerConfig);
   const scopes = await preferredScopes(configuration);
-  await VaultService.discover(configuration.vault);
   const vault = await VaultService.discover(configuration.vault);
   for (const scope of scopes) await vault.inspectEntity(scope.kind, scope.slug);
   const index = SearchIndex.open(configuration.vault);
