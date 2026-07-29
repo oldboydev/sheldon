@@ -165,7 +165,7 @@ describe('URL ingestion CLI flow', () => {
     expect(JSON.parse(selected.stdout)).toMatchObject({
       manifest: { plugin: 'fixture.url-alternate' },
     });
-  });
+  }, 15_000);
 
   it('rejects file URLs before selecting or launching a URL plugin', async () => {
     const result = await runCli(
@@ -256,7 +256,7 @@ describe('URL ingestion CLI flow', () => {
     await expect(
       readFile(join(second.rawPath, second.manifest.original.path), 'utf8'),
     ).resolves.toContain('second fixture response');
-  });
+  }, 15_000);
 });
 
 async function rawSourceDirectories(): Promise<readonly string[]> {

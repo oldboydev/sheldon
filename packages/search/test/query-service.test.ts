@@ -89,6 +89,7 @@ describe('QueryService', () => {
       path: 'wiki/spacing.md',
       title: 'Spaced repetition',
     });
+    let rootSearchOptions: { readonly includeRelatedConcepts: false } | undefined;
     await writeConcept(
       root,
       'topics',
@@ -116,8 +117,9 @@ describe('QueryService', () => {
       }),
     );
     const index: QueryIndex = {
-      search: (query: string) => {
+      search: (query: string, _filters, options) => {
         if (query.length === 0) throw new Error('QueryService must not enumerate the index.');
+        rootSearchOptions = options;
         return [active];
       },
       findRelatedConcepts: (_entity, path) =>
@@ -135,6 +137,7 @@ describe('QueryService', () => {
         { result: { conceptId: 'spacing' }, depth: 1 },
       ],
     });
+    expect(rootSearchOptions).toEqual({ includeRelatedConcepts: false });
   });
 
   it('follows same-entity backlinks with the configured depth while avoiding cycles', async () => {
@@ -260,6 +263,11 @@ describe('QueryService', () => {
     await expect(service.query({ question: 'unknown subject' })).resolves.toEqual({
       question: 'unknown subject',
       truncated: false,
+      truncation: {
+        rootResultsExcluded: false,
+        conceptsExcludedByBudget: false,
+        bodiesTruncated: false,
+      },
       concepts: [],
       citations: [],
       gaps: [
@@ -352,7 +360,18 @@ describe('QueryService', () => {
 
     const result = await service.query({ question: 'recall', maxResults: 1 });
     expect(result.truncated).toBe(true);
+    expect(result.truncation).toEqual({
+      rootResultsExcluded: true,
+      conceptsExcludedByBudget: false,
+      bodiesTruncated: false,
+    });
     expect(result.concepts).toHaveLength(1);
+    expect(result.gaps).toContainEqual(
+      expect.objectContaining({
+        code: 'CONTEXT_BUDGET_EXCEEDED',
+        message: expect.stringContaining('maxResults selected only 1'),
+      }),
+    );
   });
 
   it('bounds cyclic backlink expansion by rendered context characters', async () => {
@@ -401,6 +420,12 @@ describe('QueryService', () => {
     ]);
     expect(result.concepts).toHaveLength(2);
     expect(result.truncated).toBe(true);
+    expect(result.truncation).toEqual({
+      rootResultsExcluded: false,
+      conceptsExcludedByBudget: true,
+      bodiesTruncated: true,
+    });
+    expect(result.concepts[1]!.bodyTruncated).toBe(true);
     expect(result.gaps).toContainEqual(
       expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }),
     );
@@ -442,7 +467,14 @@ describe('QueryService', () => {
     expect(result.concepts).toHaveLength(1);
     expect(result.concepts[0]!.result.conceptId).toBe('oversized');
     expect(result.concepts[0]!.body.length).toBeLessThan(2_000);
+    expect(result.concepts[0]!.body).toMatch(/… \[truncated\]$/u);
+    expect(result.concepts[0]!.bodyTruncated).toBe(true);
     expect(result.truncated).toBe(true);
+    expect(result.truncation).toEqual({
+      rootResultsExcluded: false,
+      conceptsExcludedByBudget: false,
+      bodiesTruncated: true,
+    });
     expect(result.gaps).toContainEqual(
       expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }),
     );
@@ -480,7 +512,77 @@ describe('QueryService', () => {
       maxContextChars: 1_000,
     });
     expect(result.truncated).toBe(true);
-    expect(result.concepts[0]!.body).toBe('😀'.repeat(973));
+    expect(result.concepts[0]!.body).toBe('😀'.repeat(960) + '… [truncated]');
+    expect(Array.from(result.concepts[0]!.body)).toHaveLength(973);
+    expect(result.concepts[0]!.bodyTruncated).toBe(true);
+  });
+
+  it('records a linked concept that is excluded after its root body is cut', async () => {
+    const root = await createVault();
+    const oversized = fakeResult({
+      conceptId: 'oversized',
+      path: 'wiki/oversized.md',
+      title: 'Oversized root',
+    });
+    const linked = fakeResult({
+      conceptId: 'linked',
+      path: 'wiki/linked.md',
+      title: 'Linked concept',
+    });
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'oversized.md',
+      concept({
+        id: 'oversized',
+        title: 'Oversized root',
+        description: 'needle-for-oversized-link',
+        sources: [],
+        body: `${'x'.repeat(2_000)} [Linked concept](linked.md)`,
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'linked.md',
+      concept({
+        id: 'linked',
+        title: 'Linked concept',
+        description: 'A related concept.',
+        sources: [],
+        body: 'Related evidence.',
+      }),
+    );
+    const service = new QueryService(root, {
+      search: () => [oversized],
+      findRelatedConcepts: (_entity, path) =>
+        path === oversized.path
+          ? [{ path: linked.path, relation: 'outgoing' as const, result: linked }]
+          : [],
+      close: () => undefined,
+    });
+    services.push(service);
+
+    const result = await service.query({
+      question: 'needle-for-oversized-link',
+      linkDepth: 1,
+      maxContextChars: 1_000,
+    });
+
+    expect(result.concepts.map((item) => item.result.conceptId)).toEqual(['oversized']);
+    expect(result.truncation).toEqual({
+      rootResultsExcluded: false,
+      conceptsExcludedByBudget: true,
+      bodiesTruncated: true,
+    });
+    expect(result.gaps).toContainEqual(
+      expect.objectContaining({
+        code: 'CONTEXT_BUDGET_EXCEEDED',
+        message: expect.stringContaining('wiki/linked.md (Linked concept) was not selected'),
+      }),
+    );
   });
 
   it('uses the full body budget when an early whitespace boundary would discard most context', async () => {
@@ -521,7 +623,9 @@ describe('QueryService', () => {
         maxContextChars: 1_000,
       });
 
-      expect(query.concepts[0]!.body, testCase.name).toBe(testCase.body.slice(0, 973));
+      expect(query.concepts[0]!.body, testCase.name).toBe(
+        testCase.body.slice(0, 960) + '… [truncated]',
+      );
       expect(Array.from(query.concepts[0]!.body), testCase.name).toHaveLength(973);
     }
   });
@@ -559,7 +663,7 @@ describe('QueryService', () => {
       maxContextChars: 1_000,
     });
 
-    expect(query.concepts[0]!.body).toBe('x'.repeat(900));
+    expect(query.concepts[0]!.body).toBe('x'.repeat(900) + '… [truncated]');
   });
 
   it('does not include a first root whose path and title exceed the context budget', async () => {
@@ -591,6 +695,11 @@ describe('QueryService', () => {
 
     expect(query.concepts).toEqual([]);
     expect(query.truncated).toBe(true);
+    expect(query.truncation).toEqual({
+      rootResultsExcluded: false,
+      conceptsExcludedByBudget: true,
+      bodiesTruncated: false,
+    });
     expect(query.gaps).toContainEqual(expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }));
   });
 

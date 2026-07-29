@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-import { SearchIndex, SearchIndexError } from '@sheldon/search';
+import { SearchIndex, SearchIndexError, type SearchOptions } from '@sheldon/search';
 import { VaultService, vaultPaths } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -227,6 +227,153 @@ describe('SearchIndex', () => {
     const rebuilt = await SearchIndex.openOrRebuild(root);
     indexes.push(rebuilt);
     expect(rebuilt.search('recall')).toEqual([expect.objectContaining({ conceptId: 'recall' })]);
+  });
+
+  it('rebuilds a recognizably corrupt projection but reports an inaccessible database path', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'recall',
+        type: 'practice',
+        title: 'Active recall',
+        description: 'Retrieve knowledge.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'Practice recall.',
+      }),
+    );
+    const databasePath = vaultPaths(root).searchDatabase;
+    await mkdir(dirname(databasePath), { recursive: true });
+    await writeFile(databasePath, 'this is not a SQLite database', 'utf8');
+
+    const rebuilt = await SearchIndex.openOrRebuild(root);
+    indexes.push(rebuilt);
+    expect(rebuilt.search('recall')).toEqual([expect.objectContaining({ conceptId: 'recall' })]);
+    rebuilt.close();
+    indexes.splice(indexes.indexOf(rebuilt), 1);
+    await rm(databasePath);
+    await mkdir(databasePath);
+
+    await expect(SearchIndex.openOrRebuild(root)).rejects.toMatchObject({
+      name: 'SearchIndexError',
+      message: expect.stringContaining('could not be inspected'),
+    });
+  });
+
+  it('extracts wiki relationships only from active Markdown prose', async () => {
+    const root = await createVault();
+    const source = concept({
+      id: 'source',
+      type: 'note',
+      title: 'Source concept',
+      description: 'A source concept.',
+      aliases: [],
+      tags: [],
+      sources: [],
+      body: `
+[Real prose link](real.md)
+
+\`[Inline example](inline.md)\`
+
+<!-- [Comment example](comment.md) -->
+
+\`\`\`markdown
+[Fence example](fence.md)
+\`\`\`
+
+~~~markdown
+[Unclosed fence example](unclosed.md)
+`,
+    }).replace(
+      'description: A source concept.',
+      'description: "[Frontmatter example](frontmatter.md)"',
+    );
+    await writeConcept(root, 'topics', 'memory', 'source.md', source);
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'real.md',
+      concept({
+        id: 'real',
+        type: 'note',
+        title: 'Real linked concept',
+        description: 'A real relationship destination.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
+
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    const [sourceResult] = index.search('source concept');
+    expect(sourceResult?.relatedConcepts).toEqual([
+      expect.objectContaining({ conceptId: 'real', path: 'wiki/real.md', relation: 'outgoing' }),
+    ]);
+    const relations = index.findRelatedConcepts(
+      { kind: 'topic', slug: 'memory' },
+      'wiki/source.md',
+    );
+    expect(relations).toEqual([
+      expect.objectContaining({ path: 'wiki/real.md', relation: 'outgoing' }),
+    ]);
+    expect(relations[0]?.result).not.toHaveProperty('relatedConcepts');
+  });
+
+  it('can skip the relationship projection for traversal roots without claiming none exist', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'source.md',
+      concept({
+        id: 'source',
+        type: 'note',
+        title: 'Source concept',
+        description: 'A source concept.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: '[Linked concept](linked.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'linked.md',
+      concept({
+        id: 'linked',
+        type: 'note',
+        title: 'Linked concept',
+        description: 'A linked concept.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    const options: SearchOptions = {
+      includeRelatedConcepts: false,
+    };
+    const [candidate] = index.search('source concept', undefined, options);
+    expect(candidate).toMatchObject({ conceptId: 'source' });
+    expect(candidate).not.toHaveProperty('relatedConcepts');
+    expect(index.search('source concept')[0]?.relatedConcepts).toEqual([
+      expect.objectContaining({ conceptId: 'linked' }),
+    ]);
   });
 
   it('projects deterministic, same-entity outgoing links and backlinks onto search results', async () => {

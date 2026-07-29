@@ -9,11 +9,14 @@ import {
   type SearchEntityKind,
   type SearchConceptRelation,
   type SearchFilters,
-  type SearchResult,
+  type SearchTraversalCandidate,
 } from './search-index.js';
 
 /** Default maximum number of Unicode code points in selected concept context. */
 export const DEFAULT_MAX_CONTEXT_CHARS = 24_000;
+
+/** Included in a body when its source text did not fit in the selected context. */
+export const BODY_TRUNCATION_MARKER = '… [truncated]';
 
 export interface QueryRequest {
   /** The lexical question used to select the first concepts from the local index. */
@@ -47,10 +50,22 @@ export interface QueryEntity {
 }
 
 export interface QueryConcept {
-  readonly result: SearchResult;
+  readonly result: SearchTraversalCandidate;
   readonly depth: number;
   readonly body: string;
+  /** True when {@link body} ends with {@link BODY_TRUNCATION_MARKER}. */
+  readonly bodyTruncated: boolean;
   readonly citations: readonly QueryCitation[];
+}
+
+/** Separates the limits that contributed to the legacy {@link QueryResult.truncated} flag. */
+export interface QueryTruncation {
+  /** Matching lexical hits were omitted because they exceeded `maxResults`. */
+  readonly rootResultsExcluded: boolean;
+  /** A known concept could not be selected because no context budget remained for it. */
+  readonly conceptsExcludedByBudget: boolean;
+  /** At least one selected body was cut and marked in-band. */
+  readonly bodiesTruncated: boolean;
 }
 
 export interface QueryGap {
@@ -64,21 +79,27 @@ export interface QueryResult {
   readonly question: string;
   /** True when the configured root-hit or selected-context limit excluded context. */
   readonly truncated: boolean;
+  /** Detailed provenance for {@link truncated}; the boolean is retained for existing callers. */
+  readonly truncation: QueryTruncation;
   readonly concepts: readonly QueryConcept[];
   readonly citations: readonly QueryCitation[];
   readonly gaps: readonly QueryGap[];
 }
 
 interface QueueItem {
-  readonly result: SearchResult;
+  readonly result: SearchTraversalCandidate;
   readonly depth: number;
 }
 
 /** The index operations required to select query context. */
 export interface QueryIndex {
-  search(query: string, filters?: SearchFilters): readonly SearchResult[];
+  search(
+    query: string,
+    filters: SearchFilters | undefined,
+    options: Readonly<{ includeRelatedConcepts: false }>,
+  ): readonly SearchTraversalCandidate[];
   findRelatedConcepts(
-    entity: Pick<SearchResult['entity'], 'kind' | 'slug'>,
+    entity: Pick<SearchTraversalCandidate['entity'], 'kind' | 'slug'>,
     path: string,
   ): readonly SearchConceptRelation[];
   close(): void;
@@ -101,7 +122,9 @@ export class QueryService {
 
   public async query(request: QueryRequest): Promise<QueryResult> {
     validateRequest(request);
-    const hits = this.index.search(request.question, request.filters);
+    const hits = this.index.search(request.question, request.filters, {
+      includeRelatedConcepts: false,
+    });
     const rootLimit = request.maxResults ?? 8;
     const roots = hits.slice(0, rootLimit);
     if (roots.length === 0) return uncoveredResult(request.question);
@@ -113,7 +136,12 @@ export class QueryService {
     const concepts: QueryConcept[] = [];
     const gaps: QueryGap[] = [];
     let contextChars = 0;
-    let truncated = hits.length > rootLimit;
+    const truncation = {
+      rootResultsExcluded: hits.length > rootLimit,
+      conceptsExcludedByBudget: false,
+      bodiesTruncated: false,
+    };
+    if (truncation.rootResultsExcluded) gaps.push(rootResultsExcluded(hits.length, roots.length));
 
     while (queue.length > 0) {
       const current = queue.shift()!;
@@ -128,55 +156,65 @@ export class QueryService {
         maxContextChars - contextChars,
       );
       if (selection === undefined) {
-        truncated = true;
-        gaps.push(contextBudgetExceeded(maxContextChars));
+        truncation.conceptsExcludedByBudget = true;
+        gaps.push(contextBudgetExcludedConcept(maxContextChars, current.result));
         break;
       }
       concepts.push({
         result: current.result,
         depth: current.depth,
         body: selection.body,
+        bodyTruncated: selection.bodyTruncated,
         citations: loaded.citations,
       });
       gaps.push(...loaded.gaps);
       contextChars += selection.characters;
-      if (selection.truncated) {
-        truncated = true;
-        gaps.push(contextBudgetExceeded(maxContextChars));
-        break;
+      if (current.depth < maxDepth) {
+        const neighbours = new Map<string, SearchTraversalCandidate>();
+        for (const related of this.index.findRelatedConcepts(
+          current.result.entity,
+          current.result.path,
+        )) {
+          if (related.result === undefined) {
+            if (related.relation === 'outgoing')
+              gaps.push(unavailableLink(current.result, related.path));
+            continue;
+          }
+          neighbours.set(related.result.path, related.result);
+        }
+        for (const linked of [...neighbours.values()].sort((left, right) =>
+          compareStrings(left.path, right.path),
+        )) {
+          if (!seen.has(conceptKey(linked))) {
+            queue.push({ result: linked, depth: current.depth + 1 });
+          }
+        }
       }
 
-      if (current.depth >= maxDepth) continue;
-      const neighbours = new Map<string, SearchResult>();
-      for (const related of this.index.findRelatedConcepts(
-        current.result.entity,
-        current.result.path,
-      )) {
-        if (related.result === undefined) {
-          if (related.relation === 'outgoing')
-            gaps.push(unavailableLink(current.result, related.path));
-          continue;
-        }
-        neighbours.set(related.result.path, related.result);
-      }
-      for (const linked of [...neighbours.values()].sort((left, right) =>
-        compareStrings(left.path, right.path),
-      )) {
-        if (!seen.has(conceptKey(linked))) queue.push({ result: linked, depth: current.depth + 1 });
+      if (selection.bodyTruncated) {
+        truncation.bodiesTruncated = true;
+        const queued = firstUnseenQueuedConcept(queue, seen);
+        if (queued !== undefined) truncation.conceptsExcludedByBudget = true;
+        gaps.push(contextBudgetTruncatedBody(maxContextChars, current.result, queued));
+        break;
       }
     }
 
     const citations = uniqueCitations(concepts.flatMap((concept) => concept.citations));
     return {
       question: request.question,
-      truncated,
+      truncated:
+        truncation.rootResultsExcluded ||
+        truncation.conceptsExcludedByBudget ||
+        truncation.bodiesTruncated,
+      truncation,
       concepts,
       citations,
       gaps: uniqueGaps(gaps),
     };
   }
 
-  private async loadConcept(result: SearchResult): Promise<{
+  private async loadConcept(result: SearchTraversalCandidate): Promise<{
     readonly body: string;
     readonly citations: readonly QueryCitation[];
     readonly gaps: readonly QueryGap[];
@@ -249,6 +287,11 @@ function uncoveredResult(question: string): QueryResult {
   return {
     question,
     truncated: false,
+    truncation: {
+      rootResultsExcluded: false,
+      conceptsExcludedByBudget: false,
+      bodiesTruncated: false,
+    },
     concepts: [],
     citations: [],
     gaps: [
@@ -261,7 +304,7 @@ function uncoveredResult(question: string): QueryResult {
   };
 }
 
-function unavailableLink(result: SearchResult, path: string): QueryGap {
+function unavailableLink(result: SearchTraversalCandidate, path: string): QueryGap {
   return {
     code: 'WIKI_LINK_UNAVAILABLE',
     message: `The wiki link from ${result.path} has no indexed target: ${path}.`,
@@ -269,29 +312,62 @@ function unavailableLink(result: SearchResult, path: string): QueryGap {
   };
 }
 
-function contextBudgetExceeded(maxContextChars: number): QueryGap {
+function rootResultsExcluded(total: number, selected: number): QueryGap {
+  const excluded = total - selected;
   return {
     code: 'CONTEXT_BUDGET_EXCEEDED',
-    message: `The selected context reached its ${maxContextChars}-character budget.`,
-    suggestedSources: ['Increase maxContextChars to include more selected wiki context.'],
+    message: `The lexical search found ${total} matching concepts, but maxResults selected only ${selected}; ${excluded} matching root ${excluded === 1 ? 'concept was' : 'concepts were'} not selected.`,
+    suggestedSources: ['Increase maxResults to include more matching lexical root concepts.'],
+  };
+}
+
+function contextBudgetExcludedConcept(
+  maxContextChars: number,
+  result: SearchTraversalCandidate,
+): QueryGap {
+  return {
+    code: 'CONTEXT_BUDGET_EXCEEDED',
+    message: `The selected context reached its ${maxContextChars}-character budget before it could include ${result.path} (${result.title}).`,
+    suggestedSources: [`Increase maxContextChars to include ${result.path}.`],
+  };
+}
+
+function contextBudgetTruncatedBody(
+  maxContextChars: number,
+  result: SearchTraversalCandidate,
+  queued: SearchTraversalCandidate | undefined,
+): QueryGap {
+  return {
+    code: 'CONTEXT_BUDGET_EXCEEDED',
+    message:
+      `The body for ${result.path} (${result.title}) was cut to the ${maxContextChars}-character context budget and ends with ${BODY_TRUNCATION_MARKER}.` +
+      (queued === undefined
+        ? ''
+        : ` The queued concept ${queued.path} (${queued.title}) was not selected.`),
+    suggestedSources: [
+      `Increase maxContextChars to include the full body of ${result.path}.`,
+      ...(queued === undefined ? [] : [`Increase maxContextChars to include ${queued.path}.`]),
+    ],
   };
 }
 
 function selectBodyWithinBudget(
-  result: SearchResult,
+  result: SearchTraversalCandidate,
   body: string,
   remaining: number,
-): { readonly body: string; readonly characters: number; readonly truncated: boolean } | undefined {
+):
+  | { readonly body: string; readonly characters: number; readonly bodyTruncated: boolean }
+  | undefined {
   const headerCharacters = codePointLength(result.path) + codePointLength(result.title);
   if (remaining < headerCharacters) return undefined;
 
   const bodyBudget = remaining - headerCharacters;
   const selectedBody = truncateToCodePointsAtWordBoundary(body, bodyBudget);
-  const truncated = codePointLength(selectedBody) < codePointLength(body);
+  if (selectedBody === undefined) return undefined;
   return {
-    body: selectedBody,
-    characters: headerCharacters + codePointLength(selectedBody),
-    truncated,
+    body: selectedBody.body,
+    characters: headerCharacters + selectedBody.characters,
+    bodyTruncated: selectedBody.truncated,
   };
 }
 
@@ -304,24 +380,41 @@ function codePointLength(value: string): number {
  * useful portion of the available budget. A whitespace boundary immediately before a long token
  * would otherwise discard nearly all available context.
  */
-function truncateToCodePointsAtWordBoundary(value: string, maximum: number): string {
+function truncateToCodePointsAtWordBoundary(
+  value: string,
+  maximum: number,
+): { readonly body: string; readonly characters: number; readonly truncated: boolean } | undefined {
   const codePoints = Array.from(value);
-  if (codePoints.length <= maximum) return value;
-
-  const prefix = codePoints.slice(0, maximum);
-  for (let index = prefix.length - 1; index >= 0; index -= 1) {
-    if (/\s/u.test(prefix[index]!) && index >= maximum / 2) {
-      return prefix.slice(0, index).join('');
-    }
+  if (codePoints.length <= maximum) {
+    return { body: value, characters: codePoints.length, truncated: false };
   }
-  return prefix.join('');
+  const markerCharacters = codePointLength(BODY_TRUNCATION_MARKER);
+  if (maximum < markerCharacters) return undefined;
+
+  const contentMaximum = maximum - markerCharacters;
+  const minimumBoundary = contentMaximum / 2;
+  let lastBoundary = -1;
+  for (let index = 0; index < contentMaximum; index += 1) {
+    if (/\s/u.test(codePoints[index]!)) lastBoundary = index;
+  }
+  let end = lastBoundary >= minimumBoundary ? lastBoundary : contentMaximum;
+  while (end > 0 && /\s/u.test(codePoints[end - 1]!)) end -= 1;
+  const body = `${codePoints.slice(0, end).join('')}${BODY_TRUNCATION_MARKER}`;
+  return { body, characters: end + markerCharacters, truncated: true };
 }
 
-function conceptKey(result: SearchResult): string {
+function firstUnseenQueuedConcept(
+  queue: readonly QueueItem[],
+  seen: ReadonlySet<string>,
+): SearchTraversalCandidate | undefined {
+  return queue.find((item) => !seen.has(conceptKey(item.result)))?.result;
+}
+
+function conceptKey(result: SearchTraversalCandidate): string {
   return `${result.entity.kind}:${result.entity.slug}:${result.path}`;
 }
 
-function toQueryEntity(result: SearchResult): QueryEntity {
+function toQueryEntity(result: SearchTraversalCandidate): QueryEntity {
   return {
     id: result.entity.id,
     kind: result.entity.kind,

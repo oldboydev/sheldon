@@ -48,13 +48,13 @@ O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que vali
 
 ## Busca, consultas e write-back (M4)
 
-`search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet, origem do match e relações diretas entre conceitos da mesma entidade. Essas relações são links Markdown locais e seus backlinks — não similaridade semântica. Os filtros de tópico, projeto, tipo, tag, status e data reduzem o conjunto antes da resposta.
+`search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet, origem do match e relações diretas entre conceitos da mesma entidade. Essas relações são links Markdown locais e seus backlinks — não similaridade semântica. Os filtros de tópico, projeto, tipo, tag, status e data reduzem somente os resultados lexicais raiz; não escondem vizinhos já ligados a um resultado. Para manter a saída previsível, cada resultado da CLI traz no máximo 100 relações, em ordem determinística, e declara `relatedConceptsTruncated: true` quando houver mais.
 
 ```powershell
 npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowledge\sheldon
 ```
 
-Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown locais e backlinks até dois saltos (`--link-depth`, padrão 1). Os registros de conceito selecionados (path, título e corpo) são limitados deterministicamente a 24.000 caracteres por padrão (`--max-context-chars`), e qualquer corte fica marcado na resposta. O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
+Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown locais e backlinks até dois saltos (`--link-depth`, padrão 1). Os filtros selecionam somente as raízes lexicais; a expansão preserva os vínculos diretos delas mesmo que o vizinho tenha metadados diferentes. Os registros de conceito selecionados (path, título e corpo) são limitados deterministicamente a 24.000 caracteres por padrão (`--max-context-chars`), e qualquer corte fica marcado na resposta. O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
 
 Se uma cobertura indexada existir, mas seu path e título não couberem no orçamento, Sheldon também não chama o agente: a resposta registra que a cobertura foi excluída pelo limite, em vez de reportar incorretamente ausência de cobertura.
 

@@ -4,6 +4,8 @@ import { resolveVaultPath } from '../config.js';
 import type { CommandContext } from '../runtime.js';
 import type { VaultOption } from './entities.js';
 
+const MAX_RELATED_CONCEPTS_PER_RESULT = 100;
+
 export interface SearchCommandOptions extends VaultOption, SearchFilters {
   readonly rebuild?: boolean;
 }
@@ -28,7 +30,12 @@ export async function searchVault(
       updatedAfter: options.updatedAfter,
       updatedBefore: options.updatedBefore,
     };
-    context.write(JSON.stringify(index.search(query, filters), null, 2));
+    const results = index.search(query, filters).map((result) => ({
+      ...result,
+      relatedConcepts: result.relatedConcepts.slice(0, MAX_RELATED_CONCEPTS_PER_RESULT),
+      relatedConceptsTruncated: result.relatedConcepts.length > MAX_RELATED_CONCEPTS_PER_RESULT,
+    }));
+    context.write(JSON.stringify(results, null, 2));
   } finally {
     index.close();
   }

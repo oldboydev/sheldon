@@ -70,6 +70,66 @@ describe('local search CLI', () => {
       dependencies,
     );
     expect(JSON.parse(filtered.stdout)).toEqual([expect.objectContaining({ conceptId: 'search' })]);
+
+    const filteredWithRelation = await runCli(
+      ['search', 'retrieval', '--tag', 'learning', '--vault', vaultPath],
+      dependencies,
+    );
+    expect(JSON.parse(filteredWithRelation.stdout)).toEqual([
+      expect.objectContaining({
+        conceptId: 'recall',
+        relatedConcepts: [expect.objectContaining({ conceptId: 'support' })],
+        relatedConceptsTruncated: false,
+      }),
+    ]);
+  });
+
+  it('bounds relationship metadata in the CLI response and declares truncation', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-search-cli-'));
+    roots.push(root);
+    const vaultPath = join(root, 'vault');
+    const vault = await VaultService.init(vaultPath);
+    await vault.createEntity({ kind: 'topic', title: 'Memory' });
+    await writeConcept(
+      vaultPath,
+      'topics',
+      'memory',
+      'hub.md',
+      'hub',
+      'Retrieval hub',
+      [],
+      'Hub for retrieval.',
+    );
+    await Promise.all(
+      Array.from({ length: 101 }, (_, number) =>
+        writeConcept(
+          vaultPath,
+          'topics',
+          'memory',
+          `linked-${number.toString().padStart(3, '0')}.md`,
+          `linked-${number}`,
+          `Linked ${number}`,
+          [],
+          `[Hub](hub.md)`,
+        ),
+      ),
+    );
+    const dependencies: CliDependencies = {
+      environment: { APPDATA: join(root, 'appdata') },
+      homeDirectory: root,
+      commandAvailable: async () => false,
+    };
+
+    const result = await runCli(['search', 'retrieval', '--vault', vaultPath], dependencies);
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    const hub = JSON.parse(result.stdout).find(
+      (entry: { conceptId: string }) => entry.conceptId === 'hub',
+    );
+    expect(hub).toMatchObject({ relatedConceptsTruncated: true });
+    expect(hub.relatedConcepts).toHaveLength(100);
+    expect(hub.relatedConcepts[0]).toMatchObject({ conceptId: 'linked-0' });
+    expect(hub.relatedConcepts[99]).toMatchObject({ conceptId: 'linked-99' });
   });
 });
 

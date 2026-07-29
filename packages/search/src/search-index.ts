@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rm } from 'node:fs/promises';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 
@@ -21,7 +21,25 @@ export interface SearchFilters {
   readonly updatedBefore?: string;
 }
 
-export interface SearchResult {
+/** The default search projection, including direct relationship metadata. */
+export interface SearchResultOptions {
+  /** Defaults to true. */
+  readonly includeRelatedConcepts?: true;
+}
+
+/** Opts out of eager relationship metadata for graph traversal roots. */
+export interface SearchTraversalOptions {
+  readonly includeRelatedConcepts: false;
+}
+
+/** Controls optional projections added to otherwise identical lexical hits. */
+export type SearchOptions = SearchResultOptions | SearchTraversalOptions;
+
+/**
+ * Fields shared by lexical search hits and graph-traversal candidates. A
+ * traversal candidate deliberately does not claim to contain its neighbours.
+ */
+export interface SearchConcept {
   readonly conceptId: string;
   readonly entity: {
     readonly id: string;
@@ -42,9 +60,20 @@ export interface SearchResult {
   readonly snippet: string;
   readonly score: number;
   readonly matchFields: readonly SearchMatchField[];
+}
+
+/** A complete lexical search hit, including its already-projected direct neighbours. */
+export interface SearchResult extends SearchConcept {
   /** Direct wiki neighbours in the same entity, ordered by their wiki path. */
   readonly relatedConcepts: readonly SearchRelatedConcept[];
 }
+
+/**
+ * A lightweight graph candidate. Call `findRelatedConcepts` again after
+ * reaching it to load its neighbours; unlike `SearchResult`, it has no
+ * `relatedConcepts` field whose empty value could be mistaken for a fact.
+ */
+export type SearchTraversalCandidate = SearchConcept;
 
 export interface SearchRelatedConcept {
   readonly conceptId: string;
@@ -63,7 +92,7 @@ export interface SearchRelatedConcept {
 export interface SearchConceptRelation {
   readonly path: string;
   readonly relation: SearchRelatedConcept['relation'];
-  readonly result?: SearchResult;
+  readonly result?: SearchTraversalCandidate;
 }
 
 export type SearchMatchField =
@@ -195,13 +224,18 @@ export class SearchIndex {
     }
   }
 
-  /** Opens a compatible projection, rebuilding when it is absent or from an older schema. */
+  /**
+   * Opens a compatible projection, rebuilding only when it is absent, from an
+   * older schema, or recognizably corrupt. I/O and lock failures are surfaced
+   * because rebuilding cannot safely fix them.
+   */
   public static async openOrRebuild(vaultRoot: string): Promise<SearchIndex> {
     const root = resolve(vaultRoot);
     const databasePath = vaultPaths(root).searchDatabase;
     if (!existsSync(databasePath)) return SearchIndex.rebuild(root);
 
     let database: DatabaseSync | undefined;
+    let corrupt = false;
     try {
       database = new DatabaseSync(databasePath, { allowExtension: false });
       if (hasCompatibleSchema(database)) {
@@ -209,15 +243,50 @@ export class SearchIndex {
         database = undefined;
         return index;
       }
-    } catch {
-      // The index is a disposable projection. An unreadable or old schema is rebuilt below.
+    } catch (error) {
+      if (!isRecognizedIndexCorruption(error)) {
+        throw new SearchIndexError(`Search index could not be inspected: ${databasePath}`, {
+          cause: error,
+        });
+      }
+      // A corrupt SQLite projection is disposable. An incompatible schema is
+      // handled by the false result above, without treating all errors alike.
+      corrupt = true;
     } finally {
       database?.close();
+    }
+    if (corrupt) {
+      try {
+        await rm(databasePath);
+      } catch (error) {
+        throw new SearchIndexError(`Corrupt search index could not be removed: ${databasePath}`, {
+          cause: error,
+        });
+      }
     }
     return SearchIndex.rebuild(root);
   }
 
-  public search(query: string, filters: SearchFilters = {}): SearchResult[] {
+  public search(
+    query: string,
+    filters: SearchFilters | undefined,
+    options: SearchTraversalOptions,
+  ): SearchTraversalCandidate[];
+  public search(
+    query: string,
+    filters?: SearchFilters,
+    options?: SearchResultOptions,
+  ): SearchResult[];
+  public search(
+    query: string,
+    filters: SearchFilters | undefined,
+    options: SearchOptions,
+  ): SearchResult[] | SearchTraversalCandidate[];
+  public search(
+    query: string,
+    filters: SearchFilters = {},
+    options: SearchOptions = {},
+  ): SearchResult[] | SearchTraversalCandidate[] {
     const terms = searchTerms(query);
     const constraints: string[] = [];
     const values: string[] = [];
@@ -244,7 +313,11 @@ export class SearchIndex {
             )
             .all(...values, terms.map((term) => `"${term}"`).join(' AND '));
 
-    return this.toSearchResults(rows as QueryRow[], terms);
+    const concepts = rows as QueryRow[];
+    if (options.includeRelatedConcepts === false) {
+      return concepts.map((row) => toSearchConcept(row, terms));
+    }
+    return this.toSearchResults(concepts, terms);
   }
 
   /**
@@ -274,7 +347,7 @@ export class SearchIndex {
     const byPath = new Map(
       candidates.map((row) => [
         String(row.path),
-        { ...toSearchResultBase(row, []), relatedConcepts: [] } satisfies SearchResult,
+        toSearchConcept(row, []) satisfies SearchTraversalCandidate,
       ]),
     );
     return combineRelations(relations).map((relation) => ({
@@ -292,7 +365,7 @@ export class SearchIndex {
     if (rows.length === 0) return [];
     const relationsByKey = this.relatedConceptsByKey(rows);
     return rows.map((row) => ({
-      ...toSearchResultBase(row, terms),
+      ...toSearchConcept(row, terms),
       relatedConcepts: relationsByKey.get(keyOfRow(row)) ?? [],
     }));
   }
@@ -518,6 +591,22 @@ function hasCompatibleSchema(database: DatabaseSync): boolean {
   );
 }
 
+/**
+ * Only database-content failures are safe to recover by rebuilding the
+ * disposable projection. In particular, do not turn locked, permission, or
+ * filesystem failures into a rebuild attempt that obscures the real problem.
+ */
+function isRecognizedIndexCorruption(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const value = error as { readonly code?: unknown; readonly message?: unknown };
+  const code = typeof value.code === 'string' ? value.code : '';
+  if (code === 'SQLITE_CORRUPT' || code === 'SQLITE_NOTADB') return true;
+  const message = typeof value.message === 'string' ? value.message : '';
+  return /database disk image is malformed|file is not a database|malformed database schema|database corruption/i.test(
+    message,
+  );
+}
+
 function hasColumns(database: DatabaseSync, table: string, expected: readonly string[]): boolean {
   const columns = database
     .prepare(`PRAGMA table_info(${table})`)
@@ -664,7 +753,7 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
           sources: stringList(frontmatter, 'sources', file),
           path,
           body: markdownBody(content),
-          links: linkedWikiPaths(content, file, entityRoot),
+          links: linkedWikiPaths(markdownBody(content), file, entityRoot),
         });
       }
     }
@@ -813,10 +902,7 @@ function searchTerms(query: string): string[] {
   return [...new Set(query.match(/[\p{L}\p{N}_-]+/gu) ?? [])];
 }
 
-function toSearchResultBase(
-  row: QueryRow,
-  terms: readonly string[],
-): Omit<SearchResult, 'relatedConcepts'> {
+function toSearchConcept(row: QueryRow, terms: readonly string[]): SearchConcept {
   const aliases = jsonStringList(row.aliases_json);
   const tags = jsonStringList(row.tags_json);
   const sources = jsonStringList(row.sources_json);
@@ -871,8 +957,75 @@ function markdownLinks(content: string): readonly string[] {
   const links: string[] = [];
   // Image destinations are not conceptual relationships even when they end in .md.
   const expression = /(?<!!)\[[^\]]*\]\(<?([^\s)>]+)[^)]*\)/g;
-  for (const match of content.matchAll(expression)) links.push(match[1]!);
+  for (const match of sanitizeMarkdownLinkContexts(content).matchAll(expression))
+    links.push(match[1]!);
   return links;
+}
+
+/**
+ * Keeps only Markdown prose where link syntax is active. Regex extraction is
+ * intentional here, but it must never interpret examples, inline code, or
+ * HTML comments as document relationships.
+ */
+function sanitizeMarkdownLinkContexts(markdown: string): string {
+  const withoutFences = withoutFencedCode(markdown);
+  const withoutComments = withoutFences.replace(/<!--[\s\S]*?(?:-->|$)/g, '');
+  let result = '';
+  let cursor = 0;
+  while (cursor < withoutComments.length) {
+    if (withoutComments[cursor] !== '`' || isEscaped(withoutComments, cursor)) {
+      result += withoutComments[cursor]!;
+      cursor += 1;
+      continue;
+    }
+    const delimiterEnd = nextNonBacktick(withoutComments, cursor);
+    const delimiter = withoutComments.slice(cursor, delimiterEnd);
+    const closing = withoutComments.indexOf(delimiter, delimiterEnd);
+    if (closing === -1) {
+      result += delimiter;
+      cursor = delimiterEnd;
+      continue;
+    }
+    result += withoutComments.slice(cursor, delimiterEnd);
+    result += withoutComments.slice(delimiterEnd, closing).replace(/[^\r\n]/g, ' ');
+    result += delimiter;
+    cursor = closing + delimiter.length;
+  }
+  return result;
+}
+
+function withoutFencedCode(markdown: string): string {
+  let fence: { readonly marker: '`' | '~'; readonly length: number } | undefined;
+  return markdown
+    .split(/(\r?\n)/)
+    .map((part) => {
+      if (part === '\n' || part === '\r\n') return part;
+      const match = /^(?: {0,3})(`{3,}|~{3,})/.exec(part);
+      if (fence === undefined) {
+        if (match === null) return part;
+        const delimiter = match[1]!;
+        fence = { marker: delimiter[0]! as '`' | '~', length: delimiter.length };
+        return ' '.repeat(part.length);
+      }
+      const concealed = ' '.repeat(part.length);
+      if (match !== null && match[1]![0] === fence.marker && match[1]!.length >= fence.length) {
+        fence = undefined;
+      }
+      return concealed;
+    })
+    .join('');
+}
+
+function nextNonBacktick(value: string, start: number): number {
+  let cursor = start;
+  while (value[cursor] === '`') cursor += 1;
+  return cursor;
+}
+
+function isEscaped(value: string, position: number): boolean {
+  let slashes = 0;
+  for (let cursor = position - 1; cursor >= 0 && value[cursor] === '\\'; cursor -= 1) slashes += 1;
+  return slashes % 2 === 1;
 }
 
 function resolveWikiLink(from: string, destination: string): string | undefined {
