@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Fundação do domínio `@sheldon/mcp` para M5: escopos explícitos por projeto consumidor e fachada local de leitura autorizada para listar escopos, buscar, ler conceitos e navegar relações sem expor raws ou escrita.
 - Índice local SQLite/FTS5 reconstruível de conceitos aprovados, com busca lexical e filtros de metadados para o M4.
 - Relações diretas entre conceitos da mesma entidade, projetadas a partir de links Markdown locais e expostas também como backlinks no índice M4.
 - Consulta M4 index-first por Codex ou Claude, com expansão limitada de links Markdown, backlinks e orçamento explícito de contexto, citações de wiki/raw, lacunas explícitas e outputs duráveis em `outputs/answers/`.

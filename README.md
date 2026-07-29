@@ -10,7 +10,7 @@ Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de en
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
-O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão.
+O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 começou pela fundação transport-agnóstica de MCP: `@sheldon/mcp` aplica escopos explícitos por projeto consumidor e expõe somente leituras de metadados indexados, antes de qualquer servidor ou configuração de agente.
 
 ## Decisões principais
 
