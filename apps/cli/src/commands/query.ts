@@ -22,6 +22,7 @@ export interface QueryCommandOptions extends VaultOption {
   readonly agent: AgentKind;
   readonly question: string;
   readonly linkDepth?: number;
+  readonly maxContextChars?: number;
   readonly rebuild?: boolean;
 }
 
@@ -53,6 +54,9 @@ export async function queryVault(
       question: options.question,
       filters: kind === 'topic' ? { topic: slug } : { project: slug },
       ...(options.linkDepth === undefined ? {} : { linkDepth: options.linkDepth }),
+      ...(options.maxContextChars === undefined
+        ? {}
+        : { maxContextChars: options.maxContextChars }),
     });
     const answers = new QueryAnswerStore(entity);
     const answer =
@@ -145,7 +149,7 @@ async function answerFromAgent(
       ...result.gaps.map((gap) => gap.message),
       ...(result.truncated
         ? [
-            'The local context excludes additional matching index results due to the root-hit limit.',
+            'The local context excludes matching index results or related concepts due to its configured limits.',
           ]
         : []),
     ],

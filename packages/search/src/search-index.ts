@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { DatabaseSync, type StatementSync } from 'node:sqlite';
 
 import { vaultPaths } from '@sheldon/vault';
@@ -55,6 +55,17 @@ export interface SearchRelatedConcept {
   readonly relation: 'outgoing' | 'backlink' | 'bidirectional';
 }
 
+/**
+ * An indexed direct relationship for graph traversal. An unresolved outgoing
+ * target has no result, so callers can surface it as a coverage gap without
+ * reparsing the source Markdown.
+ */
+export interface SearchConceptRelation {
+  readonly path: string;
+  readonly relation: SearchRelatedConcept['relation'];
+  readonly result?: SearchResult;
+}
+
 export type SearchMatchField =
   'title' | 'description' | 'aliases' | 'tags' | 'body' | 'sources' | 'path';
 
@@ -86,6 +97,51 @@ interface EntityMetadata {
 }
 
 type QueryRow = Record<string, unknown>;
+
+interface IndexKey {
+  readonly entityKind: SearchEntityKind;
+  readonly entitySlug: string;
+  readonly path: string;
+}
+
+interface RelationRow extends QueryRow {
+  readonly subject_path: string;
+  readonly direction: 'outgoing' | 'backlink';
+  readonly candidate_path: string;
+  readonly candidate_concept_id: string | null;
+  readonly candidate_title: string | null;
+}
+
+const INDEX_SCHEMA_VERSION = 2;
+const CONCEPT_COLUMNS = [
+  'entity_id',
+  'entity_kind',
+  'entity_slug',
+  'entity_title',
+  'concept_id',
+  'type',
+  'title',
+  'description',
+  'aliases_json',
+  'tags_json',
+  'status',
+  'created_at',
+  'updated_at',
+  'updated_at_epoch',
+  'sources_json',
+  'path',
+  'body',
+] as const;
+const CONCEPT_LINK_COLUMNS = ['entity_kind', 'entity_slug', 'source_path', 'target_path'] as const;
+const SEARCH_DOCUMENT_COLUMNS = [
+  'title',
+  'description',
+  'aliases',
+  'tags',
+  'body',
+  'sources',
+  'path',
+] as const;
 
 /**
  * A rebuildable SQLite FTS5 projection of approved wiki concepts. Vault Markdown
@@ -124,14 +180,9 @@ export class SearchIndex {
     }
     const database = new DatabaseSync(databasePath, { allowExtension: false });
     try {
-      const schema = database
-        .prepare(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('concepts', 'concept_links')",
-        )
-        .all();
-      if (schema.length !== 2) {
+      if (!hasCompatibleSchema(database)) {
         throw new SearchIndexError(
-          'Search index is incomplete. Run SearchIndex.rebuild(vaultRoot).',
+          'Search index schema is incompatible. Run SearchIndex.rebuild(vaultRoot).',
         );
       }
       return new SearchIndex(root, database);
@@ -141,19 +192,26 @@ export class SearchIndex {
     }
   }
 
-  /** Opens an existing index, rebuilding the disposable projection only when it is absent. */
+  /** Opens a compatible projection, rebuilding when it is absent or from an older schema. */
   public static async openOrRebuild(vaultRoot: string): Promise<SearchIndex> {
+    const root = resolve(vaultRoot);
+    const databasePath = vaultPaths(root).searchDatabase;
+    if (!existsSync(databasePath)) return SearchIndex.rebuild(root);
+
+    let database: DatabaseSync | undefined;
     try {
-      return SearchIndex.open(vaultRoot);
-    } catch (error) {
-      if (
-        error instanceof SearchIndexError &&
-        error.message.startsWith('Search index is missing.')
-      ) {
-        return SearchIndex.rebuild(vaultRoot);
+      database = new DatabaseSync(databasePath, { allowExtension: false });
+      if (hasCompatibleSchema(database)) {
+        const index = new SearchIndex(root, database);
+        database = undefined;
+        return index;
       }
-      throw error;
+    } catch {
+      // The index is a disposable projection. An unreadable or old schema is rebuilt below.
+    } finally {
+      database?.close();
     }
+    return SearchIndex.rebuild(root);
   }
 
   public search(query: string, filters: SearchFilters = {}): SearchResult[] {
@@ -183,7 +241,7 @@ export class SearchIndex {
             )
             .all(...values, terms.map((term) => `"${term}"`).join(' AND '));
 
-    return rows.map((row) => this.toSearchResult(row as QueryRow, terms));
+    return this.toSearchResults(rows as QueryRow[], terms);
   }
 
   /** Looks up one indexed concept by its entity scope and wiki-relative path. */
@@ -198,7 +256,44 @@ export class SearchIndex {
          WHERE concepts.entity_kind = ? AND concepts.entity_slug = ? AND concepts.path = ?`,
       )
       .get(entity.kind, entity.slug, path);
-    return row === undefined ? undefined : this.toSearchResult(row as QueryRow, []);
+    return row === undefined ? undefined : this.toSearchResults([row as QueryRow], [])[0];
+  }
+
+  /**
+   * Returns direct, same-entity graph relationships from the indexed
+   * `concept_links` table. This is the traversal API for consumers; it also
+   * preserves unresolved outgoing paths rather than reparsing Markdown.
+   */
+  public findRelatedConcepts(
+    entity: Pick<SearchResult['entity'], 'kind' | 'slug'>,
+    path: string,
+  ): readonly SearchConceptRelation[] {
+    const key: IndexKey = { entityKind: entity.kind, entitySlug: entity.slug, path };
+    const relations = this.loadRelationRows([key]);
+    const candidateKeys = uniqueKeys(
+      relations
+        .filter((relation) => relation.candidate_concept_id !== null)
+        .map((relation) => ({
+          entityKind: entity.kind,
+          entitySlug: entity.slug,
+          path: relation.candidate_path,
+        })),
+    );
+    const candidates = this.findConceptRows(candidateKeys);
+    // Traversal needs the candidate record, not a second eager projection of
+    // that candidate's own neighbours. Its relationships will be read only if
+    // traversal reaches it on a later hop.
+    const byPath = new Map(
+      candidates.map((row) => [
+        String(row.path),
+        { ...toSearchResultBase(row, []), relatedConcepts: [] } satisfies SearchResult,
+      ]),
+    );
+    return combineRelations(relations).map((relation) => ({
+      path: relation.path,
+      relation: relation.relation,
+      result: relation.hasCandidate ? byPath.get(relation.path) : undefined,
+    }));
   }
 
   /** Returns indexed concepts that link to this concept, scoped to the same entity. */
@@ -220,88 +315,102 @@ export class SearchIndex {
          ORDER BY concepts.path`,
       )
       .all(entity.kind, entity.slug, path, path);
-    return rows.map((row) => this.toSearchResult(row as QueryRow, []));
+    return this.toSearchResults(rows as QueryRow[], []);
   }
 
   public close(): void {
     this.database.close();
   }
 
-  private toSearchResult(row: QueryRow, terms: readonly string[]): SearchResult {
-    return {
+  private toSearchResults(rows: readonly QueryRow[], terms: readonly string[]): SearchResult[] {
+    if (rows.length === 0) return [];
+    const relationsByKey = this.relatedConceptsByKey(rows);
+    return rows.map((row) => ({
       ...toSearchResultBase(row, terms),
-      relatedConcepts: this.relatedConcepts(row),
-    };
+      relatedConcepts: relationsByKey.get(keyOfRow(row)) ?? [],
+    }));
   }
 
-  private relatedConcepts(row: QueryRow): readonly SearchRelatedConcept[] {
-    const entityKind = String(row.entity_kind);
-    const entitySlug = String(row.entity_slug);
-    const path = String(row.path);
-    const entity: SearchResult['entity'] = {
-      id: String(row.entity_id),
-      kind: entityKind as SearchEntityKind,
-      slug: entitySlug,
-      title: String(row.entity_title),
-    };
-    const neighbours = new Map<
-      string,
-      Omit<SearchRelatedConcept, 'relation'> & { directions: Set<string> }
-    >();
-    const add = (candidate: QueryRow, direction: 'outgoing' | 'backlink'): void => {
-      const candidatePath = String(candidate.path);
-      const existing = neighbours.get(candidatePath);
-      if (existing !== undefined) {
-        existing.directions.add(direction);
-        return;
-      }
-      neighbours.set(candidatePath, {
-        conceptId: String(candidate.concept_id),
-        entity,
-        path: candidatePath,
-        title: String(candidate.title),
-        directions: new Set([direction]),
+  private relatedConceptsByKey(rows: readonly QueryRow[]): Map<string, SearchRelatedConcept[]> {
+    const relations = this.loadRelationRows(rows.map(rowToIndexKey));
+    const related = new Map<string, SearchRelatedConcept[]>();
+    const entities = new Map<string, SearchResult['entity']>();
+    for (const row of rows) {
+      entities.set(keyOfRow(row), {
+        id: String(row.entity_id),
+        kind: String(row.entity_kind) as SearchEntityKind,
+        slug: String(row.entity_slug),
+        title: String(row.entity_title),
       });
-    };
-    const outgoing = this.database
+    }
+    for (const relation of combineRelations(relations)) {
+      if (!relation.hasCandidate) continue;
+      const subject = relation.subject;
+      const entity = entities.get(subject)!;
+      const values = related.get(subject) ?? [];
+      values.push({
+        conceptId: relation.conceptId!,
+        entity,
+        path: relation.path,
+        title: relation.title!,
+        relation: relation.relation,
+      });
+      related.set(subject, values);
+    }
+    for (const values of related.values())
+      values.sort((left, right) => compareStrings(left.path, right.path));
+    return related;
+  }
+
+  private loadRelationRows(keys: readonly IndexKey[]): RelationRow[] {
+    if (keys.length === 0) return [];
+    const selected = keys.map(() => '(?, ?, ?)').join(', ');
+    const values = keys.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
+    return this.database
       .prepare(
-        `SELECT target.concept_id, target.path, target.title
-         FROM concept_links
-         JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
+        `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
+         SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+                'outgoing' AS direction, concept_links.target_path AS candidate_path,
+                target.concept_id AS candidate_concept_id, target.title AS candidate_title
+         FROM selected
+         JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+           AND concept_links.entity_slug = selected.entity_slug
+           AND concept_links.source_path = selected.path
+         LEFT JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
            AND target.entity_slug = concept_links.entity_slug
            AND target.path = concept_links.target_path
-         WHERE concept_links.entity_kind = ?
-           AND concept_links.entity_slug = ?
-           AND concept_links.source_path = ?
-           AND target.path <> ?
-         ORDER BY target.path`,
-      )
-      .all(entityKind, entitySlug, path, path);
-    for (const candidate of outgoing) add(candidate as QueryRow, 'outgoing');
-    const incoming = this.database
-      .prepare(
-        `SELECT source.concept_id, source.path, source.title
-         FROM concept_links
+         WHERE concept_links.target_path <> selected.path
+         UNION ALL
+         SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+                'backlink' AS direction, concept_links.source_path AS candidate_path,
+                source.concept_id AS candidate_concept_id, source.title AS candidate_title
+         FROM selected
+         JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+           AND concept_links.entity_slug = selected.entity_slug
+           AND concept_links.target_path = selected.path
          JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
            AND source.entity_slug = concept_links.entity_slug
            AND source.path = concept_links.source_path
-         WHERE concept_links.entity_kind = ?
-           AND concept_links.entity_slug = ?
-           AND concept_links.target_path = ?
-           AND source.path <> ?
-         ORDER BY source.path`,
+         WHERE concept_links.source_path <> selected.path`,
       )
-      .all(entityKind, entitySlug, path, path);
-    for (const candidate of incoming) add(candidate as QueryRow, 'backlink');
-    return [...neighbours.values()]
-      .map(({ directions, ...candidate }): SearchRelatedConcept => ({
-        ...candidate,
-        relation:
-          directions.size === 2
-            ? 'bidirectional'
-            : ([...directions][0]! as 'outgoing' | 'backlink'),
-      }))
-      .sort((left, right) => compareStrings(left.path, right.path));
+      .all(...values) as RelationRow[];
+  }
+
+  private findConceptRows(keys: readonly IndexKey[]): QueryRow[] {
+    if (keys.length === 0) return [];
+    const selected = keys.map(() => '(?, ?, ?)').join(', ');
+    const values = keys.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
+    return this.database
+      .prepare(
+        `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
+         SELECT concepts.*, 0 AS score, substr(concepts.description, 1, 240) AS snippet
+         FROM selected
+         JOIN concepts ON concepts.entity_kind = selected.entity_kind
+           AND concepts.entity_slug = selected.entity_slug
+           AND concepts.path = selected.path
+         ORDER BY concepts.path`,
+      )
+      .all(...values) as QueryRow[];
   }
 
   private replaceContents(concepts: readonly IndexedConcept[]): void {
@@ -380,6 +489,7 @@ export class SearchIndex {
         title, description, aliases, tags, body, sources, path,
         tokenize = 'unicode61 remove_diacritics 2'
       );
+      PRAGMA user_version = ${INDEX_SCHEMA_VERSION};
     `);
   }
 
@@ -418,6 +528,114 @@ export class SearchIndex {
       concept.path,
     );
   }
+}
+
+function hasCompatibleSchema(database: DatabaseSync): boolean {
+  const version = database.prepare('PRAGMA user_version').get() as QueryRow;
+  return (
+    Number(version.user_version) === INDEX_SCHEMA_VERSION &&
+    hasColumns(database, 'concepts', CONCEPT_COLUMNS) &&
+    hasColumns(database, 'concept_links', CONCEPT_LINK_COLUMNS) &&
+    hasColumns(database, 'search_documents', SEARCH_DOCUMENT_COLUMNS)
+  );
+}
+
+function hasColumns(database: DatabaseSync, table: string, expected: readonly string[]): boolean {
+  const columns = database
+    .prepare(`PRAGMA table_info(${table})`)
+    .all()
+    .map((row) => String((row as QueryRow).name));
+  return (
+    columns.length === expected.length &&
+    columns.every((column, index) => column === expected[index])
+  );
+}
+
+function keyOf(key: IndexKey): string {
+  return `${key.entityKind}:${key.entitySlug}:${key.path}`;
+}
+
+function keyOfRow(row: QueryRow): string {
+  return keyOf(rowToIndexKey(row));
+}
+
+function rowToIndexKey(row: QueryRow): IndexKey {
+  return {
+    entityKind: String(row.entity_kind) as SearchEntityKind,
+    entitySlug: String(row.entity_slug),
+    path: String(row.path),
+  };
+}
+
+function uniqueKeys(keys: readonly IndexKey[]): IndexKey[] {
+  return [...new Map(keys.map((key) => [keyOf(key), key])).values()];
+}
+
+function combineRelations(rows: readonly RelationRow[]): Array<{
+  readonly subject: string;
+  readonly path: string;
+  readonly relation: SearchRelatedConcept['relation'];
+  readonly hasCandidate: boolean;
+  readonly conceptId?: string;
+  readonly title?: string;
+}> {
+  const relations = new Map<
+    string,
+    {
+      readonly subject: string;
+      readonly path: string;
+      readonly directions: Set<'outgoing' | 'backlink'>;
+      hasCandidate: boolean;
+      conceptId?: string;
+      title?: string;
+    }
+  >();
+  for (const row of rows) {
+    const subject = `${row.entity_kind}:${row.entity_slug}:${row.subject_path}`;
+    const path = String(row.candidate_path);
+    const key = `${subject}:${path}`;
+    const existing = relations.get(key);
+    if (existing !== undefined) {
+      existing.directions.add(row.direction);
+      if (row.candidate_concept_id !== null) {
+        existing.hasCandidate = true;
+        existing.conceptId = String(row.candidate_concept_id);
+        existing.title = String(row.candidate_title);
+      }
+      continue;
+    }
+    relations.set(key, {
+      subject,
+      path,
+      directions: new Set([row.direction]),
+      hasCandidate: row.candidate_concept_id !== null,
+      ...(row.candidate_concept_id === null
+        ? {}
+        : { conceptId: String(row.candidate_concept_id), title: String(row.candidate_title) }),
+    });
+  }
+  return [...relations.values()]
+    .map(
+      (relation) =>
+        ({
+          ...relation,
+          relation:
+            relation.directions.size === 2
+              ? 'bidirectional'
+              : ([...relation.directions][0] as 'outgoing' | 'backlink'),
+        }) as {
+          readonly subject: string;
+          readonly path: string;
+          readonly relation: SearchRelatedConcept['relation'];
+          readonly hasCandidate: boolean;
+          readonly conceptId?: string;
+          readonly title?: string;
+        },
+    )
+    .sort(
+      (left, right) =>
+        compareStrings(left.subject, right.subject) || compareStrings(left.path, right.path),
+    );
 }
 
 async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
@@ -684,7 +902,7 @@ function resolveWikiLink(from: string, destination: string): string | undefined 
   }
   try {
     const path = decodeURIComponent(destination.split('#', 1)[0]!);
-    return resolve(basename(from) === from ? from : resolve(from, '..'), path);
+    return resolve(dirname(from), path);
   } catch {
     return undefined;
   }

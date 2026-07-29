@@ -1,6 +1,7 @@
 import { access, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 
 import { SearchIndex, SearchIndexError } from '@sheldon/search';
 import { VaultService, vaultPaths } from '@sheldon/vault';
@@ -198,6 +199,36 @@ describe('SearchIndex', () => {
     expect(recreated.search('new')).toEqual([expect.objectContaining({ conceptId: 'new' })]);
   });
 
+  it('rebuilds an existing projection with an incompatible old schema', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'recall',
+        type: 'practice',
+        title: 'Active recall',
+        description: 'Retrieve knowledge.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'Practice recall.',
+      }),
+    );
+    const databasePath = vaultPaths(root).searchDatabase;
+    await mkdir(dirname(databasePath), { recursive: true });
+    const legacy = new DatabaseSync(databasePath, { allowExtension: false });
+    legacy.exec('CREATE TABLE concepts (path TEXT NOT NULL) STRICT;');
+    legacy.close();
+
+    expect(() => SearchIndex.open(root)).toThrow(SearchIndexError);
+    const rebuilt = await SearchIndex.openOrRebuild(root);
+    indexes.push(rebuilt);
+    expect(rebuilt.search('recall')).toEqual([expect.objectContaining({ conceptId: 'recall' })]);
+  });
+
   it('looks up an indexed concept by entity and wiki path without a lexical query', async () => {
     const root = await createVault();
     await writeConcept(
@@ -242,7 +273,7 @@ describe('SearchIndex', () => {
         aliases: [],
         tags: [],
         sources: [],
-        body: '[Self](active.md) [Outgoing](outgoing.md)',
+        body: '[Self](active.md) [Outgoing](outgoing.md) [Missing](missing.md) ![Diagram](image.md)',
       }),
     );
     await writeConcept(
@@ -259,6 +290,22 @@ describe('SearchIndex', () => {
         tags: [],
         sources: [],
         body: '[Back to active](active.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'image.md',
+      concept({
+        id: 'image',
+        type: 'note',
+        title: 'Image-only destination',
+        description: 'Not a concept relationship.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'A Markdown image points here, but it is not a wiki link.',
       }),
     );
     await writeConcept(
@@ -296,7 +343,9 @@ describe('SearchIndex', () => {
     const index = await SearchIndex.rebuild(root);
     indexes.push(index);
 
-    expect(index.search('active', { topic: 'memory' })[0]!.relatedConcepts).toEqual([
+    expect(
+      index.findConcept({ kind: 'topic', slug: 'memory' }, 'wiki/active.md')!.relatedConcepts,
+    ).toEqual([
       {
         conceptId: 'backlink',
         entity: expect.objectContaining({ kind: 'topic', slug: 'memory' }),
@@ -317,6 +366,15 @@ describe('SearchIndex', () => {
         .findBacklinks({ kind: 'topic', slug: 'memory' }, 'wiki/active.md')
         .map((result) => result.conceptId),
     ).toEqual(['backlink', 'outgoing']);
+    expect(index.findRelatedConcepts({ kind: 'topic', slug: 'memory' }, 'wiki/active.md')).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: 'wiki/missing.md',
+          relation: 'outgoing',
+          result: undefined,
+        }),
+      ]),
+    );
   });
 
   it('keeps duplicate wiki paths separate by entity and compares date filters by instant', async () => {

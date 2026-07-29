@@ -10,7 +10,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 - Índice local SQLite/FTS5 reconstruível de conceitos aprovados, com busca lexical e filtros de metadados para o M4.
 - Relações diretas entre conceitos da mesma entidade, projetadas a partir de links Markdown locais e expostas também como backlinks no índice M4.
-- Consulta M4 index-first por Codex ou Claude, com expansão limitada de links Markdown, citações de wiki/raw, lacunas explícitas e outputs duráveis em `outputs/answers/`.
+- Consulta M4 index-first por Codex ou Claude, com expansão limitada de links Markdown, backlinks e orçamento explícito de contexto, citações de wiki/raw, lacunas explícitas e outputs duráveis em `outputs/answers/`.
 - Promoção de resposta citada para uma proposta pendente do fluxo de revisão, sem alteração da wiki antes de aprovação explícita.
 - Plugin `source.repository` e comando `ingest repository` para publicar snapshots determinísticos de commits de repositórios Git locais limpos, com deduplicação, vínculo de revisão, inventário de seleção e recusa pré-publicação de segredos.
 - Catálogo oficial assinado para instalação opcional de plugins e comandos explícitos para gerenciar idiomas do `source.image`.
@@ -20,7 +20,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
-- Busca e consulta reutilizam o índice local existente por padrão, com `--rebuild` para forçar uma projeção nova; a consulta deixa de materializar o vault inteiro para seguir links e backlinks e registra truncamento no output da resposta.
+- Busca e consulta reutilizam o índice local existente por padrão, com `--rebuild` para forçar uma projeção nova; um schema de índice desatualizado também é recriado automaticamente. A consulta deixa de materializar o vault inteiro para seguir links e backlinks, aplica `--max-context-chars` e registra truncamento no output da resposta.
 - Normalização de corpo Markdown e timestamps ISO estritos foram centralizadas no core para os índices, revisão e respostas persistidas.
 - Consultas M4 agora validam o contrato de saída de Codex e Claude de modo consistente, recusam citações fora do contexto e preservam a proveniência real de uma promoção; a resolução de paths também recusa volumes externos no Windows.
 - O índice M4 passou a reconstruir transacionalmente depois de validar o vault, usa chaves de caminho por entidade e compara filtros de data por instante normalizado.

@@ -1,16 +1,19 @@
 import { readFile, stat } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { entityDirectory } from '@sheldon/vault';
 import { markdownBody } from '@sheldon/core';
 
 import { QueryServiceError } from './errors.js';
 import {
-  SearchIndex,
   type SearchEntityKind,
+  type SearchConceptRelation,
   type SearchFilters,
   type SearchResult,
 } from './search-index.js';
+
+/** Default maximum number of rendered concept characters supplied as query context. */
+export const DEFAULT_MAX_CONTEXT_CHARS = 24_000;
 
 export interface QueryRequest {
   /** The lexical question used to select the first concepts from the local index. */
@@ -20,6 +23,11 @@ export interface QueryRequest {
   readonly maxResults?: number;
   /** Maximum number of same-entity wiki relationship hops (links and backlinks). Defaults to 1. */
   readonly linkDepth?: number;
+  /**
+   * Maximum characters across the selected concepts' rendered paths, titles, and bodies. Defaults
+   * to {@link DEFAULT_MAX_CONTEXT_CHARS}. A selected concept body may be cut to fit this budget.
+   */
+  readonly maxContextChars?: number;
 }
 
 export interface QueryCitation {
@@ -45,14 +53,15 @@ export interface QueryConcept {
 }
 
 export interface QueryGap {
-  readonly code: 'NO_WIKI_COVERAGE' | 'RAW_UNAVAILABLE' | 'WIKI_LINK_UNAVAILABLE';
+  readonly code:
+    'NO_WIKI_COVERAGE' | 'RAW_UNAVAILABLE' | 'WIKI_LINK_UNAVAILABLE' | 'CONTEXT_BUDGET_EXCEEDED';
   readonly message: string;
   readonly suggestedSources: readonly string[];
 }
 
 export interface QueryResult {
   readonly question: string;
-  /** True when the configured root-hit limit excluded otherwise matching index results. */
+  /** True when the configured root-hit or context-character limit excluded selected context. */
   readonly truncated: boolean;
   readonly concepts: readonly QueryConcept[];
   readonly citations: readonly QueryCitation[];
@@ -64,6 +73,16 @@ interface QueueItem {
   readonly depth: number;
 }
 
+/** The index operations required to select query context. */
+export interface QueryIndex {
+  search(query: string, filters?: SearchFilters): readonly SearchResult[];
+  findRelatedConcepts(
+    entity: Pick<SearchResult['entity'], 'kind' | 'slug'>,
+    path: string,
+  ): readonly SearchConceptRelation[];
+  close(): void;
+}
+
 /**
  * Builds deterministic, citable context for a later answer-producing agent. It never invokes an
  * agent and never writes to the vault: lexical search selects the roots, then local Markdown
@@ -72,7 +91,7 @@ interface QueueItem {
 export class QueryService {
   public constructor(
     private readonly vaultRoot: string,
-    private readonly index: SearchIndex,
+    private readonly index: QueryIndex,
   ) {}
 
   public close(): void {
@@ -87,10 +106,13 @@ export class QueryService {
     if (roots.length === 0) return uncoveredResult(request.question);
 
     const maxDepth = request.linkDepth ?? 1;
+    const maxContextChars = request.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS;
     const queue: QueueItem[] = roots.map((result) => ({ result, depth: 0 }));
     const seen = new Set<string>();
     const concepts: QueryConcept[] = [];
     const gaps: QueryGap[] = [];
+    let contextChars = 0;
+    let truncated = hits.length > rootLimit;
 
     while (queue.length > 0) {
       const current = queue.shift()!;
@@ -99,29 +121,44 @@ export class QueryService {
       seen.add(key);
 
       const loaded = await this.loadConcept(current.result);
+      const selection = selectBodyWithinBudget(
+        current.result,
+        loaded.body,
+        maxContextChars - contextChars,
+        concepts.length === 0,
+      );
+      if (selection === undefined) {
+        truncated = true;
+        gaps.push(contextBudgetExceeded(maxContextChars));
+        break;
+      }
       concepts.push({
         result: current.result,
         depth: current.depth,
-        body: loaded.body,
+        body: selection.body,
         citations: loaded.citations,
       });
       gaps.push(...loaded.gaps);
+      contextChars += selection.characters;
+      if (selection.truncated) {
+        truncated = true;
+        gaps.push(contextBudgetExceeded(maxContextChars));
+        break;
+      }
 
       if (current.depth >= maxDepth) continue;
       const neighbours = new Map<string, SearchResult>();
-      for (const path of linkedPaths(loaded.content, current.result, this.vaultRoot)) {
-        const linked = this.index.findConcept(current.result.entity, path);
-        if (linked === undefined) {
-          gaps.push(unavailableLink(current.result, path));
-        } else {
-          neighbours.set(linked.path, linked);
+      for (const related of this.index.findRelatedConcepts(
+        current.result.entity,
+        current.result.path,
+      )) {
+        if (related.result === undefined) {
+          if (related.relation === 'outgoing')
+            gaps.push(unavailableLink(current.result, related.path));
+          continue;
         }
+        neighbours.set(related.result.path, related.result);
       }
-      // The compatibility guard also lets existing custom index doubles retain their outgoing-only
-      // behavior while callers move to the index-backed backlink API.
-      const backlinks =
-        this.index.findBacklinks?.(current.result.entity, current.result.path) ?? [];
-      for (const backlink of backlinks) neighbours.set(backlink.path, backlink);
       for (const linked of [...neighbours.values()].sort((left, right) =>
         compareStrings(left.path, right.path),
       )) {
@@ -132,7 +169,7 @@ export class QueryService {
     const citations = uniqueCitations(concepts.flatMap((concept) => concept.citations));
     return {
       question: request.question,
-      truncated: hits.length > rootLimit,
+      truncated,
       concepts,
       citations,
       gaps: uniqueGaps(gaps),
@@ -140,7 +177,6 @@ export class QueryService {
   }
 
   private async loadConcept(result: SearchResult): Promise<{
-    readonly content: string;
     readonly body: string;
     readonly citations: readonly QueryCitation[];
     readonly gaps: readonly QueryGap[];
@@ -185,7 +221,7 @@ export class QueryService {
         });
       }
     }
-    return { content, body: markdownBody(content), citations, gaps };
+    return { body: markdownBody(content), citations, gaps };
   }
 }
 
@@ -195,6 +231,7 @@ function validateRequest(request: QueryRequest): void {
   }
   validateBoundedInteger(request.maxResults, 'maxResults', 1, 100);
   validateBoundedInteger(request.linkDepth, 'linkDepth', 0, 2);
+  validateBoundedInteger(request.maxContextChars, 'maxContextChars', 1_000, 200_000);
 }
 
 function validateBoundedInteger(
@@ -224,48 +261,38 @@ function uncoveredResult(question: string): QueryResult {
   };
 }
 
-function linkedPaths(content: string, result: SearchResult, vaultRoot: string): readonly string[] {
-  const entityRoot = entityDirectory(vaultRoot, result.entity.kind, result.entity.slug);
-  const from = join(entityRoot, result.path);
-  const found = new Set<string>();
-  for (const destination of markdownLinks(content)) {
-    const target = resolveWikiLink(from, destination);
-    if (target === undefined || !isWithin(join(entityRoot, 'wiki'), target)) continue;
-    const path = relative(entityRoot, target).replace(/\\/g, '/');
-    if (path.endsWith('.md')) found.add(path);
-  }
-  return [...found].sort(compareStrings);
-}
-
-function markdownLinks(content: string): readonly string[] {
-  const links: string[] = [];
-  const expression = /(?<!!)\[[^\]]*\]\(<?([^\s)>]+)[^)]*\)/g;
-  for (const match of content.matchAll(expression)) links.push(match[1]!);
-  return links;
-}
-
-function resolveWikiLink(from: string, destination: string): string | undefined {
-  if (
-    destination.length === 0 ||
-    destination.startsWith('#') ||
-    destination.startsWith('//') ||
-    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(destination)
-  ) {
-    return undefined;
-  }
-  try {
-    const path = decodeURIComponent(destination.split('#', 1)[0]!);
-    return resolve(basename(from) === from ? from : resolve(from, '..'), path);
-  } catch {
-    return undefined;
-  }
-}
-
 function unavailableLink(result: SearchResult, path: string): QueryGap {
   return {
     code: 'WIKI_LINK_UNAVAILABLE',
     message: `The wiki link from ${result.path} has no indexed target: ${path}.`,
     suggestedSources: [`Restore or index the linked concept at ${path}.`],
+  };
+}
+
+function contextBudgetExceeded(maxContextChars: number): QueryGap {
+  return {
+    code: 'CONTEXT_BUDGET_EXCEEDED',
+    message: `The selected context reached its ${maxContextChars}-character budget.`,
+    suggestedSources: ['Increase maxContextChars to include more selected wiki context.'],
+  };
+}
+
+function selectBodyWithinBudget(
+  result: SearchResult,
+  body: string,
+  remaining: number,
+  isFirstConcept: boolean,
+): { readonly body: string; readonly characters: number; readonly truncated: boolean } | undefined {
+  const headerCharacters = result.path.length + result.title.length;
+  if (remaining < headerCharacters && !isFirstConcept) return undefined;
+
+  const bodyBudget = Math.max(0, remaining - headerCharacters);
+  const selectedBody = body.slice(0, bodyBudget);
+  const truncated = selectedBody.length < body.length;
+  return {
+    body: selectedBody,
+    characters: headerCharacters + selectedBody.length,
+    truncated,
   };
 }
 

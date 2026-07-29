@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 const temporaryDirectories: string[] = [];
 const services: QueryService[] = [];
+type QueryIndex = ConstructorParameters<typeof QueryService>[1];
 
 afterEach(async () => {
   for (const service of services.splice(0)) service.close();
@@ -114,17 +115,18 @@ describe('QueryService', () => {
         body: 'Space reviews.',
       }),
     );
-    const service = new QueryService(root, {
+    const index: QueryIndex = {
       search: (query: string) => {
         if (query.length === 0) throw new Error('QueryService must not enumerate the index.');
         return [active];
       },
-      findConcept: (
-        _entity: { readonly kind: 'topic' | 'project'; readonly slug: string },
-        path: string,
-      ) => (path === 'wiki/spacing.md' ? spacing : undefined),
+      findRelatedConcepts: (_entity, path) =>
+        path === active.path
+          ? [{ path: spacing.path, relation: 'outgoing' as const, result: spacing }]
+          : [],
       close: () => undefined,
-    } as unknown as SearchIndex);
+    };
+    const service = new QueryService(root, index);
     services.push(service);
 
     await expect(service.query({ question: 'active', linkDepth: 1 })).resolves.toMatchObject({
@@ -307,6 +309,16 @@ describe('QueryService', () => {
     );
   });
 
+  it('rejects a context budget outside the public 1,000-200,000 bound', async () => {
+    const root = await createVault();
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    await expect(
+      service.query({ question: 'anything', maxContextChars: 999 }),
+    ).rejects.toBeInstanceOf(QueryServiceError);
+  });
+
   it('reports when maxResults excludes matching index hits', async () => {
     const root = await createVault();
     await writeConcept(
@@ -343,6 +355,96 @@ describe('QueryService', () => {
     expect(result.concepts).toHaveLength(1);
   });
 
+  it('bounds cyclic backlink expansion by rendered context characters', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'hub.md',
+      concept({
+        id: 'hub',
+        title: 'Unique backlink hub',
+        description: 'needle-for-hub',
+        sources: [],
+        body: 'The traversal root.',
+      }),
+    );
+    for (let index = 0; index < 12; index += 1) {
+      await writeConcept(
+        root,
+        'topics',
+        'memory',
+        `backlinks/${String(index).padStart(2, '0')}.md`,
+        concept({
+          id: `backlink-${index}`,
+          title: `Backlink ${index}`,
+          description: 'An incoming edge.',
+          sources: [],
+          body: `[Hub](../hub.md) ${'evidence '.repeat(300)}`,
+        }),
+      );
+    }
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    const result = await service.query({
+      question: 'needle-for-hub',
+      linkDepth: 2,
+      maxResults: 1,
+      maxContextChars: 1_000,
+    });
+
+    expect(result.concepts.map((concept) => concept.result.conceptId)).toEqual([
+      'hub',
+      'backlink-0',
+    ]);
+    expect(result.concepts).toHaveLength(2);
+    expect(result.truncated).toBe(true);
+    expect(result.gaps).toContainEqual(
+      expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }),
+    );
+    expect(
+      result.concepts.reduce(
+        (total, concept) =>
+          total + concept.result.path.length + concept.result.title.length + concept.body.length,
+        0,
+      ),
+    ).toBeLessThanOrEqual(1_000);
+  });
+
+  it('retains the first root with a deterministically truncated body when it exceeds the context budget', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'oversized.md',
+      concept({
+        id: 'oversized',
+        title: 'Oversized root',
+        description: 'needle-for-oversized-root',
+        sources: [],
+        body: 'x'.repeat(2_000),
+      }),
+    );
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    const result = await service.query({
+      question: 'needle-for-oversized-root',
+      maxContextChars: 1_000,
+    });
+
+    expect(result.concepts).toHaveLength(1);
+    expect(result.concepts[0]!.result.conceptId).toBe('oversized');
+    expect(result.concepts[0]!.body.length).toBeLessThan(2_000);
+    expect(result.truncated).toBe(true);
+    expect(result.gaps).toContainEqual(
+      expect.objectContaining({ code: 'CONTEXT_BUDGET_EXCEEDED' }),
+    );
+  });
+
   it('rejects a corrupted indexed concept path on another Windows volume before reading it', async () => {
     const root = await createVault();
     const service = new QueryService(
@@ -365,7 +467,7 @@ function fakeIndex(
     readonly path: string;
     readonly sources: readonly string[];
   }>,
-): SearchIndex {
+): QueryIndex {
   const result = {
     conceptId: 'recall',
     entity: { id: 'topic-memory', kind: 'topic' as const, slug: 'memory', title: 'Memory' },
@@ -382,13 +484,14 @@ function fakeIndex(
     snippet: 'Recall',
     score: 1,
     matchFields: ['title'] as const,
+    relatedConcepts: [],
     ...overrides,
   };
   return {
     search: (query: string) => (query.length === 0 ? [result] : [result]),
-    findConcept: () => result,
+    findRelatedConcepts: () => [],
     close: () => undefined,
-  } as unknown as SearchIndex;
+  };
 }
 
 function fakeResult(
@@ -414,6 +517,7 @@ function fakeResult(
     snippet: 'Recall',
     score: 1,
     matchFields: ['title'] as const,
+    relatedConcepts: [],
     ...overrides,
   };
 }

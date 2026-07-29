@@ -54,13 +54,14 @@ O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que vali
 npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowledge\sheldon
 ```
 
-Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown locais e backlinks até dois saltos (`--link-depth`, padrão 1). O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
+Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown locais e backlinks até dois saltos (`--link-depth`, padrão 1). O contexto citado é limitado deterministicamente a 24.000 caracteres por padrão (`--max-context-chars`), e qualquer corte fica marcado na resposta. O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
 
 ```powershell
 npm run sheldon -- query topic memory retrieval-answer-001 `
   --question "Como prática de recuperação e espaçamento se relacionam?" `
   --agent codex `
   --link-depth 1 `
+  --max-context-chars 24000 `
   --vault C:\knowledge\sheldon
 ```
 
