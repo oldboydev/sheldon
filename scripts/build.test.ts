@@ -63,6 +63,7 @@ describe('SWC build', () => {
     await expect(access('packages/persistence/dist/index.js')).resolves.toBeUndefined();
     await expect(access('packages/plugin-sdk/dist/index.js')).resolves.toBeUndefined();
     await expect(access('packages/plugin-host/dist/index.js')).resolves.toBeUndefined();
+    await expect(access('packages/search/dist/index.js')).resolves.toBeUndefined();
     await expect(
       access('packages/plugins/official/source.repository/dist/index.js'),
     ).resolves.toBeUndefined();

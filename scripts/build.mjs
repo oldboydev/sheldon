@@ -16,6 +16,7 @@ const targets = [
   ['packages/ingestion/src', 'packages/ingestion/dist'],
   ['packages/agent-runtime/src', 'packages/agent-runtime/dist'],
   ['packages/review/src', 'packages/review/dist'],
+  ['packages/search/src', 'packages/search/dist'],
   ['packages/plugins/official/source.file/src', 'packages/plugins/official/source.file/dist'],
   ['packages/plugins/official/source.image/src', 'packages/plugins/official/source.image/dist'],
   [

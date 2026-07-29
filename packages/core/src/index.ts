@@ -9,3 +9,5 @@ export {
   type VaultEntityMetadata,
 } from './entity.js';
 export { slugify } from './slug.js';
+export { markdownBody } from './markdown.js';
+export { isoTimestampEpoch } from './timestamp.js';

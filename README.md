@@ -10,7 +10,7 @@ Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de en
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
-O M4 começou pelo índice local reconstruível: conceitos aprovados podem ser projetados em SQLite/FTS5 para busca lexical e filtros de metadados. A superfície de consulta citável, os outputs de resposta e a promoção para propostas continuam em desenvolvimento.
+O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão.
 
 ## Decisões principais
 
@@ -45,6 +45,36 @@ npm run verify
 Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, cobertura, build, validações de domínio, política documental e `git diff --check`. Worktrees locais e scratch de automação são excluídos da descoberta de Markdown e testes, portanto não duplicam suites nem validam dependências de outra cópia do repositório.
 
 O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que valida `wiki/` antes de substituir transacionalmente `system/search-index.db`. Esse banco é cache reconstruível, não é a fonte de verdade e pode ser removido quando necessário; `SearchIndex.open(vaultRoot)` falha com diagnóstico explícito se ele ainda não foi construído.
+
+## Busca, consultas e write-back (M4)
+
+`search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet e origem do match. Os filtros de tópico, projeto, tipo, tag, status e data reduzem o conjunto antes da resposta.
+
+```powershell
+npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowledge\sheldon
+```
+
+Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown de saída locais até dois saltos (`--link-depth`, padrão 1). O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
+
+```powershell
+npm run sheldon -- query topic memory retrieval-answer-001 `
+  --question "Como prática de recuperação e espaçamento se relacionam?" `
+  --agent codex `
+  --link-depth 1 `
+  --vault C:\knowledge\sheldon
+```
+
+Cada resposta fica em `outputs/answers/<answer-id>/answer.json` dentro da entidade e registra pergunta, agente, conceitos e raws citados, timestamp, se a seleção foi truncada e texto final. O comando não altera `wiki/`.
+
+Uma resposta com raws citados pode gerar uma proposta pendente. A proposta continua no fluxo normal do PRD 004: confira a prévia e aprove arquivos individualmente antes que qualquer wiki seja modificada.
+
+```powershell
+npm run sheldon -- answer promote topic memory retrieval-answer-001 proposal-001 `
+  --prompt "Proponha uma nota durável a partir da resposta citada." `
+  --vault C:\knowledge\sheldon
+npm run sheldon -- review preview topic memory proposal-001 --vault C:\knowledge\sheldon
+npm run sheldon -- review approve topic memory proposal-001 wiki/retrieval.md --vault C:\knowledge\sheldon
+```
 
 O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 

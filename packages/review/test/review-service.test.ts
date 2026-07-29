@@ -146,6 +146,23 @@ describe('ReviewService', () => {
     ).rejects.toMatchObject({ code: 'REVIEW_SCHEMA_INVALID' });
   });
 
+  it.each(['2026-02-31T12:00:00Z', '2026-07-20T12:00:00+24:00'])(
+    'rejects invalid ISO-8601 timestamps in proposed wiki frontmatter: %s',
+    async (invalid) => {
+      const { root, proposal } = await fixture();
+      const file = proposal.files[0]!;
+      await expect(
+        new ReviewService(root).approve(
+          {
+            ...proposal,
+            files: [{ ...file, content: file.content!.replace(timestamp, invalid) }],
+          },
+          [file.path],
+        ),
+      ).rejects.toMatchObject({ code: 'REVIEW_SCHEMA_INVALID' });
+    },
+  );
+
   it('preflights all files and recursively indexes valid concepts', async () => {
     const { root, proposal } = await fixture();
     const invalid = {

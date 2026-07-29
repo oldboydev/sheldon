@@ -1,6 +1,7 @@
 import { access, readFile, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
+import { isoTimestampEpoch } from '@sheldon/core';
 import { atomicWriteFile } from '@sheldon/vault';
 import { parse } from 'yaml';
 
@@ -542,9 +543,7 @@ function isStringList(value: unknown): value is readonly string[] {
 }
 
 function isTimestamp(value: unknown): value is string {
-  return (
-    isNonEmptyString(value) && /^\d{4}-\d{2}-\d{2}T/.test(value) && !Number.isNaN(Date.parse(value))
-  );
+  return isNonEmptyString(value) && isoTimestampEpoch(value) !== undefined;
 }
 
 function isRawSourcePath(path: string): boolean {

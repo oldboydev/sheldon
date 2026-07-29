@@ -1,0 +1,410 @@
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { QueryService, QueryServiceError, SearchIndex } from '@sheldon/search';
+import { VaultService } from '@sheldon/vault';
+import { afterEach, describe, expect, it } from 'vitest';
+
+const temporaryDirectories: string[] = [];
+const services: QueryService[] = [];
+
+afterEach(async () => {
+  for (const service of services.splice(0)) service.close();
+  await Promise.all(
+    temporaryDirectories
+      .splice(0)
+      .map((path) => rm(path, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })),
+  );
+});
+
+describe('QueryService', () => {
+  it('uses lexical index roots, follows local links to the configured depth, and cites concepts and available raws', async () => {
+    const root = await createVault();
+    await writeRaw(root, 'topics', 'memory', 'raw/study/active.md', 'Evidence for active recall.');
+    await writeRaw(
+      root,
+      'topics',
+      'memory',
+      'raw/study/spacing.md',
+      'Evidence for spaced practice.',
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'active.md',
+      concept({
+        id: 'active',
+        title: 'Active recall',
+        description: 'A retrieval practice.',
+        sources: ['raw/study/active.md'],
+        body: 'Use retrieval practice. [Spaced repetition](spacing.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'spacing.md',
+      concept({
+        id: 'spacing',
+        title: 'Spaced repetition',
+        description: 'Review on a schedule.',
+        sources: ['raw/study/spacing.md'],
+        body: 'Space retrieval attempts.',
+      }),
+    );
+    const index = await SearchIndex.rebuild(root);
+    const service = new QueryService(root, index);
+    services.push(service);
+
+    const direct = await service.query({ question: 'active', linkDepth: 0 });
+    expect(direct.concepts.map((concept) => concept.result.conceptId)).toEqual(['active']);
+
+    const expanded = await service.query({ question: 'active', linkDepth: 1 });
+    expect(expanded.concepts.map((concept) => [concept.result.conceptId, concept.depth])).toEqual([
+      ['active', 0],
+      ['spacing', 1],
+    ]);
+    expect(expanded.citations).toEqual([
+      expect.objectContaining({ kind: 'concept', path: 'wiki/active.md', label: 'Active recall' }),
+      expect.objectContaining({ kind: 'raw', path: 'raw/study/active.md' }),
+      expect.objectContaining({
+        kind: 'concept',
+        path: 'wiki/spacing.md',
+        label: 'Spaced repetition',
+      }),
+      expect.objectContaining({ kind: 'raw', path: 'raw/study/spacing.md' }),
+    ]);
+    expect(expanded.gaps).toEqual([]);
+  });
+
+  it('looks up linked concepts directly instead of enumerating the whole index', async () => {
+    const root = await createVault();
+    const active = fakeResult({ path: 'wiki/active.md', title: 'Active recall' });
+    const spacing = fakeResult({
+      conceptId: 'spacing',
+      path: 'wiki/spacing.md',
+      title: 'Spaced repetition',
+    });
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'active.md',
+      concept({
+        id: 'active',
+        title: 'Active recall',
+        description: 'A retrieval practice.',
+        sources: [],
+        body: '[Spaced repetition](spacing.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'spacing.md',
+      concept({
+        id: 'spacing',
+        title: 'Spaced repetition',
+        description: 'A scheduling practice.',
+        sources: [],
+        body: 'Space reviews.',
+      }),
+    );
+    const service = new QueryService(root, {
+      search: (query: string) => {
+        if (query.length === 0) throw new Error('QueryService must not enumerate the index.');
+        return [active];
+      },
+      findConcept: (
+        _entity: { readonly kind: 'topic' | 'project'; readonly slug: string },
+        path: string,
+      ) => (path === 'wiki/spacing.md' ? spacing : undefined),
+      close: () => undefined,
+    } as unknown as SearchIndex);
+    services.push(service);
+
+    await expect(service.query({ question: 'active', linkDepth: 1 })).resolves.toMatchObject({
+      concepts: [
+        { result: { conceptId: 'recall' }, depth: 0 },
+        { result: { conceptId: 'spacing' }, depth: 1 },
+      ],
+    });
+  });
+
+  it('honors entity filters for index roots while expanding only links in their entity', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'topic-recall',
+        title: 'Topic recall',
+        description: 'Retrieve facts.',
+        sources: [],
+        body: 'Topic-specific guidance.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'projects',
+      'sheldon',
+      'recall.md',
+      concept({
+        id: 'project-recall',
+        title: 'Project recall',
+        description: 'Retrieve implementation details.',
+        sources: [],
+        body: 'Project-specific guidance.',
+      }),
+    );
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    const result = await service.query({ question: 'recall', filters: { topic: 'memory' } });
+    expect(result.concepts).toHaveLength(1);
+    expect(result.concepts[0]!.result).toMatchObject({
+      conceptId: 'topic-recall',
+      entity: { kind: 'topic', slug: 'memory' },
+    });
+  });
+
+  it('reports a coverage gap instead of fabricating a wiki answer', async () => {
+    const root = await createVault();
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    await expect(service.query({ question: 'unknown subject' })).resolves.toEqual({
+      question: 'unknown subject',
+      truncated: false,
+      concepts: [],
+      citations: [],
+      gaps: [
+        expect.objectContaining({
+          code: 'NO_WIKI_COVERAGE',
+          suggestedSources: ['Ingest a raw source that directly addresses: unknown subject.'],
+        }),
+      ],
+    });
+  });
+
+  it('reports missing raw and wiki-link evidence explicitly', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'recall.md',
+      concept({
+        id: 'recall',
+        title: 'Active recall',
+        description: 'Retrieve facts.',
+        sources: ['raw/study/missing.md'],
+        body: 'See [Missing concept](missing.md).',
+      }),
+    );
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    const result = await service.query({ question: 'recall' });
+    expect(result.citations).toEqual([
+      expect.objectContaining({ kind: 'concept', path: 'wiki/recall.md' }),
+    ]);
+    expect(result.gaps.map((gap) => gap.code)).toEqual([
+      'RAW_UNAVAILABLE',
+      'WIKI_LINK_UNAVAILABLE',
+    ]);
+  });
+
+  it('rejects depth outside the public 0-2 bound', async () => {
+    const root = await createVault();
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    await expect(service.query({ question: 'anything', linkDepth: 3 })).rejects.toBeInstanceOf(
+      QueryServiceError,
+    );
+  });
+
+  it('reports when maxResults excludes matching index hits', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'active.md',
+      concept({
+        id: 'active',
+        title: 'Active recall',
+        description: 'Retrieve facts.',
+        sources: [],
+        body: 'Practice retrieving information.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'interleaved.md',
+      concept({
+        id: 'interleaved',
+        title: 'Interleaved recall',
+        description: 'Retrieve varied facts.',
+        sources: [],
+        body: 'Practice retrieving varied information.',
+      }),
+    );
+    const service = new QueryService(root, await SearchIndex.rebuild(root));
+    services.push(service);
+
+    const result = await service.query({ question: 'recall', maxResults: 1 });
+    expect(result.truncated).toBe(true);
+    expect(result.concepts).toHaveLength(1);
+  });
+
+  it('rejects a corrupted indexed concept path on another Windows volume before reading it', async () => {
+    const root = await createVault();
+    const service = new QueryService(
+      root,
+      fakeIndex({
+        path: otherVolumePath(root),
+        sources: [],
+      }),
+    );
+    services.push(service);
+
+    await expect(service.query({ question: 'recall' })).rejects.toThrow(
+      'Indexed concept path escapes its entity',
+    );
+  });
+});
+
+function fakeIndex(
+  overrides: Partial<{
+    readonly path: string;
+    readonly sources: readonly string[];
+  }>,
+): SearchIndex {
+  const result = {
+    conceptId: 'recall',
+    entity: { id: 'topic-memory', kind: 'topic' as const, slug: 'memory', title: 'Memory' },
+    type: 'note',
+    title: 'Recall',
+    description: 'Retrieve facts.',
+    aliases: [],
+    tags: [],
+    status: 'active',
+    createdAt: '2026-07-28T00:00:00.000Z',
+    updatedAt: '2026-07-28T00:00:00.000Z',
+    sources: [],
+    path: 'wiki/recall.md',
+    snippet: 'Recall',
+    score: 1,
+    matchFields: ['title'] as const,
+    ...overrides,
+  };
+  return {
+    search: (query: string) => (query.length === 0 ? [result] : [result]),
+    findConcept: () => result,
+    close: () => undefined,
+  } as unknown as SearchIndex;
+}
+
+function fakeResult(
+  overrides: Partial<{
+    readonly conceptId: string;
+    readonly path: string;
+    readonly title: string;
+  }> = {},
+) {
+  return {
+    conceptId: 'recall',
+    entity: { id: 'topic-memory', kind: 'topic' as const, slug: 'memory', title: 'Memory' },
+    type: 'note',
+    title: 'Recall',
+    description: 'Retrieve facts.',
+    aliases: [],
+    tags: [],
+    status: 'active',
+    createdAt: '2026-07-28T00:00:00.000Z',
+    updatedAt: '2026-07-28T00:00:00.000Z',
+    sources: [],
+    path: 'wiki/recall.md',
+    snippet: 'Recall',
+    score: 1,
+    matchFields: ['title'] as const,
+    ...overrides,
+  };
+}
+
+function otherVolumePath(root: string): string {
+  if (process.platform === 'win32') {
+    const volume = root.slice(0, 2).toUpperCase() === 'C:' ? 'D:' : 'C:';
+    return `${volume}\\outside\\recall.md`;
+  }
+  return '/outside/recall.md';
+}
+
+async function createVault(): Promise<string> {
+  const root = await mkdtemp(join(tmpdir(), 'sheldon-query-'));
+  temporaryDirectories.push(root);
+  const vault = await VaultService.init(root);
+  await vault.createEntity({ kind: 'topic', title: 'Memory' });
+  await vault.createEntity({ kind: 'project', title: 'Sheldon' });
+  return root;
+}
+
+async function writeConcept(
+  root: string,
+  collection: 'topics' | 'projects',
+  slug: string,
+  relativePath: string,
+  content: string,
+): Promise<void> {
+  const path = join(root, collection, slug, 'wiki', relativePath);
+  await mkdir(join(path, '..'), { recursive: true });
+  await writeFile(path, content, 'utf8');
+}
+
+async function writeRaw(
+  root: string,
+  collection: 'topics' | 'projects',
+  slug: string,
+  relativePath: string,
+  content: string,
+): Promise<void> {
+  const path = join(root, collection, slug, relativePath);
+  await mkdir(join(path, '..'), { recursive: true });
+  await writeFile(path, content, 'utf8');
+}
+
+function concept(input: {
+  readonly id: string;
+  readonly title: string;
+  readonly description: string;
+  readonly sources: readonly string[];
+  readonly body: string;
+}): string {
+  return `---
+id: ${input.id}
+type: note
+title: ${input.title}
+description: ${input.description}
+aliases: []
+tags: []
+created_at: 2026-07-28T00:00:00.000Z
+updated_at: 2026-07-28T00:00:00.000Z
+status: active
+sources:
+${input.sources.map((source) => `  - ${source}`).join('\n') || '  []'}
+---
+# ${input.title}
+
+${input.body}
+`;
+}

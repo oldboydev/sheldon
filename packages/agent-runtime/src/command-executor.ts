@@ -3,12 +3,20 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { AgentCommand, CommandExecution, CommandExecutor } from './adapters.js';
+import type {
+  AgentCommand,
+  CommandExecution,
+  CommandExecutor,
+  QueryAgentCommand,
+  QueryCommandExecution,
+} from './adapters.js';
 import type { StructuredProposal } from './proposal.js';
+import type { QueryAnswer } from './query-answer.js';
 
 const defaultTimeoutMilliseconds = 120_000;
 const defaultOutputBytes = 1_048_576;
 const errorMessage = 'The agent command did not produce a valid proposal.';
+const queryErrorMessage = 'The agent command did not produce a valid cited query answer.';
 
 export interface JsonCommandExecutorOptions {
   readonly executables?: Readonly<
@@ -56,7 +64,7 @@ export class JsonCommandExecutor implements CommandExecutor {
         JSON.stringify(command.outputSchema),
         'utf8',
       );
-      return await this.executeCommand(command, temporaryDirectory, options);
+      return await this.executeCommand(command, temporaryDirectory, options, 'proposal');
     } catch {
       return { status: 'error', message: errorMessage };
     } finally {
@@ -66,14 +74,54 @@ export class JsonCommandExecutor implements CommandExecutor {
     }
   }
 
+  public async executeQuery(
+    command: QueryAgentCommand,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<QueryCommandExecution> {
+    if (options.signal?.aborted === true) return Promise.resolve({ status: 'cancelled' });
+
+    let temporaryDirectory: string | undefined;
+    try {
+      temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-agent-runtime-'));
+      await writeFile(
+        join(temporaryDirectory, 'query-answer-schema.json'),
+        JSON.stringify(command.outputSchema),
+        'utf8',
+      );
+      return await this.executeCommand(command, temporaryDirectory, options, 'query');
+    } catch {
+      return { status: 'error', message: queryErrorMessage };
+    } finally {
+      if (temporaryDirectory !== undefined) {
+        await rm(temporaryDirectory, { recursive: true, force: true }).catch(() => undefined);
+      }
+    }
+  }
+
   private executeCommand(
-    command: AgentCommand,
+    command: AgentCommand | QueryAgentCommand,
     temporaryDirectory: string,
     options: { readonly signal?: AbortSignal },
-  ): Promise<CommandExecution> {
+    output: 'proposal',
+  ): Promise<CommandExecution>;
+  private executeCommand(
+    command: AgentCommand | QueryAgentCommand,
+    temporaryDirectory: string,
+    options: { readonly signal?: AbortSignal },
+    output: 'query',
+  ): Promise<QueryCommandExecution>;
+  private executeCommand(
+    command: AgentCommand | QueryAgentCommand,
+    temporaryDirectory: string,
+    options: { readonly signal?: AbortSignal },
+    output: 'proposal' | 'query',
+  ): Promise<CommandExecution | QueryCommandExecution> {
     const override = this.executables?.[command.executable];
     const executable = override?.executable ?? command.executable;
-    const schemaFile = join(temporaryDirectory, 'proposal-schema.json');
+    const schemaFile = join(
+      temporaryDirectory,
+      output === 'proposal' ? 'proposal-schema.json' : 'query-answer-schema.json',
+    );
     const lastMessageFile = join(temporaryDirectory, 'last-message.txt');
     const arguments_ = [
       ...(override?.arguments ?? []),
@@ -111,7 +159,7 @@ export class JsonCommandExecutor implements CommandExecutor {
       };
       options.signal?.addEventListener('abort', abort, { once: true });
 
-      const complete = (result: CommandExecution): void => {
+      const complete = (result: CommandExecution | QueryCommandExecution): void => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
@@ -129,15 +177,27 @@ export class JsonCommandExecutor implements CommandExecutor {
         }
         stdout = Buffer.concat([stdout, chunk]);
       });
-      child.once('error', () => complete({ status: 'error', message: errorMessage }));
+      child.once('error', () =>
+        complete({
+          status: 'error',
+          message: output === 'proposal' ? errorMessage : queryErrorMessage,
+        }),
+      );
       child.once('close', async (code) => {
         if (aborted) return complete({ status: 'cancelled' });
         if (timedOut || overflowed || code !== 0) {
-          return complete({ status: 'error', message: errorMessage });
+          return complete({
+            status: 'error',
+            message: output === 'proposal' ? errorMessage : queryErrorMessage,
+          });
         }
         const lastMessage =
           command.executable === 'codex' ? await readTextIfPresent(lastMessageFile) : undefined;
-        return complete(parseExecution(command.executable, stdout, lastMessage));
+        return complete(
+          output === 'proposal'
+            ? parseExecution(command.executable, stdout, lastMessage)
+            : parseQueryExecution(command.executable, stdout, lastMessage),
+        );
       });
       child.stdin.end();
     });
@@ -152,8 +212,8 @@ function parseExecution(
   try {
     const proposal =
       kind === 'codex'
-        ? (parseProposal(lastMessage) ?? parseCodexJsonLines(bytes.toString('utf8')))
-        : parseClaudeResponse(bytes.toString('utf8'));
+        ? (parseProposal(lastMessage) ?? parseCodexJsonLines(bytes.toString('utf8'), parseProposal))
+        : parseClaudeResponse(bytes.toString('utf8'), parseProposal);
     if (proposal !== undefined) return { status: 'proposal', proposal, agentVersion: 'unknown' };
   } catch {
     // Agent output is untrusted and intentionally not returned to callers.
@@ -161,28 +221,54 @@ function parseExecution(
   return { status: 'error', message: errorMessage };
 }
 
-function parseClaudeResponse(output: string): StructuredProposal | undefined {
-  const result = parseJsonObject(output);
-  if (result === undefined) return undefined;
-  return (
-    parseProposal(result.structured_output) ?? parseProposal(result.result) ?? parseProposal(result)
-  );
+function parseQueryExecution(
+  kind: QueryAgentCommand['executable'],
+  bytes: Buffer,
+  lastMessage: string | undefined,
+): QueryCommandExecution {
+  try {
+    const answer =
+      kind === 'codex'
+        ? (parseAnswer(lastMessage) ?? parseCodexJsonLines(bytes.toString('utf8'), parseAnswer))
+        : parseClaudeResponse(bytes.toString('utf8'), parseAnswer);
+    if (answer !== undefined) return { status: 'answer', answer, agentVersion: 'unknown' };
+  } catch {
+    // Agent output is untrusted and intentionally not returned to callers.
+  }
+  return { status: 'error', message: queryErrorMessage };
 }
 
-function parseCodexJsonLines(output: string): StructuredProposal | undefined {
-  let proposal: StructuredProposal | undefined;
+function parseClaudeResponse<T>(
+  output: string,
+  parse: (value: unknown) => T | undefined,
+): T | undefined {
+  const result = parseJsonObject(output);
+  if (result === undefined) return undefined;
+  return parse(result.structured_output) ?? parse(result.result) ?? parse(result);
+}
+
+function parseCodexJsonLines<T>(
+  output: string,
+  parse: (value: unknown) => T | undefined,
+): T | undefined {
+  let result: T | undefined;
   for (const line of output.split(/\r?\n/)) {
     const event = parseJsonObject(line);
     if (event?.type === 'item.completed') {
-      proposal = parseProposal(asObject(event.item)?.text) ?? proposal;
+      result = parse(asObject(event.item)?.text) ?? result;
     }
   }
-  return proposal;
+  return result;
 }
 
 function parseProposal(value: unknown): StructuredProposal | undefined {
   const parsed = typeof value === 'string' ? parseJsonObject(value) : asObject(value);
   return parsed === undefined ? undefined : (parsed as unknown as StructuredProposal);
+}
+
+function parseAnswer(value: unknown): QueryAnswer | undefined {
+  const parsed = typeof value === 'string' ? parseJsonObject(value) : asObject(value);
+  return parsed === undefined ? undefined : (parsed as unknown as QueryAnswer);
 }
 
 function parseJsonObject(value: string): Readonly<Record<string, unknown>> | undefined {
