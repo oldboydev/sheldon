@@ -1,16 +1,22 @@
 import { readFile, stat } from 'node:fs/promises';
-import { basename, isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import { entityDirectory } from '@sheldon/vault';
 import { markdownBody } from '@sheldon/core';
 
 import { QueryServiceError } from './errors.js';
 import {
-  SearchIndex,
   type SearchEntityKind,
+  type SearchConceptRelation,
   type SearchFilters,
-  type SearchResult,
+  type SearchTraversalCandidate,
 } from './search-index.js';
+
+/** Default maximum number of Unicode code points in selected concept context. */
+export const DEFAULT_MAX_CONTEXT_CHARS = 24_000;
+
+/** Included in a body when its source text did not fit in the selected context. */
+export const BODY_TRUNCATION_MARKER = '… [truncated]';
 
 export interface QueryRequest {
   /** The lexical question used to select the first concepts from the local index. */
@@ -18,8 +24,14 @@ export interface QueryRequest {
   readonly filters?: SearchFilters;
   /** Maximum number of index hits used as traversal roots. Defaults to 8. */
   readonly maxResults?: number;
-  /** Maximum number of outgoing wiki-link hops. Defaults to 1. */
+  /** Maximum number of same-entity wiki relationship hops (links and backlinks). Defaults to 1. */
   readonly linkDepth?: number;
+  /**
+   * Maximum Unicode code points across the selected concepts' paths, titles, and bodies. Defaults
+   * to {@link DEFAULT_MAX_CONTEXT_CHARS}. This bounds selected context only; prompt rendering is
+   * the responsibility of the caller. A selected concept body may be cut to fit this budget.
+   */
+  readonly maxContextChars?: number;
 }
 
 export interface QueryCitation {
@@ -38,41 +50,74 @@ export interface QueryEntity {
 }
 
 export interface QueryConcept {
-  readonly result: SearchResult;
+  readonly result: SearchTraversalCandidate;
   readonly depth: number;
   readonly body: string;
+  /** True when {@link body} ends with {@link BODY_TRUNCATION_MARKER}. */
+  readonly bodyTruncated: boolean;
   readonly citations: readonly QueryCitation[];
 }
 
+/** Separates the limits that contributed to the legacy {@link QueryResult.truncated} flag. */
+export interface QueryTruncation {
+  /** Matching lexical hits were omitted because they exceeded `maxResults`. */
+  readonly rootResultsExcluded: boolean;
+  /** A known concept could not be selected because no context budget remained for it. */
+  readonly conceptsExcludedByBudget: boolean;
+  /** At least one selected body was cut and marked in-band. */
+  readonly bodiesTruncated: boolean;
+}
+
 export interface QueryGap {
-  readonly code: 'NO_WIKI_COVERAGE' | 'RAW_UNAVAILABLE' | 'WIKI_LINK_UNAVAILABLE';
+  readonly code:
+    | 'NO_WIKI_COVERAGE'
+    | 'RAW_UNAVAILABLE'
+    | 'WIKI_LINK_UNAVAILABLE'
+    | 'ROOT_RESULTS_EXCLUDED'
+    | 'CONTEXT_BUDGET_EXCEEDED';
   readonly message: string;
   readonly suggestedSources: readonly string[];
 }
 
 export interface QueryResult {
   readonly question: string;
-  /** True when the configured root-hit limit excluded otherwise matching index results. */
+  /** True when the configured root-hit or selected-context limit excluded context. */
   readonly truncated: boolean;
+  /** Detailed provenance for {@link truncated}; the boolean is retained for existing callers. */
+  readonly truncation: QueryTruncation;
   readonly concepts: readonly QueryConcept[];
   readonly citations: readonly QueryCitation[];
   readonly gaps: readonly QueryGap[];
 }
 
 interface QueueItem {
-  readonly result: SearchResult;
+  readonly result: SearchTraversalCandidate;
   readonly depth: number;
+}
+
+/** The index operations required to select query context. */
+export interface QueryIndex {
+  search(
+    query: string,
+    filters: SearchFilters | undefined,
+    options: Readonly<{ includeRelatedConcepts: false }>,
+  ): readonly SearchTraversalCandidate[];
+  findRelatedConcepts(
+    entity: Pick<SearchTraversalCandidate['entity'], 'kind' | 'slug'>,
+    path: string,
+  ): readonly SearchConceptRelation[];
+  close(): void;
 }
 
 /**
  * Builds deterministic, citable context for a later answer-producing agent. It never invokes an
  * agent and never writes to the vault: lexical search selects the roots, then local Markdown
- * links expand only the selected context.
+ * links and backlinks expand only the selected entity context.
  */
 export class QueryService {
   public constructor(
     private readonly vaultRoot: string,
-    private readonly index: SearchIndex,
+    private readonly index: QueryIndex,
   ) {}
 
   public close(): void {
@@ -81,16 +126,26 @@ export class QueryService {
 
   public async query(request: QueryRequest): Promise<QueryResult> {
     validateRequest(request);
-    const hits = this.index.search(request.question, request.filters);
+    const hits = this.index.search(request.question, request.filters, {
+      includeRelatedConcepts: false,
+    });
     const rootLimit = request.maxResults ?? 8;
     const roots = hits.slice(0, rootLimit);
     if (roots.length === 0) return uncoveredResult(request.question);
 
     const maxDepth = request.linkDepth ?? 1;
+    const maxContextChars = request.maxContextChars ?? DEFAULT_MAX_CONTEXT_CHARS;
     const queue: QueueItem[] = roots.map((result) => ({ result, depth: 0 }));
     const seen = new Set<string>();
     const concepts: QueryConcept[] = [];
     const gaps: QueryGap[] = [];
+    let contextChars = 0;
+    const truncation = {
+      rootResultsExcluded: hits.length > rootLimit,
+      conceptsExcludedByBudget: false,
+      bodiesTruncated: false,
+    };
+    if (truncation.rootResultsExcluded) gaps.push(rootResultsExcluded(hits.length, roots.length));
 
     while (queue.length > 0) {
       const current = queue.shift()!;
@@ -99,37 +154,71 @@ export class QueryService {
       seen.add(key);
 
       const loaded = await this.loadConcept(current.result);
+      const selection = selectBodyWithinBudget(
+        current.result,
+        loaded.body,
+        maxContextChars - contextChars,
+      );
+      if (selection === undefined) {
+        truncation.conceptsExcludedByBudget = true;
+        gaps.push(contextBudgetExcludedConcept(maxContextChars, current.result));
+        break;
+      }
       concepts.push({
         result: current.result,
         depth: current.depth,
-        body: loaded.body,
+        body: selection.body,
+        bodyTruncated: selection.bodyTruncated,
         citations: loaded.citations,
       });
       gaps.push(...loaded.gaps);
-
-      if (current.depth >= maxDepth) continue;
-      for (const path of linkedPaths(loaded.content, current.result, this.vaultRoot)) {
-        const linked = this.index.findConcept(current.result.entity, path);
-        if (linked === undefined) {
-          gaps.push(unavailableLink(current.result, path));
-        } else if (!seen.has(conceptKey(linked))) {
-          queue.push({ result: linked, depth: current.depth + 1 });
+      contextChars += selection.characters;
+      if (current.depth < maxDepth) {
+        const neighbours = new Map<string, SearchTraversalCandidate>();
+        for (const related of this.index.findRelatedConcepts(
+          current.result.entity,
+          current.result.path,
+        )) {
+          if (related.result === undefined) {
+            if (related.relation === 'outgoing')
+              gaps.push(unavailableLink(current.result, related.path));
+            continue;
+          }
+          neighbours.set(related.result.path, related.result);
         }
+        for (const linked of [...neighbours.values()].sort((left, right) =>
+          compareStrings(left.path, right.path),
+        )) {
+          if (!seen.has(conceptKey(linked))) {
+            queue.push({ result: linked, depth: current.depth + 1 });
+          }
+        }
+      }
+
+      if (selection.bodyTruncated) {
+        truncation.bodiesTruncated = true;
+        const queued = firstUnseenQueuedConcept(queue, seen);
+        if (queued !== undefined) truncation.conceptsExcludedByBudget = true;
+        gaps.push(contextBudgetTruncatedBody(maxContextChars, current.result, queued));
+        break;
       }
     }
 
     const citations = uniqueCitations(concepts.flatMap((concept) => concept.citations));
     return {
       question: request.question,
-      truncated: hits.length > rootLimit,
+      truncated:
+        truncation.rootResultsExcluded ||
+        truncation.conceptsExcludedByBudget ||
+        truncation.bodiesTruncated,
+      truncation,
       concepts,
       citations,
       gaps: uniqueGaps(gaps),
     };
   }
 
-  private async loadConcept(result: SearchResult): Promise<{
-    readonly content: string;
+  private async loadConcept(result: SearchTraversalCandidate): Promise<{
     readonly body: string;
     readonly citations: readonly QueryCitation[];
     readonly gaps: readonly QueryGap[];
@@ -174,7 +263,7 @@ export class QueryService {
         });
       }
     }
-    return { content, body: markdownBody(content), citations, gaps };
+    return { body: markdownBody(content), citations, gaps };
   }
 }
 
@@ -184,6 +273,7 @@ function validateRequest(request: QueryRequest): void {
   }
   validateBoundedInteger(request.maxResults, 'maxResults', 1, 100);
   validateBoundedInteger(request.linkDepth, 'linkDepth', 0, 2);
+  validateBoundedInteger(request.maxContextChars, 'maxContextChars', 1_000, 200_000);
 }
 
 function validateBoundedInteger(
@@ -201,6 +291,11 @@ function uncoveredResult(question: string): QueryResult {
   return {
     question,
     truncated: false,
+    truncation: {
+      rootResultsExcluded: false,
+      conceptsExcludedByBudget: false,
+      bodiesTruncated: false,
+    },
     concepts: [],
     citations: [],
     gaps: [
@@ -213,44 +308,7 @@ function uncoveredResult(question: string): QueryResult {
   };
 }
 
-function linkedPaths(content: string, result: SearchResult, vaultRoot: string): readonly string[] {
-  const entityRoot = entityDirectory(vaultRoot, result.entity.kind, result.entity.slug);
-  const from = join(entityRoot, result.path);
-  const found = new Set<string>();
-  for (const destination of markdownLinks(content)) {
-    const target = resolveWikiLink(from, destination);
-    if (target === undefined || !isWithin(join(entityRoot, 'wiki'), target)) continue;
-    const path = relative(entityRoot, target).replace(/\\/g, '/');
-    if (path.endsWith('.md')) found.add(path);
-  }
-  return [...found].sort(compareStrings);
-}
-
-function markdownLinks(content: string): readonly string[] {
-  const links: string[] = [];
-  const expression = /!?\[[^\]]*\]\(<?([^\s)>]+)[^)]*\)/g;
-  for (const match of content.matchAll(expression)) links.push(match[1]!);
-  return links;
-}
-
-function resolveWikiLink(from: string, destination: string): string | undefined {
-  if (
-    destination.length === 0 ||
-    destination.startsWith('#') ||
-    destination.startsWith('//') ||
-    /^[A-Za-z][A-Za-z0-9+.-]*:/.test(destination)
-  ) {
-    return undefined;
-  }
-  try {
-    const path = decodeURIComponent(destination.split('#', 1)[0]!);
-    return resolve(basename(from) === from ? from : resolve(from, '..'), path);
-  } catch {
-    return undefined;
-  }
-}
-
-function unavailableLink(result: SearchResult, path: string): QueryGap {
+function unavailableLink(result: SearchTraversalCandidate, path: string): QueryGap {
   return {
     code: 'WIKI_LINK_UNAVAILABLE',
     message: `The wiki link from ${result.path} has no indexed target: ${path}.`,
@@ -258,11 +316,109 @@ function unavailableLink(result: SearchResult, path: string): QueryGap {
   };
 }
 
-function conceptKey(result: SearchResult): string {
+function rootResultsExcluded(total: number, selected: number): QueryGap {
+  const excluded = total - selected;
+  return {
+    code: 'ROOT_RESULTS_EXCLUDED',
+    message: `The lexical search found ${total} matching concepts, but maxResults selected only ${selected}; ${excluded} matching root ${excluded === 1 ? 'concept was' : 'concepts were'} not selected.`,
+    suggestedSources: ['Increase maxResults to include more matching lexical root concepts.'],
+  };
+}
+
+function contextBudgetExcludedConcept(
+  maxContextChars: number,
+  result: SearchTraversalCandidate,
+): QueryGap {
+  return {
+    code: 'CONTEXT_BUDGET_EXCEEDED',
+    message: `The selected context reached its ${maxContextChars}-character budget before it could include ${result.path} (${result.title}).`,
+    suggestedSources: [`Increase maxContextChars to include ${result.path}.`],
+  };
+}
+
+function contextBudgetTruncatedBody(
+  maxContextChars: number,
+  result: SearchTraversalCandidate,
+  queued: SearchTraversalCandidate | undefined,
+): QueryGap {
+  return {
+    code: 'CONTEXT_BUDGET_EXCEEDED',
+    message:
+      `The body for ${result.path} (${result.title}) was cut to the ${maxContextChars}-character context budget and ends with ${BODY_TRUNCATION_MARKER}.` +
+      (queued === undefined
+        ? ''
+        : ` The queued concept ${queued.path} (${queued.title}) was not selected.`),
+    suggestedSources: [
+      `Increase maxContextChars to include the full body of ${result.path}.`,
+      ...(queued === undefined ? [] : [`Increase maxContextChars to include ${queued.path}.`]),
+    ],
+  };
+}
+
+function selectBodyWithinBudget(
+  result: SearchTraversalCandidate,
+  body: string,
+  remaining: number,
+):
+  | { readonly body: string; readonly characters: number; readonly bodyTruncated: boolean }
+  | undefined {
+  const headerCharacters = codePointLength(result.path) + codePointLength(result.title);
+  if (remaining < headerCharacters) return undefined;
+
+  const bodyBudget = remaining - headerCharacters;
+  const selectedBody = truncateToCodePointsAtWordBoundary(body, bodyBudget);
+  if (selectedBody === undefined) return undefined;
+  return {
+    body: selectedBody.body,
+    characters: headerCharacters + selectedBody.characters,
+    bodyTruncated: selectedBody.truncated,
+  };
+}
+
+function codePointLength(value: string): number {
+  return Array.from(value).length;
+}
+
+/**
+ * Keeps a valid Unicode prefix while favouring a preceding whitespace boundary that preserves a
+ * useful portion of the available budget. A whitespace boundary immediately before a long token
+ * would otherwise discard nearly all available context.
+ */
+function truncateToCodePointsAtWordBoundary(
+  value: string,
+  maximum: number,
+): { readonly body: string; readonly characters: number; readonly truncated: boolean } | undefined {
+  const codePoints = Array.from(value);
+  if (codePoints.length <= maximum) {
+    return { body: value, characters: codePoints.length, truncated: false };
+  }
+  const markerCharacters = codePointLength(BODY_TRUNCATION_MARKER);
+  if (maximum < markerCharacters) return undefined;
+
+  const contentMaximum = maximum - markerCharacters;
+  const minimumBoundary = contentMaximum / 2;
+  let lastBoundary = -1;
+  for (let index = 0; index < contentMaximum; index += 1) {
+    if (/\s/u.test(codePoints[index]!)) lastBoundary = index;
+  }
+  let end = lastBoundary >= minimumBoundary ? lastBoundary : contentMaximum;
+  while (end > 0 && /\s/u.test(codePoints[end - 1]!)) end -= 1;
+  const body = `${codePoints.slice(0, end).join('')}${BODY_TRUNCATION_MARKER}`;
+  return { body, characters: end + markerCharacters, truncated: true };
+}
+
+function firstUnseenQueuedConcept(
+  queue: readonly QueueItem[],
+  seen: ReadonlySet<string>,
+): SearchTraversalCandidate | undefined {
+  return queue.find((item) => !seen.has(conceptKey(item.result)))?.result;
+}
+
+function conceptKey(result: SearchTraversalCandidate): string {
   return `${result.entity.kind}:${result.entity.slug}:${result.path}`;
 }
 
-function toQueryEntity(result: SearchResult): QueryEntity {
+function toQueryEntity(result: SearchTraversalCandidate): QueryEntity {
   return {
     id: result.entity.id,
     kind: result.entity.kind,

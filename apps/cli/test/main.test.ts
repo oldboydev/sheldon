@@ -125,6 +125,32 @@ it.each([['-1'], ['+1'], ['1.0'], ['1e0'], [' 1 '], ['NaN'], ['3']])(
   },
 );
 
+it.each([['999'], ['200001'], ['1.0'], ['NaN']])(
+  'rejects an out-of-range --max-context-chars value %j before command execution',
+  async (value) => {
+    const dependencies = await cliDependencies('sheldon-query-context-budget-');
+
+    const result = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-001',
+        '--question',
+        'retrieval',
+        '--agent',
+        'codex',
+        `--max-context-chars=${value}`,
+      ],
+      dependencies,
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('--max-context-chars must be an integer from 1000 to 200000.');
+    await expectPluginMarkersAbsent(dependencies);
+  },
+);
+
 async function cliDependencies(prefix: string): Promise<CliDependencies> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   temporaryDirectories.push(root);

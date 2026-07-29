@@ -199,6 +199,11 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
       'maximum local wiki-link expansion depth (0-2; default 1)',
       boundedInteger('--link-depth', 0, 2),
     )
+    .option(
+      '--max-context-chars <characters>',
+      'maximum characters in selected wiki concept records (1000-200000; default 24000)',
+      boundedInteger('--max-context-chars', 1_000, 200_000),
+    )
     .option('--rebuild', 'rebuild the disposable local index before selecting context')
     .option('--vault <path>', 'explicit vault path')
     .action((kind: EntityKind, slug: string, answerId: string, options: QueryCommandOptions) =>

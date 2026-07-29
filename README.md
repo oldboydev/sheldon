@@ -46,21 +46,28 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que valida `wiki/` antes de substituir transacionalmente `system/search-index.db`. Esse banco é cache reconstruível, não é a fonte de verdade e pode ser removido quando necessário; `SearchIndex.open(vaultRoot)` falha com diagnóstico explícito se ele ainda não foi construído.
 
+A reconstrução dessa projeção é uma operação de processo único: não execute comandos com `--rebuild` concorrentemente sobre o mesmo vault. Se houver contenção, aguarde o outro comando terminar e tente novamente; Sheldon não substitui um erro de lock por uma reconstrução automática.
+
 ## Busca, consultas e write-back (M4)
 
-`search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet e origem do match. Os filtros de tópico, projeto, tipo, tag, status e data reduzem o conjunto antes da resposta.
+`search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet, origem do match e relações diretas entre conceitos da mesma entidade. Essas relações são links Markdown locais e seus backlinks — não similaridade semântica. Os filtros de tópico, projeto, tipo, tag, status e data reduzem somente os resultados lexicais raiz; não escondem vizinhos já ligados a um resultado. Para manter a saída previsível, cada resultado da CLI projeta e serializa no máximo 100 relações, em ordem determinística, e declara `relatedConceptsTruncated: true` quando houver mais. Esse limite não reduz as relações indexadas durante a reconstrução nem a travessia independente de relações feita por `query`.
+
+Links escritos em blocos cercados, código inline ou comentários HTML não formam relações. Blocos Markdown somente indentados continuam sendo tratados como prosa para a projeção: essa escolha evita ocultar relações em continuações de listas, embora um exemplo de código indentado possa aparecer como relação local.
 
 ```powershell
 npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowledge\sheldon
 ```
 
-Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown de saída locais até dois saltos (`--link-depth`, padrão 1). O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
+Para uma síntese, `query` restringe a seleção a uma entidade, abre o mesmo índice local (ou o reconstrói com `--rebuild`), começa pelos resultados lexicais e pode seguir links Markdown locais e backlinks até dois saltos (`--link-depth`, padrão 1). Os filtros selecionam somente as raízes lexicais; a expansão preserva os vínculos diretos delas mesmo que o vizinho tenha metadados diferentes. Os registros de conceito selecionados (path, título e corpo) são limitados deterministicamente a 24.000 caracteres por padrão (`--max-context-chars`), e qualquer corte fica marcado na resposta. O agente recebe somente esse contexto citado; a resposta persistida distingue fatos da wiki, inferências e lacunas. Sem cobertura indexada, Sheldon salva uma lacuna explícita com sugestão de fonte e não chama o agente.
+
+Se uma cobertura indexada existir, mas seu path e título não couberem no orçamento, Sheldon também não chama o agente: a resposta registra que a cobertura foi excluída pelo limite, em vez de reportar incorretamente ausência de cobertura.
 
 ```powershell
 npm run sheldon -- query topic memory retrieval-answer-001 `
   --question "Como prática de recuperação e espaçamento se relacionam?" `
   --agent codex `
   --link-depth 1 `
+  --max-context-chars 24000 `
   --vault C:\knowledge\sheldon
 ```
 
@@ -76,7 +83,7 @@ npm run sheldon -- review preview topic memory proposal-001 --vault C:\knowledge
 npm run sheldon -- review approve topic memory proposal-001 wiki/retrieval.md --vault C:\knowledge\sheldon
 ```
 
-O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
+O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. No Windows, a compilação a partir do código-fonte também usa `node-gyp` e exige Python 3, Visual Studio 2022 com a carga de trabalho **Desenvolvimento para desktop com C++** e um Windows SDK compatível. O build seleciona VS 2022 automaticamente quando o ambiente não informa outro toolchain compatível. O artefato de distribuição para Windows inclui o addon privado `native/windows-job/build/Release/sheldon_job_object.node`; quem usa esse artefato não precisa recompilar o addon. O `npm test` mantém o Vitest como executor e usa SWC para transformar os arquivos TypeScript de teste e de código-fonte.
 
 Testes de integração que criam processos Git ou Git Bash definem um limite finito específico quando o seu trabalho legítimo excede o padrão do Vitest sob carga concorrente; isso preserva tanto o timeout quanto as verificações de falha fechada. No Windows, os arquivos de teste também são serializados para isolar Git, Git Bash e o supervisor nativo enquanto usam os diretórios temporários do sistema.
 

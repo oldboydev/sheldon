@@ -35,6 +35,12 @@ describe('cited query and answer promotion CLI', () => {
       sources: ['raw/study/spacing.md'],
       body: 'Space retrieval attempts.',
     });
+    await writeConcept(vaultPath, 'backlink.md', {
+      id: 'backlink',
+      title: 'Retrieval cue',
+      sources: [],
+      body: '[Retrieval practice](recall.md)',
+    });
     const tasks: QueryAgentTask[] = [];
     const dependencies = cliDependencies(root, {
       executeQuery: async (command) => {
@@ -95,6 +101,7 @@ describe('cited query and answer promotion CLI', () => {
     expect(tasks).toHaveLength(1);
     expect(tasks[0]!.concepts.map((concept) => concept.path)).toEqual([
       'wiki/recall.md',
+      'wiki/backlink.md',
       'wiki/spacing.md',
     ]);
     const answerPath = join(
@@ -196,6 +203,53 @@ describe('cited query and answer promotion CLI', () => {
       raws: [],
     });
     expect(result.stdout).toContain('## Gaps');
+  });
+
+  it('records when indexed coverage cannot fit within the context budget without invoking an agent', async () => {
+    const { root, vaultPath } = await createVault();
+    const title = `Retrieval ${'header '.repeat(200)}`;
+    await writeConcept(vaultPath, 'large-header.md', {
+      id: 'large-header',
+      title,
+      sources: [],
+      body: 'Indexed coverage that cannot fit alongside its header.',
+    });
+    let calls = 0;
+    const dependencies = cliDependencies(root, {
+      executeQuery: async () => {
+        calls += 1;
+        throw new Error('A context-budget gap must not invoke an agent.');
+      },
+    });
+
+    const result = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-budget',
+        '--question',
+        'retrieval',
+        '--agent',
+        'codex',
+        '--max-context-chars',
+        '1000',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(calls).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      id: 'answer-budget',
+      truncated: true,
+      concepts: [],
+      raws: [],
+    });
+    expect(result.stdout).toContain('could not be included within the configured context budget');
+    expect(result.stdout).not.toContain('No indexed wiki fact covers this question.');
   });
 
   it('rejects an agent answer that cites wiki evidence outside the selected context', async () => {
@@ -370,8 +424,9 @@ async function writeConcept(
     'created_at: 2026-07-28T00:00:00.000Z',
     'updated_at: 2026-07-28T00:00:00.000Z',
     'status: active',
-    'sources:',
-    ...input.sources.map((source) => `  - ${source}`),
+    ...(input.sources.length === 0
+      ? ['sources: []']
+      : ['sources:', ...input.sources.map((source) => `  - ${source}`)]),
     '---',
     `# ${input.title}`,
     '',

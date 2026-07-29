@@ -22,6 +22,7 @@ export interface QueryCommandOptions extends VaultOption {
   readonly agent: AgentKind;
   readonly question: string;
   readonly linkDepth?: number;
+  readonly maxContextChars?: number;
   readonly rebuild?: boolean;
 }
 
@@ -53,11 +54,20 @@ export async function queryVault(
       question: options.question,
       filters: kind === 'topic' ? { topic: slug } : { project: slug },
       ...(options.linkDepth === undefined ? {} : { linkDepth: options.linkDepth }),
+      ...(options.maxContextChars === undefined
+        ? {}
+        : { maxContextChars: options.maxContextChars }),
     });
     const answers = new QueryAnswerStore(entity);
     const answer =
       contextResult.concepts.length === 0
-        ? uncoveredAnswer(answerId, options, contextResult.gaps, contextResult.truncated)
+        ? uncoveredAnswer(
+            answerId,
+            options,
+            contextResult.gaps,
+            contextResult.truncated,
+            contextResult.truncation,
+          )
         : await answerFromAgent(answerId, options, contextResult, entity, context, dependencies);
     const validated = validateQueryAnswer(answer).answer;
     assertAnswerEvidence(validated, contextResult.citations);
@@ -145,7 +155,7 @@ async function answerFromAgent(
       ...result.gaps.map((gap) => gap.message),
       ...(result.truncated
         ? [
-            'The local context excludes additional matching index results due to the root-hit limit.',
+            'The local context excludes matching index results or related concepts due to its configured limits.',
           ]
         : []),
     ],
@@ -174,9 +184,15 @@ async function answerFromAgent(
 function uncoveredAnswer(
   answerId: string,
   options: QueryCommandOptions,
-  gaps: readonly { readonly message: string; readonly suggestedSources: readonly string[] }[],
+  gaps: readonly {
+    readonly code: string;
+    readonly message: string;
+    readonly suggestedSources: readonly string[];
+  }[],
   truncated: boolean,
+  truncation: Awaited<ReturnType<QueryService['query']>>['truncation'],
 ): QueryAnswer {
+  const budgetExcludedCoverage = truncation.conceptsExcludedByBudget;
   return {
     schemaVersion: 1,
     id: answerId,
@@ -188,10 +204,14 @@ function uncoveredAnswer(
     createdAt: new Date().toISOString(),
     text: [
       '## Wiki facts',
-      '- No indexed wiki fact covers this question.',
+      budgetExcludedCoverage
+        ? '- Matching indexed wiki coverage could not be included within the configured context budget.'
+        : '- No indexed wiki fact covers this question.',
       '',
       '## Inferences',
-      '- None; Sheldon does not infer a wiki answer without coverage.',
+      budgetExcludedCoverage
+        ? '- None; Sheldon does not infer a wiki answer without selected context.'
+        : '- None; Sheldon does not infer a wiki answer without coverage.',
       '',
       '## Gaps',
       ...gaps.flatMap((gap) => [
