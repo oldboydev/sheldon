@@ -48,7 +48,7 @@ O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que vali
 
 ## Busca, consultas e write-back (M4)
 
-`search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet, origem do match e relações diretas entre conceitos da mesma entidade. Essas relações são links Markdown locais e seus backlinks — não similaridade semântica. Os filtros de tópico, projeto, tipo, tag, status e data reduzem somente os resultados lexicais raiz; não escondem vizinhos já ligados a um resultado. Para manter a saída previsível, cada resultado da CLI traz no máximo 100 relações, em ordem determinística, e declara `relatedConceptsTruncated: true` quando houver mais.
+`search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet, origem do match e relações diretas entre conceitos da mesma entidade. Essas relações são links Markdown locais e seus backlinks — não similaridade semântica. Os filtros de tópico, projeto, tipo, tag, status e data reduzem somente os resultados lexicais raiz; não escondem vizinhos já ligados a um resultado. Para manter a saída previsível, cada resultado da CLI projeta e serializa no máximo 100 relações, em ordem determinística, e declara `relatedConceptsTruncated: true` quando houver mais. Esse limite não reduz as relações indexadas durante a reconstrução nem a travessia independente de relações feita por `query`.
 
 ```powershell
 npm run sheldon -- search "retrieval practice" --topic memory --vault C:\knowledge\sheldon

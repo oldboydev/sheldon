@@ -61,7 +61,13 @@ export async function queryVault(
     const answers = new QueryAnswerStore(entity);
     const answer =
       contextResult.concepts.length === 0
-        ? uncoveredAnswer(answerId, options, contextResult.gaps, contextResult.truncated)
+        ? uncoveredAnswer(
+            answerId,
+            options,
+            contextResult.gaps,
+            contextResult.truncated,
+            contextResult.truncation,
+          )
         : await answerFromAgent(answerId, options, contextResult, entity, context, dependencies);
     const validated = validateQueryAnswer(answer).answer;
     assertAnswerEvidence(validated, contextResult.citations);
@@ -184,8 +190,9 @@ function uncoveredAnswer(
     readonly suggestedSources: readonly string[];
   }[],
   truncated: boolean,
+  truncation: Awaited<ReturnType<QueryService['query']>>['truncation'],
 ): QueryAnswer {
-  const budgetExcludedCoverage = gaps.some((gap) => gap.code === 'CONTEXT_BUDGET_EXCEEDED');
+  const budgetExcludedCoverage = truncation.conceptsExcludedByBudget;
   return {
     schemaVersion: 1,
     id: answerId,

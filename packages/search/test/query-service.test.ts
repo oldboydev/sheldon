@@ -368,7 +368,7 @@ describe('QueryService', () => {
     expect(result.concepts).toHaveLength(1);
     expect(result.gaps).toContainEqual(
       expect.objectContaining({
-        code: 'CONTEXT_BUDGET_EXCEEDED',
+        code: 'ROOT_RESULTS_EXCLUDED',
         message: expect.stringContaining('maxResults selected only 1'),
       }),
     );

@@ -229,7 +229,7 @@ describe('SearchIndex', () => {
     expect(rebuilt.search('recall')).toEqual([expect.objectContaining({ conceptId: 'recall' })]);
   });
 
-  it('rebuilds a recognizably corrupt projection but reports an inaccessible database path', async () => {
+  it('rebuilds a recognizably corrupt projection and reports how to recover from an inaccessible path', async () => {
     const root = await createVault();
     await writeConcept(
       root,
@@ -250,18 +250,40 @@ describe('SearchIndex', () => {
     const databasePath = vaultPaths(root).searchDatabase;
     await mkdir(dirname(databasePath), { recursive: true });
     await writeFile(databasePath, 'this is not a SQLite database', 'utf8');
+    await writeFile(`${databasePath}-wal`, 'stale write-ahead log', 'utf8');
+    await writeFile(`${databasePath}-shm`, 'stale shared memory', 'utf8');
+
+    let probe: DatabaseSync | undefined;
+    let sqliteError: unknown;
+    try {
+      probe = new DatabaseSync(databasePath, { allowExtension: false });
+      probe.prepare('PRAGMA user_version').get();
+    } catch (error) {
+      sqliteError = error;
+    } finally {
+      probe?.close();
+    }
+    expect(sqliteError).toMatchObject({
+      errcode: expect.any(Number),
+      errstr: expect.stringContaining('file is not a database'),
+    });
 
     const rebuilt = await SearchIndex.openOrRebuild(root);
     indexes.push(rebuilt);
     expect(rebuilt.search('recall')).toEqual([expect.objectContaining({ conceptId: 'recall' })]);
     rebuilt.close();
     indexes.splice(indexes.indexOf(rebuilt), 1);
+    await expect(access(`${databasePath}-wal`)).rejects.toBeDefined();
+    await expect(access(`${databasePath}-shm`)).rejects.toBeDefined();
     await rm(databasePath);
     await mkdir(databasePath);
 
     await expect(SearchIndex.openOrRebuild(root)).rejects.toMatchObject({
       name: 'SearchIndexError',
       message: expect.stringContaining('could not be inspected'),
+    });
+    await expect(SearchIndex.openOrRebuild(root)).rejects.toMatchObject({
+      message: expect.stringContaining('then rerun with --rebuild'),
     });
   });
 
@@ -278,6 +300,10 @@ describe('SearchIndex', () => {
       body: `
 [Real prose link](real.md)
 
+\`[Stray inline example](stray.md) [Same paragraph link](same.md)
+
+[Later prose link](later.md)
+
 \`[Inline example](inline.md)\`
 
 <!-- [Comment example](comment.md) -->
@@ -288,6 +314,8 @@ describe('SearchIndex', () => {
 
 ~~~markdown
 [Unclosed fence example](unclosed.md)
+
+    [Indented code example](indented.md)
 `,
     }).replace(
       'description: A source concept.',
@@ -310,20 +338,57 @@ describe('SearchIndex', () => {
         body: 'No outgoing links.',
       }),
     );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'later.md',
+      concept({
+        id: 'later',
+        type: 'note',
+        title: 'Later prose concept',
+        description: 'A link after a stray code delimiter.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'same.md',
+      concept({
+        id: 'same',
+        type: 'note',
+        title: 'Same paragraph concept',
+        description: 'A link after a literal backtick.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
 
     const index = await SearchIndex.rebuild(root);
     indexes.push(index);
 
     const [sourceResult] = index.search('source concept');
     expect(sourceResult?.relatedConcepts).toEqual([
+      expect.objectContaining({ conceptId: 'later', path: 'wiki/later.md', relation: 'outgoing' }),
       expect.objectContaining({ conceptId: 'real', path: 'wiki/real.md', relation: 'outgoing' }),
+      expect.objectContaining({ conceptId: 'same', path: 'wiki/same.md', relation: 'outgoing' }),
     ]);
     const relations = index.findRelatedConcepts(
       { kind: 'topic', slug: 'memory' },
       'wiki/source.md',
     );
     expect(relations).toEqual([
+      expect.objectContaining({ path: 'wiki/later.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/real.md', relation: 'outgoing' }),
+      expect.objectContaining({ path: 'wiki/same.md', relation: 'outgoing' }),
+      expect.objectContaining({ path: 'wiki/stray.md', relation: 'outgoing', result: undefined }),
     ]);
     expect(relations[0]?.result).not.toHaveProperty('relatedConcepts');
   });
@@ -374,6 +439,56 @@ describe('SearchIndex', () => {
     expect(index.search('source concept')[0]?.relatedConcepts).toEqual([
       expect.objectContaining({ conceptId: 'linked' }),
     ]);
+  });
+
+  it('caps eager relationship projections in SQL without limiting traversal', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'source.md',
+      concept({
+        id: 'source',
+        type: 'note',
+        title: 'Source concept',
+        description: 'A source with several relationships.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: '[A](a.md) [B](b.md) [C](c.md)',
+      }),
+    );
+    for (const name of ['a', 'b', 'c']) {
+      await writeConcept(
+        root,
+        'topics',
+        'memory',
+        `${name}.md`,
+        concept({
+          id: name,
+          type: 'note',
+          title: `${name.toUpperCase()} concept`,
+          description: 'A linked concept.',
+          aliases: [],
+          tags: [],
+          sources: [],
+          body: 'No outgoing links.',
+        }),
+      );
+    }
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    const [source] = index.search('source concept', undefined, { maxRelatedConcepts: 2 });
+    expect(source?.relatedConcepts).toEqual([
+      expect.objectContaining({ path: 'wiki/a.md' }),
+      expect.objectContaining({ path: 'wiki/b.md' }),
+    ]);
+    expect(source?.relatedConceptsTruncated).toBe(true);
+    expect(
+      index.findRelatedConcepts({ kind: 'topic', slug: 'memory' }, 'wiki/source.md'),
+    ).toHaveLength(3);
   });
 
   it('projects deterministic, same-entity outgoing links and backlinks onto search results', async () => {
@@ -587,6 +702,11 @@ describe('SearchIndex', () => {
       relation: 'backlink',
       result: { conceptId: 'bulk-10921' },
     });
+    const cappedTarget = index
+      .search('', undefined, { maxRelatedConcepts: 100 })
+      .find((result) => result.conceptId === 'target');
+    expect(cappedTarget?.relatedConcepts).toHaveLength(100);
+    expect(cappedTarget?.relatedConceptsTruncated).toBe(true);
   }, 15_000);
 
   it('keeps duplicate wiki paths separate by entity and compares date filters by instant', async () => {

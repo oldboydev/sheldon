@@ -4,7 +4,13 @@ import { resolveVaultPath } from '../config.js';
 import type { CommandContext } from '../runtime.js';
 import type { VaultOption } from './entities.js';
 
-const MAX_RELATED_CONCEPTS_PER_RESULT = 100;
+/**
+ * Maximum direct relations serialized for one result from the `search` CLI command.
+ *
+ * This bounds the direct-relation projection requested for `search` output; it does not limit
+ * relationship indexing during a rebuild, and query traversal obtains neighbours independently.
+ */
+export const MAX_RELATED_CONCEPTS_PER_RESULT = 100;
 
 export interface SearchCommandOptions extends VaultOption, SearchFilters {
   readonly rebuild?: boolean;
@@ -30,11 +36,9 @@ export async function searchVault(
       updatedAfter: options.updatedAfter,
       updatedBefore: options.updatedBefore,
     };
-    const results = index.search(query, filters).map((result) => ({
-      ...result,
-      relatedConcepts: result.relatedConcepts.slice(0, MAX_RELATED_CONCEPTS_PER_RESULT),
-      relatedConceptsTruncated: result.relatedConcepts.length > MAX_RELATED_CONCEPTS_PER_RESULT,
-    }));
+    const results = index.search(query, filters, {
+      maxRelatedConcepts: MAX_RELATED_CONCEPTS_PER_RESULT,
+    });
     context.write(JSON.stringify(results, null, 2));
   } finally {
     index.close();

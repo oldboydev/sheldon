@@ -25,6 +25,8 @@ export interface SearchFilters {
 export interface SearchResultOptions {
   /** Defaults to true. */
   readonly includeRelatedConcepts?: true;
+  /** Limits projected direct neighbours per result; omitted means unlimited. */
+  readonly maxRelatedConcepts?: number;
 }
 
 /** Opts out of eager relationship metadata for graph traversal roots. */
@@ -66,6 +68,8 @@ export interface SearchConcept {
 export interface SearchResult extends SearchConcept {
   /** Direct wiki neighbours in the same entity, ordered by their wiki path. */
   readonly relatedConcepts: readonly SearchRelatedConcept[];
+  /** True when `relatedConcepts` was limited by `maxRelatedConcepts`. */
+  readonly relatedConceptsTruncated: boolean;
 }
 
 /**
@@ -139,6 +143,7 @@ interface RelationRow extends QueryRow {
   readonly candidate_path: string;
   readonly candidate_concept_id: string | null;
   readonly candidate_title: string | null;
+  readonly relation_rank?: number;
 }
 
 const INDEX_SCHEMA_VERSION = 2;
@@ -245,9 +250,10 @@ export class SearchIndex {
       }
     } catch (error) {
       if (!isRecognizedIndexCorruption(error)) {
-        throw new SearchIndexError(`Search index could not be inspected: ${databasePath}`, {
-          cause: error,
-        });
+        throw new SearchIndexError(
+          `Search index could not be inspected: ${databasePath}. Check that the path is readable and not in use, then rerun with --rebuild.`,
+          { cause: error },
+        );
       }
       // A corrupt SQLite projection is disposable. An incompatible schema is
       // handled by the false result above, without treating all errors alike.
@@ -257,11 +263,12 @@ export class SearchIndex {
     }
     if (corrupt) {
       try {
-        await rm(databasePath);
+        await removeCorruptDatabaseArtifacts(databasePath);
       } catch (error) {
-        throw new SearchIndexError(`Corrupt search index could not be removed: ${databasePath}`, {
-          cause: error,
-        });
+        throw new SearchIndexError(
+          `Corrupt search index could not be removed: ${databasePath}. Close processes using the index, remove it manually, then rerun with --rebuild.`,
+          { cause: error },
+        );
       }
     }
     return SearchIndex.rebuild(root);
@@ -317,7 +324,11 @@ export class SearchIndex {
     if (options.includeRelatedConcepts === false) {
       return concepts.map((row) => toSearchConcept(row, terms));
     }
-    return this.toSearchResults(concepts, terms);
+    return this.toSearchResults(
+      concepts,
+      terms,
+      maxRelatedConcepts((options as SearchResultOptions).maxRelatedConcepts),
+    );
   }
 
   /**
@@ -361,17 +372,37 @@ export class SearchIndex {
     this.database.close();
   }
 
-  private toSearchResults(rows: readonly QueryRow[], terms: readonly string[]): SearchResult[] {
+  private toSearchResults(
+    rows: readonly QueryRow[],
+    terms: readonly string[],
+    maxRelations: number | undefined,
+  ): SearchResult[] {
     if (rows.length === 0) return [];
-    const relationsByKey = this.relatedConceptsByKey(rows);
+    const relationsByKey = this.relatedConceptsByKey(rows, maxRelations);
     return rows.map((row) => ({
       ...toSearchConcept(row, terms),
-      relatedConcepts: relationsByKey.get(keyOfRow(row)) ?? [],
+      relatedConcepts: relationsByKey.get(keyOfRow(row))?.values ?? [],
+      relatedConceptsTruncated: relationsByKey.get(keyOfRow(row))?.truncated ?? false,
     }));
   }
 
-  private relatedConceptsByKey(rows: readonly QueryRow[]): Map<string, SearchRelatedConcept[]> {
-    const relations = this.loadRelationRows(rows.map(rowToIndexKey));
+  private relatedConceptsByKey(
+    rows: readonly QueryRow[],
+    maxRelations: number | undefined,
+  ): Map<string, { values: SearchRelatedConcept[]; truncated: boolean }> {
+    const relations = this.loadRelationRows(rows.map(rowToIndexKey), maxRelations);
+    const truncated = new Set<string>();
+    const visibleRelations = relations.filter((relation) => {
+      if (maxRelations === undefined || Number(relation.relation_rank) <= maxRelations) return true;
+      truncated.add(
+        keyOf({
+          entityKind: String(relation.entity_kind) as SearchEntityKind,
+          entitySlug: String(relation.entity_slug),
+          path: relation.subject_path,
+        }),
+      );
+      return false;
+    });
     const related = new Map<string, SearchRelatedConcept[]>();
     const entities = new Map<string, SearchResult['entity']>();
     for (const row of rows) {
@@ -382,7 +413,7 @@ export class SearchIndex {
         title: String(row.entity_title),
       });
     }
-    for (const relation of combineRelations(relations)) {
+    for (const relation of combineRelations(visibleRelations)) {
       if (!relation.hasCandidate) continue;
       const subject = relation.subject;
       const entity = entities.get(subject)!;
@@ -398,19 +429,27 @@ export class SearchIndex {
     }
     for (const values of related.values())
       values.sort((left, right) => compareStrings(left.path, right.path));
-    return related;
+    return new Map<string, { values: SearchRelatedConcept[]; truncated: boolean }>(
+      rows.map((row): [string, { values: SearchRelatedConcept[]; truncated: boolean }] => {
+        const key = keyOfRow(row);
+        return [key, { values: related.get(key) ?? [], truncated: truncated.has(key) }];
+      }),
+    );
   }
 
-  private loadRelationRows(keys: readonly IndexKey[]): RelationRow[] {
+  private loadRelationRows(keys: readonly IndexKey[], maxRelations?: number): RelationRow[] {
     if (keys.length === 0) return [];
     const relations: RelationRow[] = [];
     for (const batch of batches(keys, SELECTED_KEYS_BATCH_SIZE)) {
       const selected = batch.map(() => '(?, ?, ?)').join(', ');
       const values = batch.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
+      const cap = maxRelations === undefined ? '' : 'WHERE relation_rank <= ?';
+      const capValues = maxRelations === undefined ? [] : [maxRelations + 1];
       relations.push(
         ...(this.database
           .prepare(
-            `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
+            `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected}),
+             raw_relations AS (
              SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
                     'outgoing' AS direction, concept_links.target_path AS candidate_path,
                     target.concept_id AS candidate_concept_id, target.title AS candidate_title
@@ -433,9 +472,18 @@ export class SearchIndex {
              JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
                AND source.entity_slug = concept_links.entity_slug
                AND source.path = concept_links.source_path
-             WHERE concept_links.source_path <> selected.path`,
+             WHERE concept_links.source_path <> selected.path
+             ), ranked_relations AS (
+               SELECT raw_relations.*,
+                      DENSE_RANK() OVER (
+                        PARTITION BY entity_kind, entity_slug, subject_path
+                        ORDER BY candidate_path
+                      ) AS relation_rank
+               FROM raw_relations
+             )
+             SELECT * FROM ranked_relations ${cap}`,
           )
-          .all(...values) as RelationRow[]),
+          .all(...values, ...capValues) as RelationRow[]),
       );
     }
     return relations;
@@ -598,12 +646,41 @@ function hasCompatibleSchema(database: DatabaseSync): boolean {
  */
 function isRecognizedIndexCorruption(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) return false;
-  const value = error as { readonly code?: unknown; readonly message?: unknown };
-  const code = typeof value.code === 'string' ? value.code : '';
-  if (code === 'SQLITE_CORRUPT' || code === 'SQLITE_NOTADB') return true;
-  const message = typeof value.message === 'string' ? value.message : '';
-  return /database disk image is malformed|file is not a database|malformed database schema|database corruption/i.test(
-    message,
+  const value = error as {
+    readonly code?: unknown;
+    readonly errcode?: unknown;
+    readonly errstr?: unknown;
+    readonly message?: unknown;
+  };
+  const codes = [value.code, value.errcode];
+  if (codes.some(isSqliteCorruptionCode)) return true;
+  return [value.errstr, value.message].some(
+    (detail) =>
+      typeof detail === 'string' &&
+      /database disk image is malformed|file is not a database|malformed database schema|database corruption/i.test(
+        detail,
+      ),
+  );
+}
+
+function isSqliteCorruptionCode(value: unknown): boolean {
+  if (typeof value === 'string') return /^(?:SQLITE_CORRUPT|SQLITE_NOTADB)(?:_|$)/.test(value);
+  // SQLite's extended result codes retain the primary result code in the
+  // low byte: SQLITE_CORRUPT is 11 and SQLITE_NOTADB is 26.
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    ((value & 0xff) === 11 || (value & 0xff) === 26)
+  );
+}
+
+async function removeCorruptDatabaseArtifacts(databasePath: string): Promise<void> {
+  // Sidecars can survive a process crash. `force` also makes concurrent
+  // openOrRebuild calls harmless when another caller already removed one.
+  await Promise.all(
+    [databasePath, `${databasePath}-journal`, `${databasePath}-shm`, `${databasePath}-wal`].map(
+      (path) => rm(path, { force: true }),
+    ),
   );
 }
 
@@ -902,6 +979,14 @@ function searchTerms(query: string): string[] {
   return [...new Set(query.match(/[\p{L}\p{N}_-]+/gu) ?? [])];
 }
 
+function maxRelatedConcepts(value: number | undefined): number | undefined {
+  if (value === undefined) return undefined;
+  if (!Number.isSafeInteger(value) || value < 0) {
+    throw new SearchIndexError('maxRelatedConcepts must be a non-negative integer.');
+  }
+  return value;
+}
+
 function toSearchConcept(row: QueryRow, terms: readonly string[]): SearchConcept {
   const aliases = jsonStringList(row.aliases_json);
   const tags = jsonStringList(row.tags_json);
@@ -980,9 +1065,10 @@ function sanitizeMarkdownLinkContexts(markdown: string): string {
     }
     const delimiterEnd = nextNonBacktick(withoutComments, cursor);
     const delimiter = withoutComments.slice(cursor, delimiterEnd);
-    const closing = withoutComments.indexOf(delimiter, delimiterEnd);
-    if (closing === -1) {
+    const closing = findInlineCodeClosing(withoutComments, delimiterEnd, delimiter);
+    if (closing === undefined) {
       result += delimiter;
+      // An unmatched delimiter is literal Markdown, not the start of a span.
       cursor = delimiterEnd;
       continue;
     }
@@ -1002,7 +1088,10 @@ function withoutFencedCode(markdown: string): string {
       if (part === '\n' || part === '\r\n') return part;
       const match = /^(?: {0,3})(`{3,}|~{3,})/.exec(part);
       if (fence === undefined) {
-        if (match === null) return part;
+        if (match === null) {
+          // Markdown's indented code blocks also disable link syntax.
+          return /^(?: {4}|\t)/.test(part) ? ' '.repeat(part.length) : part;
+        }
         const delimiter = match[1]!;
         fence = { marker: delimiter[0]! as '`' | '~', length: delimiter.length };
         return ' '.repeat(part.length);
@@ -1020,6 +1109,31 @@ function nextNonBacktick(value: string, start: number): number {
   let cursor = start;
   while (value[cursor] === '`') cursor += 1;
   return cursor;
+}
+
+function findInlineCodeClosing(
+  value: string,
+  start: number,
+  delimiter: string,
+): number | undefined {
+  // A stray backtick must not hide prose in a later paragraph. Valid inline
+  // code may span a line, but never a blank-line block boundary.
+  const boundary = inlineCodeContextEnd(value, start);
+  let cursor = start;
+  while (cursor < boundary) {
+    const opening = value.indexOf('`', cursor);
+    if (opening === -1 || opening >= boundary) return undefined;
+    const closingEnd = nextNonBacktick(value, opening);
+    if (closingEnd - opening === delimiter.length) return opening;
+    cursor = closingEnd;
+  }
+  return undefined;
+}
+
+function inlineCodeContextEnd(value: string, start: number): number {
+  const blankLine = /\r?\n[\t ]*\r?\n/g;
+  blankLine.lastIndex = start;
+  return blankLine.exec(value)?.index ?? value.length;
 }
 
 function isEscaped(value: string, position: number): boolean {

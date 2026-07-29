@@ -20,7 +20,7 @@ if (process.platform !== 'win32') {
       // retain an explicit caller choice while supplying that supported default.
       env: {
         ...process.env,
-        GYP_MSVS_VERSION: process.env.GYP_MSVS_VERSION ?? '2022',
+        GYP_MSVS_VERSION: process.env.GYP_MSVS_VERSION || '2022',
       },
     });
 

@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { QueryAgentTask } from '@sheldon/agent-runtime';
 import { VaultService } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -84,7 +85,7 @@ describe('local search CLI', () => {
     ]);
   });
 
-  it('bounds relationship metadata in the CLI response and declares truncation', async () => {
+  it('caps search relation output without limiting query traversal', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-search-cli-'));
     roots.push(root);
     const vaultPath = join(root, 'vault');
@@ -114,10 +115,46 @@ describe('local search CLI', () => {
         ),
       ),
     );
+    const queryTasks: QueryAgentTask[] = [];
     const dependencies: CliDependencies = {
       environment: { APPDATA: join(root, 'appdata') },
       homeDirectory: root,
       commandAvailable: async () => false,
+      agentExecutor: {
+        execute: async () => {
+          throw new Error('This test invokes only the cited-query adapter.');
+        },
+        executeQuery: async (command) => {
+          queryTasks.push(command.input);
+          return {
+            status: 'answer',
+            agentVersion: 'test',
+            answer: {
+              schemaVersion: 1,
+              id: command.input.answerId,
+              question: command.input.question,
+              agent: 'codex',
+              truncated: command.input.truncated,
+              concepts: command.input.concepts.map((concept) => ({
+                path: concept.path,
+                citation: concept.title,
+              })),
+              raws: [],
+              createdAt: '2026-07-29T00:00:00.000Z',
+              text: [
+                '## Wiki facts',
+                `- Indexed relations: ${command.input.concepts[0]!.path}.`,
+                '',
+                '## Inferences',
+                '- None.',
+                '',
+                '## Gaps',
+                '- None.',
+              ].join('\n'),
+            },
+          };
+        },
+      },
     };
 
     const result = await runCli(['search', 'retrieval', '--vault', vaultPath], dependencies);
@@ -130,6 +167,29 @@ describe('local search CLI', () => {
     expect(hub.relatedConcepts).toHaveLength(100);
     expect(hub.relatedConcepts[0]).toMatchObject({ conceptId: 'linked-0' });
     expect(hub.relatedConcepts[99]).toMatchObject({ conceptId: 'linked-99' });
+
+    const queried = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-relations',
+        '--question',
+        'retrieval',
+        '--agent',
+        'codex',
+        '--link-depth',
+        '1',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(queried).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(queryTasks).toHaveLength(1);
+    expect(queryTasks[0]!.concepts).toHaveLength(102);
+    expect(queryTasks[0]!.concepts.map((concept) => concept.path)).toContain('wiki/linked-100.md');
   });
 });
 

@@ -70,7 +70,11 @@ export interface QueryTruncation {
 
 export interface QueryGap {
   readonly code:
-    'NO_WIKI_COVERAGE' | 'RAW_UNAVAILABLE' | 'WIKI_LINK_UNAVAILABLE' | 'CONTEXT_BUDGET_EXCEEDED';
+    | 'NO_WIKI_COVERAGE'
+    | 'RAW_UNAVAILABLE'
+    | 'WIKI_LINK_UNAVAILABLE'
+    | 'ROOT_RESULTS_EXCLUDED'
+    | 'CONTEXT_BUDGET_EXCEEDED';
   readonly message: string;
   readonly suggestedSources: readonly string[];
 }
@@ -315,7 +319,7 @@ function unavailableLink(result: SearchTraversalCandidate, path: string): QueryG
 function rootResultsExcluded(total: number, selected: number): QueryGap {
   const excluded = total - selected;
   return {
-    code: 'CONTEXT_BUDGET_EXCEEDED',
+    code: 'ROOT_RESULTS_EXCLUDED',
     message: `The lexical search found ${total} matching concepts, but maxResults selected only ${selected}; ${excluded} matching root ${excluded === 1 ? 'concept was' : 'concepts were'} not selected.`,
     suggestedSources: ['Increase maxResults to include more matching lexical root concepts.'],
   };
