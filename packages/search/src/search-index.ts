@@ -25,7 +25,10 @@ export interface SearchFilters {
 export interface SearchResultOptions {
   /** Defaults to true. */
   readonly includeRelatedConcepts?: true;
-  /** Limits projected direct neighbours per result; omitted means unlimited. */
+  /**
+   * Limits projected direct neighbours per result in deterministic wiki-path
+   * order; omitted means unlimited.
+   */
   readonly maxRelatedConcepts?: number;
 }
 
@@ -66,7 +69,7 @@ export interface SearchConcept {
 
 /** A complete lexical search hit, including its already-projected direct neighbours. */
 export interface SearchResult extends SearchConcept {
-  /** Direct wiki neighbours in the same entity, ordered by their wiki path. */
+  /** Direct same-entity wiki neighbours, ordered by wiki path. */
   readonly relatedConcepts: readonly SearchRelatedConcept[];
   /** True when `relatedConcepts` was limited by `maxRelatedConcepts`. */
   readonly relatedConceptsTruncated: boolean;
@@ -146,7 +149,7 @@ interface RelationRow extends QueryRow {
   readonly relation_rank?: number;
 }
 
-const INDEX_SCHEMA_VERSION = 2;
+const INDEX_SCHEMA_VERSION = 3;
 const CONCEPT_COLUMNS = [
   'entity_id',
   'entity_kind',
@@ -194,8 +197,16 @@ export class SearchIndex {
     const root = resolve(vaultRoot);
     const databasePath = vaultPaths(root).searchDatabase;
     const concepts = await readVaultConcepts(root);
-    await mkdir(dirname(databasePath), { recursive: true });
-    const database = new DatabaseSync(databasePath, { allowExtension: false });
+    let database: DatabaseSync;
+    try {
+      await mkdir(dirname(databasePath), { recursive: true });
+      database = new DatabaseSync(databasePath, { allowExtension: false });
+    } catch (error) {
+      throw new SearchIndexError(
+        `Search index could not be opened for rebuilding: ${databasePath}. Check that the path is writable and not a directory.`,
+        { cause: error },
+      );
+    }
     const index = new SearchIndex(root, database);
 
     try {
@@ -215,7 +226,15 @@ export class SearchIndex {
         'Search index is missing. Run SearchIndex.rebuild(vaultRoot) first.',
       );
     }
-    const database = new DatabaseSync(databasePath, { allowExtension: false });
+    let database: DatabaseSync;
+    try {
+      database = new DatabaseSync(databasePath, { allowExtension: false });
+    } catch (error) {
+      throw new SearchIndexError(
+        `Search index could not be opened: ${databasePath}. Check that the path is readable and not a directory.`,
+        { cause: error },
+      );
+    }
     try {
       if (!hasCompatibleSchema(database)) {
         throw new SearchIndexError(
@@ -225,7 +244,11 @@ export class SearchIndex {
       return new SearchIndex(root, database);
     } catch (error) {
       database.close();
-      throw error;
+      if (error instanceof SearchIndexError) throw error;
+      throw new SearchIndexError(
+        `Search index could not be opened: ${databasePath}. Check that the path is readable and not a directory.`,
+        { cause: error },
+      );
     }
   }
 
@@ -443,12 +466,33 @@ export class SearchIndex {
     for (const batch of batches(keys, SELECTED_KEYS_BATCH_SIZE)) {
       const selected = batch.map(() => '(?, ?, ?)').join(', ');
       const values = batch.flatMap((key) => [key.entityKind, key.entitySlug, key.path]);
-      const cap = maxRelations === undefined ? '' : 'WHERE relation_rank <= ?';
-      const capValues = maxRelations === undefined ? [] : [maxRelations + 1];
-      relations.push(
-        ...(this.database
-          .prepare(
-            `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected}),
+      const query =
+        maxRelations === undefined
+          ? `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected})
+             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+                    'outgoing' AS direction, concept_links.target_path AS candidate_path,
+                    target.concept_id AS candidate_concept_id, target.title AS candidate_title
+             FROM selected
+             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+               AND concept_links.entity_slug = selected.entity_slug
+               AND concept_links.source_path = selected.path
+             LEFT JOIN concepts AS target ON target.entity_kind = concept_links.entity_kind
+               AND target.entity_slug = concept_links.entity_slug
+               AND target.path = concept_links.target_path
+             WHERE concept_links.target_path <> selected.path
+             UNION ALL
+             SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
+                    'backlink' AS direction, concept_links.source_path AS candidate_path,
+                    source.concept_id AS candidate_concept_id, source.title AS candidate_title
+             FROM selected
+             JOIN concept_links ON concept_links.entity_kind = selected.entity_kind
+               AND concept_links.entity_slug = selected.entity_slug
+               AND concept_links.target_path = selected.path
+             JOIN concepts AS source ON source.entity_kind = concept_links.entity_kind
+               AND source.entity_slug = concept_links.entity_slug
+               AND source.path = concept_links.source_path
+             WHERE concept_links.source_path <> selected.path`
+          : `WITH selected(entity_kind, entity_slug, path) AS (VALUES ${selected}),
              raw_relations AS (
              SELECT selected.entity_kind, selected.entity_slug, selected.path AS subject_path,
                     'outgoing' AS direction, concept_links.target_path AS candidate_path,
@@ -480,10 +524,12 @@ export class SearchIndex {
                         ORDER BY candidate_path
                       ) AS relation_rank
                FROM raw_relations
+               WHERE candidate_concept_id IS NOT NULL
              )
-             SELECT * FROM ranked_relations ${cap}`,
-          )
-          .all(...values, ...capValues) as RelationRow[]),
+             SELECT * FROM ranked_relations WHERE relation_rank <= ?`;
+      const capValues = maxRelations === undefined ? [] : [maxRelations + 1];
+      relations.push(
+        ...(this.database.prepare(query).all(...values, ...capValues) as RelationRow[]),
       );
     }
     return relations;
@@ -807,12 +853,13 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
       .sort(compareDirectoryEntries)) {
       const entityRoot = join(collectionRoot, entry.name);
       const metadata = await readEntityMetadata(entityRoot);
+      const entityConcepts: IndexedConcept[] = [];
       for (const file of await findWikiFiles(join(entityRoot, 'wiki'))) {
         const content = await readFile(file, 'utf8');
         const frontmatter = parseFrontmatter(content, relative(entityRoot, file));
         const title = requiredString(frontmatter, 'title', file);
         const path = `wiki/${relative(join(entityRoot, 'wiki'), file).replace(/\\/g, '/')}`;
-        concepts.push({
+        entityConcepts.push({
           entityId: metadata.id,
           entityKind: kind,
           entitySlug: entry.name,
@@ -833,6 +880,7 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
           links: linkedWikiPaths(markdownBody(content), file, entityRoot),
         });
       }
+      concepts.push(...canonicalizeKnownWikiLinks(entityConcepts));
     }
   }
   return concepts.sort(
@@ -841,6 +889,19 @@ async function readVaultConcepts(root: string): Promise<IndexedConcept[]> {
       compareStrings(left.entitySlug, right.entitySlug) ||
       compareStrings(left.path, right.path),
   );
+}
+
+function canonicalizeKnownWikiLinks(
+  concepts: readonly IndexedConcept[],
+): readonly IndexedConcept[] {
+  if (process.platform !== 'win32') return concepts;
+  const knownPaths = new Map(concepts.map((concept) => [concept.path.toLowerCase(), concept.path]));
+  return concepts.map((concept) => ({
+    ...concept,
+    links: [
+      ...new Set(concept.links.map((path) => knownPaths.get(path.toLowerCase()) ?? path)),
+    ].sort(compareStrings),
+  }));
 }
 
 async function readEntityMetadata(entityRoot: string): Promise<EntityMetadata> {
@@ -1089,8 +1150,7 @@ function withoutFencedCode(markdown: string): string {
       const match = /^(?: {0,3})(`{3,}|~{3,})/.exec(part);
       if (fence === undefined) {
         if (match === null) {
-          // Markdown's indented code blocks also disable link syntax.
-          return /^(?: {4}|\t)/.test(part) ? ' '.repeat(part.length) : part;
+          return part;
         }
         const delimiter = match[1]!;
         fence = { marker: delimiter[0]! as '`' | '~', length: delimiter.length };

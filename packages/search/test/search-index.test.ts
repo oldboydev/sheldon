@@ -278,6 +278,17 @@ describe('SearchIndex', () => {
     await rm(databasePath);
     await mkdir(databasePath);
 
+    await expect(SearchIndex.rebuild(root)).rejects.toMatchObject({
+      name: 'SearchIndexError',
+      message: expect.stringContaining(`could not be opened for rebuilding: ${databasePath}`),
+    });
+    expect(() => SearchIndex.open(root)).toThrow(
+      expect.objectContaining({
+        name: 'SearchIndexError',
+        message: expect.stringContaining(`could not be opened: ${databasePath}`),
+      }),
+    );
+
     await expect(SearchIndex.openOrRebuild(root)).rejects.toMatchObject({
       name: 'SearchIndexError',
       message: expect.stringContaining('could not be inspected'),
@@ -303,6 +314,9 @@ describe('SearchIndex', () => {
 \`[Stray inline example](stray.md) [Same paragraph link](same.md)
 
 [Later prose link](later.md)
+
+- A list item whose continuation remains Markdown prose:
+    [Indented continuation link](continuation.md)
 
 \`[Inline example](inline.md)\`
 
@@ -332,6 +346,22 @@ describe('SearchIndex', () => {
         type: 'note',
         title: 'Real linked concept',
         description: 'A real relationship destination.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'continuation.md',
+      concept({
+        id: 'continuation',
+        type: 'note',
+        title: 'List continuation concept',
+        description: 'A link in a list continuation.',
         aliases: [],
         tags: [],
         sources: [],
@@ -376,6 +406,11 @@ describe('SearchIndex', () => {
 
     const [sourceResult] = index.search('source concept');
     expect(sourceResult?.relatedConcepts).toEqual([
+      expect.objectContaining({
+        conceptId: 'continuation',
+        path: 'wiki/continuation.md',
+        relation: 'outgoing',
+      }),
       expect.objectContaining({ conceptId: 'later', path: 'wiki/later.md', relation: 'outgoing' }),
       expect.objectContaining({ conceptId: 'real', path: 'wiki/real.md', relation: 'outgoing' }),
       expect.objectContaining({ conceptId: 'same', path: 'wiki/same.md', relation: 'outgoing' }),
@@ -385,6 +420,7 @@ describe('SearchIndex', () => {
       'wiki/source.md',
     );
     expect(relations).toEqual([
+      expect.objectContaining({ path: 'wiki/continuation.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/later.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/real.md', relation: 'outgoing' }),
       expect.objectContaining({ path: 'wiki/same.md', relation: 'outgoing' }),
@@ -456,7 +492,7 @@ describe('SearchIndex', () => {
         aliases: [],
         tags: [],
         sources: [],
-        body: '[A](a.md) [B](b.md) [C](c.md)',
+        body: '[Missing](0-missing.md) [A](a.md) [B](b.md) [C](c.md)',
       }),
     );
     for (const name of ['a', 'b', 'c']) {
@@ -488,7 +524,72 @@ describe('SearchIndex', () => {
     expect(source?.relatedConceptsTruncated).toBe(true);
     expect(
       index.findRelatedConcepts({ kind: 'topic', slug: 'memory' }, 'wiki/source.md'),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
+  });
+
+  it('resolves known wiki targets case-insensitively only on Windows', async () => {
+    const root = await createVault();
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'source.md',
+      concept({
+        id: 'source',
+        type: 'note',
+        title: 'Source concept',
+        description: 'A concept with differently cased local links.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: '[Canonical](target.md) [Different case](TARGET.md)',
+      }),
+    );
+    await writeConcept(
+      root,
+      'topics',
+      'memory',
+      'target.md',
+      concept({
+        id: 'target',
+        type: 'note',
+        title: 'Target concept',
+        description: 'The known target.',
+        aliases: [],
+        tags: [],
+        sources: [],
+        body: 'No outgoing links.',
+      }),
+    );
+    const index = await SearchIndex.rebuild(root);
+    indexes.push(index);
+
+    const relations = index.findRelatedConcepts(
+      { kind: 'topic', slug: 'memory' },
+      'wiki/source.md',
+    );
+    if (process.platform === 'win32') {
+      expect(relations).toEqual([
+        expect.objectContaining({
+          path: 'wiki/target.md',
+          relation: 'outgoing',
+          result: expect.objectContaining({ conceptId: 'target' }),
+        }),
+      ]);
+    } else {
+      expect(relations).toEqual([
+        expect.objectContaining({
+          path: 'wiki/TARGET.md',
+          relation: 'outgoing',
+          result: undefined,
+        }),
+        expect.objectContaining({
+          path: 'wiki/target.md',
+          relation: 'outgoing',
+          result: expect.objectContaining({ conceptId: 'target' }),
+        }),
+      ]);
+    }
   });
 
   it('projects deterministic, same-entity outgoing links and backlinks onto search results', async () => {
@@ -703,7 +804,7 @@ describe('SearchIndex', () => {
       result: { conceptId: 'bulk-10921' },
     });
     const cappedTarget = index
-      .search('', undefined, { maxRelatedConcepts: 100 })
+      .search('shared relationship target', undefined, { maxRelatedConcepts: 100 })
       .find((result) => result.conceptId === 'target');
     expect(cappedTarget?.relatedConcepts).toHaveLength(100);
     expect(cappedTarget?.relatedConceptsTruncated).toBe(true);

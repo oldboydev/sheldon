@@ -46,6 +46,8 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que valida `wiki/` antes de substituir transacionalmente `system/search-index.db`. Esse banco é cache reconstruível, não é a fonte de verdade e pode ser removido quando necessário; `SearchIndex.open(vaultRoot)` falha com diagnóstico explícito se ele ainda não foi construído.
 
+A reconstrução dessa projeção é uma operação de processo único: não execute comandos com `--rebuild` concorrentemente sobre o mesmo vault. Se houver contenção, aguarde o outro comando terminar e tente novamente; Sheldon não substitui um erro de lock por uma reconstrução automática.
+
 ## Busca, consultas e write-back (M4)
 
 `search` é sempre lexical e local: não inicia Codex nem Claude. Ele abre a projeção descartável existente, reconstruindo-a só quando ausente ou quando `--rebuild` é solicitado, e imprime resultados JSON com score, snippet, origem do match e relações diretas entre conceitos da mesma entidade. Essas relações são links Markdown locais e seus backlinks — não similaridade semântica. Os filtros de tópico, projeto, tipo, tag, status e data reduzem somente os resultados lexicais raiz; não escondem vizinhos já ligados a um resultado. Para manter a saída previsível, cada resultado da CLI projeta e serializa no máximo 100 relações, em ordem determinística, e declara `relatedConceptsTruncated: true` quando houver mais. Esse limite não reduz as relações indexadas durante a reconstrução nem a travessia independente de relações feita por `query`.
