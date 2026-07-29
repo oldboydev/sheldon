@@ -13,6 +13,7 @@
     "@sheldon/core": "*",
     "@sheldon/agent-runtime": "*",
     "@sheldon/ingestion": "*",
+    "@sheldon/mcp": "*",
     "@sheldon/persistence": "*",
     "@sheldon/plugin-host": "*",
     "@sheldon/plugin-sdk": "*",

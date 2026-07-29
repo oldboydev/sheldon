@@ -64,3 +64,4 @@ if (process.platform === 'win32') {
 await Promise.all(targets.map(([source, output]) => compile(source, output)));
 await rm(join('apps', 'cli', 'dist', 'plugins'), { recursive: true, force: true });
 await cp('release/official-catalog-public.pem', 'apps/cli/dist/official-catalog-public.pem');
+await cp('packages/skill', 'apps/cli/dist/skill', { recursive: true });

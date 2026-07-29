@@ -62,6 +62,8 @@ Saída: uma pergunta cruzando conceitos gera resposta rastreável e pode enrique
 
 **PRD:** 007
 
+**Status:** concluído em 29 de julho de 2026.
+
 Entrega: MCP local, skill Sheldon e configuração de um projeto consumidor.
 
 Saída: Codex e Claude, dentro de outro repositório, localizam e citam conhecimento relevante sem receber o vault inteiro.

@@ -234,6 +234,10 @@ class McpToolServer {
     if (conceptId !== undefined && requestedScope === undefined) {
       throw new RpcError(-32602, 'concept_id requires an explicit authorized scope.');
     }
+    if (requestedScope !== undefined) {
+      // Feedback must be authorized even when it names no concept.
+      this.dependencies.facade.searchKnowledge({ scope: requestedScope, query: '' });
+    }
     if (conceptId !== undefined && requestedScope !== undefined) {
       const concept = this.dependencies.facade.readConcept({ scope: requestedScope, conceptId });
       if (concept === undefined)

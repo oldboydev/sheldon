@@ -55,6 +55,14 @@ import {
   listImageLanguageCommand,
   removeImageLanguageCommand,
 } from './commands/images.js';
+import {
+  configureMcpConsumer,
+  doctorMcp,
+  installSheldonSkill,
+  serveMcp,
+  type McpConfigureOptions,
+  type McpInstallSkillOptions,
+} from './commands/mcp.js';
 import type { OfficialPlatform } from '@sheldon/plugin-host';
 
 import {
@@ -230,6 +238,35 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     }
     return doctorAgents(name as AgentName | undefined, context, dependencies.agentHealthProbe);
   });
+  const mcp = program.command('mcp').description('Configure local scoped MCP knowledge access.');
+  mcp
+    .command('configure <consumer>')
+    .requiredOption('--vault <path>', 'absolute Sheldon vault path')
+    .requiredOption('--consumer-id <id>', 'stable identity for the consumer project')
+    .requiredOption('--scope <kind:slug...>', 'authorized topic or project scope; repeat as needed')
+    .option('--bundle <path>', 'optional bundle definition relative to vault/bundles')
+    .option('--apply', 'apply the previewed local configuration changes')
+    .action((consumer: string, options: McpConfigureOptions) =>
+      configureMcpConsumer(consumer, options, context),
+    );
+  mcp
+    .command('install-skill <consumer>')
+    .option('--agent <agent>', 'codex, claude, or both', (value) => {
+      if (value === 'codex' || value === 'claude' || value === 'both') return value;
+      throw new InvalidArgumentError('--agent must be codex, claude, or both.');
+    })
+    .option('--apply', 'copy the generated skill after displaying the targets')
+    .action((consumer: string, options: McpInstallSkillOptions) =>
+      installSheldonSkill(consumer, options, context),
+    );
+  mcp
+    .command('doctor')
+    .requiredOption('--consumer <path>', 'consumer project directory')
+    .action((options: { consumer: string }) => doctorMcp(options.consumer, context));
+  mcp
+    .command('serve')
+    .requiredOption('--consumer-config <path>', 'absolute consumer MCP configuration path')
+    .action((options: { consumerConfig: string }) => serveMcp(options.consumerConfig));
   const plugin = program.command('plugin');
   plugin.command('install <id>').action((id: string) => installPlugin(id, context));
   plugin.command('remove <id>').action((id: string) => removePlugin(id, context));

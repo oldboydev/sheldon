@@ -119,6 +119,24 @@ describe('local MCP request handler', () => {
     });
   });
 
+  it('refuses feedback for an unauthorized scope even without a concept ID', async () => {
+    const fixture = dependencies();
+    const handler = createMcpRequestHandler(fixture.dependencies);
+    const response = await handler.handle(
+      request('tools/call', {
+        name: 'file_feedback',
+        arguments: {
+          kind: 'gap',
+          message: 'Cannot write into another project.',
+          scope: { kind: 'project', slug: 'bravo' },
+        },
+      }),
+    );
+
+    expect(response?.result).toMatchObject({ isError: true });
+    expect(fixture.fileFeedback).not.toHaveBeenCalled();
+  });
+
   it('serves newline-delimited JSON-RPC on stdio without opening a network listener', async () => {
     const output: string[] = [];
     await serveStdio(
@@ -163,7 +181,12 @@ function dependencies(): {
   readonly readExcerpt: ReturnType<typeof vi.fn>;
   readonly fileFeedback: ReturnType<typeof vi.fn>;
 } {
-  const searchKnowledge = vi.fn(() => [concept]);
+  const searchKnowledge = vi.fn((request: { readonly scope: KnowledgeScope }) => {
+    if (request.scope.slug !== alphaScope.slug || request.scope.kind !== alphaScope.kind) {
+      throw new Error('Knowledge scope is not authorized.');
+    }
+    return [concept];
+  });
   const audit = vi.fn(async () => undefined);
   const readExcerpt = vi.fn(async (citation: RawSourceCitation) => ({
     path: citation.sourcePath,
