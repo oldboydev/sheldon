@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Bundles OKF v0.1 locais e portáteis: definições versionáveis por `concept_id`, seleção com políticas de dependência e links, compilação determinística, índices, log, manifesto de hashes e proveniência, validação leniente/estrita e diff entre builds.
 - Workflow de CI para pull requests e `main`, executando o gate completo `npm run verify` em runner Linux sem depender do limite local de execução.
 - Servidor MCP M5 somente local por `stdio`, com contrato das sete ferramentas, autorização explícita e fail-closed por projeto consumidor, leitura de raw citada com auditoria e feedback pendente que não altera wiki nem raws.
 - Configuração explícita de projeto consumidor, prévia antes de aplicar configurações Codex/Claude, `sheldon mcp doctor` e skill Sheldon de fonte única para os dois clientes sem dependência de `kb`, API ou SaaS.
@@ -24,6 +25,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- `bundle build` agora mostra uma prévia auditável da seleção por padrão e só materializa a projeção OKF com `--apply`, expondo tags declaradas e sensibilidade não especificada sem inferir uma taxonomia.
+- Bundles OKF agora distinguem validação strict/lenient para tipos, preservam links deliberadamente quebrados com aviso, respeitam `max_depth` durante `include`, validam hashes do manifesto, incluem o resumo/links permitidos na identidade do build e recuperam uma troca de diretório interrompida.
 - A CI de pull request usa Windows para executar o gate unificado, alinhando a validação à plataforma Windows-first do MVP e aos testes de isolamento de processo.
 - Configuração MCP compensa falhas de escrita sem apagar a configuração Claude existente; bundles e adaptadores locais passaram a ter cobertura de integração contra um vault real.
 - `read_concept` do MCP agora lê o corpo aprovado da wiki através de um adaptador local com orçamento explícito, enquanto buscas MCP preservam a ordem BM25, possuem limite padrão e o transporte decodifica UTF-8 entre chunks sem corromper texto.

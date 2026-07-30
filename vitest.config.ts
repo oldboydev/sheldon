@@ -21,6 +21,7 @@ export default defineConfig({
       '@sheldon/agent-runtime': sourcePath('./packages/agent-runtime/src/index.ts'),
       '@sheldon/review': sourcePath('./packages/review/src/index.ts'),
       '@sheldon/search': sourcePath('./packages/search/src/index.ts'),
+      '@sheldon/okf': sourcePath('./packages/okf/src/index.ts'),
       '@sheldon/mcp': sourcePath('./packages/mcp/src/index.ts'),
       '@sheldon/plugin-source-file': sourcePath(
         './packages/plugins/official/source.file/src/index.ts',
