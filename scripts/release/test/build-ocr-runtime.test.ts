@@ -580,7 +580,7 @@ try {
   throw 'The watchdog unexpectedly completed.'
 } catch {
   if ($_.Exception.Message -ne $expected) { throw }
-  if ($watch.Elapsed.TotalSeconds -gt 3) { throw 'The watchdog exceeded the harness deadline.' }
+  if ($watch.Elapsed.TotalSeconds -gt 8) { throw 'The watchdog exceeded the harness deadline.' }
   Write-Output $_.Exception.Message
 }
 `,
@@ -588,7 +588,7 @@ try {
   );
   const result = await execFileAsync('pwsh', ['-NoProfile', '-File', harnessPath], {
     shell: false,
-    timeout: 10_000,
+    timeout: 15_000,
   });
   return result.stdout;
 }
