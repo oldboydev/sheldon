@@ -9,6 +9,7 @@ import {
   compileOkfBundle,
   diffOkfBuilds,
   parseBundleDefinition,
+  recoverOkfBuild,
   validateOkf,
   validateOkfManifestFiles,
   writeOkfBuild,
@@ -274,6 +275,25 @@ describe('OKF compiler', () => {
 
     await expect(access(join(output, 'stale.md'))).rejects.toThrow();
     await expect(readFile(join(output, 'manifest.yaml'), 'utf8')).resolves.toContain('build_id:');
+  });
+
+  it('restores the previous projection after an interrupted directory swap', async () => {
+    const root = await vault();
+    const output = join(root, 'bundles', 'written', 'build');
+    const backup = `${output}.backup-interrupted`;
+    await mkdir(backup, { recursive: true });
+    await writeFile(join(backup, 'index.md'), 'previous projection\n', 'utf8');
+    await writeFile(
+      `${output}.swap.yaml`,
+      `version: 1\nbackup: ${JSON.stringify(backup)}\n`,
+      'utf8',
+    );
+
+    await recoverOkfBuild(output);
+
+    await expect(readFile(join(output, 'index.md'), 'utf8')).resolves.toBe('previous projection\n');
+    await expect(access(backup)).rejects.toThrow();
+    await expect(access(`${output}.swap.yaml`)).rejects.toThrow();
   });
 });
 

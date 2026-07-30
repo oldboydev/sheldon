@@ -1,5 +1,6 @@
 export {
   compileOkfBundle,
+  recoverOkfBuild,
   writeOkfBuild,
   type CompileOkfBundleOptions,
   type OkfBuild,

@@ -1,4 +1,4 @@
-import { readFile, readdir, rename, rm } from 'node:fs/promises';
+import { access, readFile, readdir, rename, rm } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -182,8 +182,10 @@ export async function compileOkfBundle(options: CompileOkfBundleOptions): Promis
 /** Stages a replacement with rollback on an observed rename failure; it never deletes arbitrary files. */
 export async function writeOkfBuild(directory: string, build: OkfBuild): Promise<void> {
   const root = resolve(directory);
+  await recoverOkfBuild(root);
   const staging = `${root}.staging-${randomUUID()}`;
   const backup = `${root}.backup-${randomUUID()}`;
+  const journal = swapJournalPath(root);
   try {
     for (const [path, content] of [...build.files.entries()].sort(([left], [right]) =>
       compare(left, right),
@@ -195,21 +197,58 @@ export async function writeOkfBuild(directory: string, build: OkfBuild): Promise
     }
     let priorExists = false;
     try {
+      await atomicWriteFile(journal, `${stringify({ version: 1, backup })}\n`);
       await rename(root, backup);
       priorExists = true;
     } catch (error) {
       if (!isMissing(error)) throw error;
+      await rm(journal, { force: true });
     }
     try {
       await rename(staging, root);
     } catch (error) {
       if (priorExists) await rename(backup, root);
+      await rm(journal, { force: true });
       throw error;
     }
     if (priorExists) await rm(backup, { recursive: true, force: true });
+    await rm(journal, { force: true });
   } finally {
     await rm(staging, { recursive: true, force: true });
   }
+}
+
+/** Restores the last complete projection after a process died between directory renames. */
+export async function recoverOkfBuild(directory: string): Promise<void> {
+  const root = resolve(directory);
+  const journal = swapJournalPath(root);
+  let record: unknown;
+  try {
+    record = parse(await readFile(journal, 'utf8'));
+  } catch (error) {
+    if (isMissing(error)) return;
+    throw error;
+  }
+  if (
+    !isRecord(record) ||
+    record.version !== 1 ||
+    typeof record.backup !== 'string' ||
+    !record.backup.startsWith(`${root}.backup-`) ||
+    !isInside(dirname(root), record.backup)
+  ) {
+    throw new OkfError(`Invalid interrupted build journal: ${journal}`, 'OKF_PATH_INVALID');
+  }
+  const backup = record.backup;
+  if (!(await exists(root)) && (await exists(backup))) await rename(backup, root);
+  else if ((await exists(root)) && (await exists(backup)))
+    await rm(backup, { recursive: true, force: true });
+  else if (!(await exists(root))) {
+    throw new OkfError(
+      `Interrupted build recovery has no complete projection: ${journal}`,
+      'OKF_PATH_INVALID',
+    );
+  }
+  await rm(journal, { force: true });
 }
 
 function selectConcepts(
@@ -661,6 +700,10 @@ function depthLimitedLinkKey(sourceId: string, targetId: string): string {
   return `${sourceId}\u0000${targetId}`;
 }
 
+function swapJournalPath(root: string): string {
+  return `${root}.swap.yaml`;
+}
+
 function stringList(value: unknown): readonly string[] {
   return Array.isArray(value)
     ? value.filter((item): item is string => typeof item === 'string')
@@ -679,4 +722,12 @@ function isInside(root: string, target: string): boolean {
 }
 function isMissing(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+async function exists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }

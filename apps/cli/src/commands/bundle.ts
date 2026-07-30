@@ -7,6 +7,7 @@ import {
   OkfError,
   parseBundleDefinition,
   readFrontmatter,
+  recoverOkfBuild,
   validateOkf,
   validateOkfManifestFiles,
   writeOkfBuild,
@@ -106,6 +107,7 @@ export async function buildBundle(
   const definitionPath = join(directory, 'definition.yaml');
   const definition = parseBundleDefinition(await readFile(definitionPath, 'utf8'), definitionPath);
   const output = join(directory, 'build');
+  await recoverOkfBuild(output);
   const previousManifest = await readManifest(output);
   // A preview must surface selection diagnostics instead of aborting before it can show them.
   // The requested validation policy is applied below before an --apply write is permitted.
