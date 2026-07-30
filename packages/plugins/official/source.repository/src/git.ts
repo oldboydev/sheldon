@@ -242,6 +242,17 @@ async function samePath(first: string, second: string): Promise<boolean> {
   }
 }
 
+function sameCanonicalPath(first: string, second: string): boolean {
+  const normalize = (path: string): string => {
+    if (process.platform !== 'win32') return path;
+    if (path.startsWith('\\\\?\\UNC\\'))
+      return `\\\\${path.slice('\\\\?\\UNC\\'.length)}`.toLowerCase();
+    if (path.startsWith('\\\\?\\')) return path.slice('\\\\?\\'.length).toLowerCase();
+    return path.toLowerCase();
+  };
+  return normalize(first) === normalize(second);
+}
+
 async function assertNoSymbolicLinkComponents(path: string): Promise<void> {
   const root = parse(path).root;
   let componentPath = root;
@@ -278,7 +289,8 @@ async function validateWorktreePath(inputPath: string): Promise<string> {
   }
   await assertNoSymbolicLinkComponents(requestedPath);
   try {
-    return await realpath(requestedPath);
+    await realpath(requestedPath);
+    return requestedPath;
   } catch {
     return fail('REPOSITORY_INPUT_UNREADABLE');
   }
@@ -454,6 +466,7 @@ function gitModeForWorktreeFile(stats: BigIntStats): string {
 
 async function validateOpenedWorktreeFile(
   candidatePath: string,
+  expectedCanonicalPath: string,
   pathStats: BigIntStats,
   handle: FileHandle,
   expectedFile: GitTreeFile,
@@ -461,7 +474,9 @@ async function validateOpenedWorktreeFile(
   if (expectedFile.sizeBytes === null) return fail('REPOSITORY_DIRTY_WORKTREE');
   const openedStats = await handle.stat({ bigint: true });
   const canonicalPath = await realpath(candidatePath);
-  if (!(await samePath(candidatePath, canonicalPath))) return fail('REPOSITORY_DIRTY_WORKTREE');
+  if (!sameCanonicalPath(expectedCanonicalPath, canonicalPath)) {
+    return fail('REPOSITORY_DIRTY_WORKTREE');
+  }
   const resolvedStats = await lstat(canonicalPath, { bigint: true });
   if (
     !pathStats.isFile() ||
@@ -559,16 +574,29 @@ async function validateRawWorktreeFiles(
         let handle: FileHandle | undefined;
         try {
           if (expectedFile.sizeBytes === null) return fail('REPOSITORY_DIRTY_WORKTREE');
+          const expectedCanonicalPath = await realpath(candidatePath);
           const pathStats = await lstat(candidatePath, { bigint: true });
           handle = await open(candidatePath, noFollowReadFlags);
-          await validateOpenedWorktreeFile(candidatePath, pathStats, handle, expectedFile);
+          await validateOpenedWorktreeFile(
+            candidatePath,
+            expectedCanonicalPath,
+            pathStats,
+            handle,
+            expectedFile,
+          );
           if (
             (await rawBlobObjectId(handle, expectedFile.sizeBytes, expectedFile.objectId)) !==
             expectedFile.objectId
           ) {
             return fail('REPOSITORY_DIRTY_WORKTREE');
           }
-          await validateOpenedWorktreeFile(candidatePath, pathStats, handle, expectedFile);
+          await validateOpenedWorktreeFile(
+            candidatePath,
+            expectedCanonicalPath,
+            pathStats,
+            handle,
+            expectedFile,
+          );
           seenPaths.add(relativePath);
         } catch (error) {
           if (error instanceof RepositoryGitError && error.code !== 'REPOSITORY_DIRTY_WORKTREE') {
