@@ -2,7 +2,7 @@ import { posix } from 'node:path';
 
 import { parse } from 'yaml';
 
-import { compare } from './definition.js';
+import { compare, sha256 } from './definition.js';
 
 export type OkfValidationMode = 'strict' | 'lenient';
 export type OkfValidationSeverity = 'error' | 'warning';
@@ -17,7 +17,11 @@ export interface OkfValidationIssue {
     | 'OKF_TYPE_UNKNOWN'
     | 'OKF_LINK_BROKEN'
     | 'OKF_INDEX_MISSING'
-    | 'OKF_LOG_MISSING';
+    | 'OKF_LOG_MISSING'
+    | 'OKF_MANIFEST_FILE_INVALID'
+    | 'OKF_MANIFEST_FILE_MISSING'
+    | 'OKF_MANIFEST_FILE_UNEXPECTED'
+    | 'OKF_MANIFEST_FILE_HASH_MISMATCH';
   readonly path: string;
   readonly message: string;
 }
@@ -40,6 +44,11 @@ export interface ValidateOkfOptions {
   readonly known_types?: readonly string[];
   /** Deliberately retained links remain visible as warnings; all other broken links are errors. */
   readonly allowed_broken_links?: readonly OkfAllowedBrokenLink[];
+}
+
+/** The portable manifest is intentionally not hashed by itself; its listed payload is. */
+export interface OkfManifestFileList {
+  readonly files: readonly unknown[];
 }
 
 /** The concept types currently emitted by Sheldon’s approved wiki projection. */
@@ -130,6 +139,94 @@ export function validateOkf(
     checked_files: entries.length,
     issues,
   };
+}
+
+/**
+ * Verifies the payload inventory declared by manifest.yaml before trusting its local policy
+ * extensions. This detects accidental bundle-file edits, additions, removals, and stale hashes.
+ */
+export function validateOkfManifestFiles(
+  manifest: OkfManifestFileList,
+  files: ReadonlyMap<string, string> | Readonly<Record<string, string>>,
+): readonly OkfValidationIssue[] {
+  const issues: OkfValidationIssue[] = [];
+  const expected = new Map<string, string>();
+  for (const entry of manifest.files) {
+    if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+      issue(
+        issues,
+        'error',
+        'OKF_MANIFEST_FILE_INVALID',
+        'manifest.yaml',
+        'Manifest entries require a safe payload path and SHA-256 hash.',
+      );
+      continue;
+    }
+    const value = entry as Record<string, unknown>;
+    const path = value.path;
+    const hash = value.sha256;
+    if (
+      typeof path !== 'string' ||
+      !validRelativePath(path) ||
+      path === 'manifest.yaml' ||
+      typeof hash !== 'string' ||
+      !/^[a-f0-9]{64}$/u.test(hash)
+    ) {
+      issue(
+        issues,
+        'error',
+        'OKF_MANIFEST_FILE_INVALID',
+        typeof path === 'string' ? path : 'manifest.yaml',
+        'Manifest entries require a safe payload path and SHA-256 hash.',
+      );
+      continue;
+    }
+    if (expected.has(path)) {
+      issue(
+        issues,
+        'error',
+        'OKF_MANIFEST_FILE_INVALID',
+        path,
+        'Manifest payload paths must be unique.',
+      );
+      continue;
+    }
+    expected.set(path, hash);
+  }
+  const actual = new Map(toEntries(files).filter(([path]) => path !== 'manifest.yaml'));
+  for (const [path, expectedHash] of expected) {
+    const content = actual.get(path);
+    if (content === undefined) {
+      issue(
+        issues,
+        'error',
+        'OKF_MANIFEST_FILE_MISSING',
+        path,
+        'Manifest references a payload file that is not present.',
+      );
+    } else if (sha256(content) !== expectedHash) {
+      issue(
+        issues,
+        'error',
+        'OKF_MANIFEST_FILE_HASH_MISMATCH',
+        path,
+        'Payload content does not match the SHA-256 recorded in manifest.yaml.',
+      );
+    }
+  }
+  for (const path of actual.keys()) {
+    if (!expected.has(path))
+      issue(
+        issues,
+        'error',
+        'OKF_MANIFEST_FILE_UNEXPECTED',
+        path,
+        'Payload file is absent from manifest.yaml.',
+      );
+  }
+  return issues.sort(
+    (left, right) => compare(left.path, right.path) || compare(left.code, right.code),
+  );
 }
 
 function brokenLinkKey(path: string, target: string): string {

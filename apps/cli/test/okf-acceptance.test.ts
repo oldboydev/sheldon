@@ -1,9 +1,10 @@
-import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { access, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { VaultService } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 import { runCli } from '../src/main.js';
 
@@ -54,6 +55,7 @@ describe('M6 OKF bundle CLI', () => {
       'portable-memory',
       '--mode',
       'strict',
+      '--apply',
       '--vault',
       vault,
     ]);
@@ -73,6 +75,21 @@ describe('M6 OKF bundle CLI', () => {
     expect(portable).toMatchObject({ exitCode: 0, stderr: '' });
     const diff = await runCli(['bundle', 'diff', build, copied]);
     expect(JSON.parse(diff.stdout)).toMatchObject({ empty: true });
+
+    const copiedManifest = parse(await readFile(join(copied, 'manifest.yaml'), 'utf8')) as {
+      files: { path: string }[];
+    };
+    const conceptPath = copiedManifest.files.find(
+      (item) => item.path.startsWith('concepts/') && !item.path.endsWith('/index.md'),
+    )!.path;
+    await writeFile(
+      join(copied, ...conceptPath.split('/')),
+      'Adulterated portable bundle content.\n',
+      'utf8',
+    );
+    const tampered = await runCli(['bundle', 'validate', copied, '--mode', 'strict']);
+    expect(tampered.exitCode).toBe(1);
+    expect(tampered.stdout).toContain('OKF_MANIFEST_FILE_HASH_MISMATCH');
   });
 
   it('rejects recursive depth outside recursive dependency policy before writing a definition', async () => {
@@ -119,6 +136,7 @@ describe('M6 OKF bundle CLI', () => {
       'unknown-type',
       '--mode',
       'lenient',
+      '--apply',
       '--vault',
       vault,
     ]);
@@ -158,6 +176,7 @@ describe('M6 OKF bundle CLI', () => {
       'kept-link',
       '--mode',
       'strict',
+      '--apply',
       '--vault',
       vault,
     ]);
@@ -167,6 +186,46 @@ describe('M6 OKF bundle CLI', () => {
     const validation = await runCli(['bundle', 'validate', build, '--mode', 'strict']);
     expect(validation).toMatchObject({ exitCode: 0, stderr: '' });
     expect(validation.stdout).toContain('OKF_LINK_BROKEN');
+  });
+
+  it('previews selected concepts and their declared tags without writing until --apply', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-okf-cli-'));
+    temporaryDirectories.push(root);
+    const vault = join(root, 'vault');
+    const service = await VaultService.init(vault);
+    await service.createEntity({ kind: 'topic', title: 'Memory' });
+    await writeConcept(join(vault, 'topics', 'memory', 'wiki', 'concept.md'));
+    await runCli([
+      'bundle',
+      'create',
+      'previewed',
+      '--concept',
+      'retrieval-practice',
+      '--vault',
+      vault,
+    ]);
+
+    const preview = await runCli(['bundle', 'build', 'previewed', '--vault', vault]);
+    expect(preview).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(JSON.parse(preview.stdout)).toMatchObject({
+      preview: true,
+      selection: {
+        count: 1,
+        concepts: [
+          {
+            concept_id: 'retrieval-practice',
+            tags: ['learning'],
+            sensitivity: { level: 'unspecified' },
+          },
+        ],
+      },
+    });
+    const build = join(vault, 'bundles', 'previewed', 'build');
+    await expect(access(build)).rejects.toThrow();
+
+    const applied = await runCli(['bundle', 'build', 'previewed', '--apply', '--vault', vault]);
+    expect(JSON.parse(applied.stdout)).toMatchObject({ preview: false });
+    await expect(readFile(join(build, 'index.md'), 'utf8')).resolves.toContain('# previewed');
   });
 });
 

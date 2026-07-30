@@ -30,7 +30,8 @@ await import('./verify-plugin-manifests.mjs');
 /**
  * This static artifact pins the smallest portable OKF v0.1 projection independently of the
  * compiler implementation. It gives the repository domain gate a fast guard against accidental
- * changes to the portable layout, manifest provenance, hashes, or the three v0.1 minimum rules.
+ * changes to the portable layout, manifest provenance, reproducibility metadata, hashes, or the
+ * three v0.1 minimum rules.
  */
 async function verifyOkfFixture(root) {
   const manifestPath = join(root, 'manifest.yaml');
@@ -53,6 +54,8 @@ async function verifyOkfFixture(root) {
   if (!Array.isArray(manifest.source.concepts) || manifest.source.concepts.length === 0) {
     throw new Error(`${manifestPath}: expected one or more source concepts.`);
   }
+  verifyChangeSummary(manifest.change_summary, manifestPath);
+  verifyAllowedBrokenLinks(manifest.allowed_broken_links, manifestPath);
   if (!Array.isArray(manifest.files) || manifest.files.length === 0) {
     throw new Error(`${manifestPath}: expected one or more hashed output files.`);
   }
@@ -100,6 +103,13 @@ async function verifyOkfFixture(root) {
   if (index.okf_version !== '0.1') {
     throw new Error(`${root}/index.md: expected the permitted OKF v0.1 declaration.`);
   }
+  const log = await readUtf8(join(root, 'log.md'));
+  if (!log.includes(`Build: \`${manifest.build_id}\``)) {
+    throw new Error(`${root}/log.md: expected the manifest build identifier.`);
+  }
+  if (!log.includes(`Date: ${manifest.change_summary.date}`)) {
+    throw new Error(`${root}/log.md: expected the reproducible change-summary date.`);
+  }
   for (const concept of manifest.source.concepts) verifySourceConcept(concept, manifestPath, paths);
 }
 
@@ -115,6 +125,7 @@ function verifySourceConcept(concept, manifestPath, paths) {
   if (
     !portablePath(concept.source_path) ||
     !sha256(concept.source_sha256) ||
+    !timestamp(concept.timestamp) ||
     !isObject(concept.entity)
   ) {
     throw new Error(
@@ -127,6 +138,35 @@ function verifySourceConcept(concept, manifestPath, paths) {
     !identifier(concept.entity.id)
   ) {
     throw new Error(`${manifestPath}: source concept entity provenance is invalid.`);
+  }
+}
+
+function verifyChangeSummary(summary, manifestPath) {
+  if (
+    !isObject(summary) ||
+    !timestamp(summary.date) ||
+    !['added', 'changed', 'removed'].every((key) => sortedIdentifiers(summary[key]))
+  ) {
+    throw new Error(
+      `${manifestPath}: change_summary requires a canonical date and sorted concept-id changes.`,
+    );
+  }
+}
+
+function verifyAllowedBrokenLinks(links, manifestPath) {
+  if (
+    !Array.isArray(links) ||
+    links.some(
+      (link) =>
+        !isObject(link) ||
+        !portablePath(link.path) ||
+        typeof link.target !== 'string' ||
+        link.target.trim() === '',
+    )
+  ) {
+    throw new Error(
+      `${manifestPath}: allowed_broken_links requires portable source paths and non-empty targets.`,
+    );
   }
 }
 
@@ -194,6 +234,20 @@ function portablePath(value) {
 
 function identifier(value) {
   return typeof value === 'string' && /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/u.test(value);
+}
+
+function sortedIdentifiers(value) {
+  return (
+    Array.isArray(value) &&
+    value.every(identifier) &&
+    value.join('\n') === [...new Set(value)].sort().join('\n')
+  );
+}
+
+function timestamp(value) {
+  if (typeof value !== 'string') return false;
+  const parsed = new Date(value);
+  return !Number.isNaN(parsed.valueOf()) && parsed.toISOString() === value;
 }
 
 function sha256(value) {

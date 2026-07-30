@@ -10,6 +10,7 @@ import {
   diffOkfBuilds,
   parseBundleDefinition,
   validateOkf,
+  validateOkfManifestFiles,
   writeOkfBuild,
 } from '../src/index.js';
 
@@ -153,24 +154,35 @@ describe('OKF compiler', () => {
     ).toMatchObject({ valid: true });
   });
 
-  it('closes included links transitively and skips archived link targets with a warning', async () => {
+  it('honors recursive depth with include and skips discovered archived concepts with a warning', async () => {
     const root = await vault();
     await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', '[Beta](b.md)'));
     await concept(root, 'topics', 'memory', 'b.md', wiki('beta', 'Beta', '[Gamma](c.md)'));
-    await concept(root, 'topics', 'memory', 'c.md', wiki('gamma', 'Gamma', 'Portable.'));
+    await concept(root, 'topics', 'memory', 'c.md', wiki('gamma', 'Gamma', '[Delta](d.md)'));
+    await concept(root, 'topics', 'memory', 'd.md', wiki('delta', 'Delta', '[Epsilon](e.md)'));
+    await concept(root, 'topics', 'memory', 'e.md', wiki('epsilon', 'Epsilon', '[Zeta](f.md)'));
+    await concept(root, 'topics', 'memory', 'f.md', wiki('zeta', 'Zeta', 'Portable.'));
     await concept(root, 'topics', 'memory', 'old.md', wiki('old', 'Old', 'Archived.', 'archived'));
 
-    const closed = await compileOkfBundle({
+    const bounded = await compileOkfBundle({
       vault_root: root,
       definition: parseBundleDefinition(
-        'version: 1\nbundle_id: included\nconcept_ids: [alpha]\nunresolved_links: include\n',
+        'version: 1\nbundle_id: included\nconcept_ids: [alpha]\ndependencies: { mode: recursive, max_depth: 1 }\nunresolved_links: include\n',
       ),
     });
-    expect(closed.manifest.source.concepts.map((item) => item.concept_id)).toEqual([
+    expect(bounded.manifest.source.concepts.map((item) => item.concept_id)).toEqual([
       'alpha',
       'beta',
-      'gamma',
     ]);
+    const betaPath = bounded.manifest.source.concepts.find(
+      (item) => item.concept_id === 'beta',
+    )!.path;
+    expect(bounded.files.get(betaPath)).toContain('](c.md)');
+    expect(bounded.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'OKF_LINK_DEPTH_LIMIT', severity: 'warning' }),
+      ]),
+    );
 
     await writeFile(
       join(root, 'topics', 'memory', 'wiki', 'a.md'),
@@ -180,7 +192,7 @@ describe('OKF compiler', () => {
     const archived = await compileOkfBundle({
       vault_root: root,
       definition: parseBundleDefinition(
-        'version: 1\nbundle_id: archived-link\nconcept_ids: [alpha]\nunresolved_links: include\n',
+        'version: 1\nbundle_id: archived-link\nconcept_ids: [alpha]\ndependencies: { mode: direct }\nunresolved_links: include\n',
       ),
     });
     expect(archived.manifest.source.concepts.map((item) => item.concept_id)).toEqual(['alpha']);
@@ -222,6 +234,31 @@ describe('OKF compiler', () => {
     expect(diffOkfBuilds(second.manifest, third.manifest)).toMatchObject({ empty: true });
   });
 
+  it('gives a changed build a different identity and a non-empty manifest diff', async () => {
+    const root = await vault();
+    const path = join(root, 'topics', 'memory', 'wiki', 'a.md');
+    await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', 'Before.'));
+    const definition = parseBundleDefinition(
+      'version: 1\nbundle_id: changed\nconcept_ids: [alpha]\n',
+    );
+    const first = await compileOkfBundle({ vault_root: root, definition });
+    await writeFile(path, wiki('alpha', 'Alpha', 'After.'), 'utf8');
+    const second = await compileOkfBundle({
+      vault_root: root,
+      definition,
+      previous_manifest: first.manifest,
+    });
+    const alphaPath = first.manifest.source.concepts.find(
+      (item) => item.concept_id === 'alpha',
+    )!.path;
+
+    expect(second.manifest.build_id).not.toBe(first.manifest.build_id);
+    expect(diffOkfBuilds(first.manifest, second.manifest)).toMatchObject({
+      changed: expect.arrayContaining([alphaPath, 'log.md']),
+      empty: false,
+    });
+  });
+
   it('replaces a materialized build directory so stale files cannot survive a later build', async () => {
     const root = await vault();
     await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', 'Body.'));
@@ -241,6 +278,24 @@ describe('OKF compiler', () => {
 });
 
 describe('OKF validation', () => {
+  it('rejects a payload whose content no longer matches its manifest hash', async () => {
+    const root = await vault();
+    await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', 'Original.'));
+    const build = await compileOkfBundle({
+      vault_root: root,
+      definition: parseBundleDefinition('version: 1\nbundle_id: integrity\nconcept_ids: [alpha]\n'),
+    });
+    const alphaPath = build.manifest.source.concepts.find(
+      (item) => item.concept_id === 'alpha',
+    )!.path;
+    const altered = new Map(build.files);
+    altered.set(alphaPath, altered.get(alphaPath)!.replace('Original.', 'Altered.'));
+
+    expect(validateOkfManifestFiles(build.manifest, altered)).toEqual([
+      expect.objectContaining({ code: 'OKF_MANIFEST_FILE_HASH_MISMATCH', path: alphaPath }),
+    ]);
+  });
+
   it('keeps an unknown type as at most a warning in lenient mode', () => {
     const files = new Map([
       ['index.md', '# Index\n'],

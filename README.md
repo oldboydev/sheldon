@@ -158,6 +158,10 @@ Na CLI, as dependências podem ser `explicit` (somente os IDs indicados), `direc
 links) ou `recursive` (até `--max-depth`). No arquivo, os mesmos valores são respectivamente
 `none`, `direct` e `recursive`. Para um link cujo alvo não faça parte da seleção, a política da CLI
 é `include`, `keep-broken` ou `remove-warning`; no YAML ela é `include`, `keep` ou `remove`.
+`include` reescreve os links dos conceitos já alcançados, mas nunca amplia a seleção além da
+política de dependências: com `explicit`, somente os IDs indicados entram; com `recursive`,
+`max_depth` também limita o fechamento de links. Um alvo cortado por esse limite permanece como
+link quebrado com diagnóstico explícito para revisão no preview.
 Revise e versione `definition.yaml` como qualquer outra configuração do projeto; a seleção
 permanece estável se páginas da wiki forem renomeadas.
 O arquivo criado usa este formato canônico:
@@ -174,14 +178,18 @@ dependencies:
 unresolved_links: include
 ```
 
-Construa e valide a projeção. O modo `strict` bloqueia conceito ausente, arquivado ou não aprovado
-e falhas de conformidade; `lenient` preserva diagnósticos que não impedem o artefato, como um tipo
-local desconhecido. A política OKF v0.1 atual reconhece `note`: em `strict`, outro tipo é um erro;
-em `lenient`, é um aviso explícito. Um link mantido deliberadamente por `keep-broken` também é
+Faça primeiro a prévia da seleção, incluindo os `tags` declarados por conceito e
+`sensitivity.level: unspecified` enquanto o vault não declara uma taxonomia de sensibilidade. A
+prévia nunca escreve o bundle; use `--apply` somente depois de revisar os conceitos, diagnósticos e
+sinais reportados. O modo `strict` bloqueia conceito ausente, arquivado ou não aprovado e falhas de
+conformidade; `lenient` preserva diagnósticos que não impedem o artefato, como um tipo local
+desconhecido. A política OKF v0.1 atual reconhece `note`: em `strict`, outro tipo é um erro; em
+`lenient`, é um aviso explícito. Um link mantido deliberadamente por `keep-broken` também é
 reportado como aviso sem invalidar o bundle gerado.
 
 ```powershell
 npm run sheldon -- bundle build app-contexto --mode strict --vault C:\knowledge\sheldon
+npm run sheldon -- bundle build app-contexto --mode strict --apply --vault C:\knowledge\sheldon
 npm run sheldon -- bundle validate C:\knowledge\sheldon\bundles\app-contexto\build --mode strict
 ```
 
@@ -195,6 +203,11 @@ com saída determinística antes de distribuí-las:
 ```powershell
 npm run sheldon -- bundle diff C:\releases\app-contexto-anterior C:\knowledge\sheldon\bundles\app-contexto\build
 ```
+
+`bundle validate` confere os hashes dos arquivos declarados no manifesto antes de aceitar a cópia.
+As exceções `keep-broken` continuam sendo política local declarada pelo próprio manifesto; sem
+assinatura ou trust store (fora do escopo do M6), a validação estrita verifica conformidade e
+integridade acidental do payload, não autenticidade de um autor externo.
 
 O compilador lê exclusivamente conceitos já aprovados; nunca usa OKF como raw ou wiki interna. A
 operação é local e não acessa a rede, não importa bundles externos e não publica o artefato. Um

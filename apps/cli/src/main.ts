@@ -349,6 +349,7 @@ function addBundleCommands(program: Command, context: CommandContext): void {
   bundle
     .command('build <bundle-id>')
     .option('--mode <mode>', 'strict or lenient validation', 'strict')
+    .option('--apply', 'write the previewed portable bundle after selection review')
     .option('--vault <path>', 'explicit vault path')
     .action((bundleId: string, options: BundleBuildOptions) => {
       assertOkfMode(options.mode);

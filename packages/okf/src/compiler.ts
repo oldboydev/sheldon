@@ -27,6 +27,7 @@ export interface OkfDiagnostic {
     | 'OKF_CONCEPT_NOT_FOUND'
     | 'OKF_CONCEPT_ARCHIVED'
     | 'OKF_CONCEPT_AMBIGUOUS'
+    | 'OKF_LINK_DEPTH_LIMIT'
     | 'OKF_LINK_UNRESOLVED'
     | 'OKF_LINK_REMOVED';
   readonly message: string;
@@ -125,11 +126,13 @@ export async function compileOkfBundle(options: CompileOkfBundleOptions): Promis
     } else byId.set(concept.id, concept);
     byAbsolute.set(concept.absolutePath, concept);
   }
-  const selected = selectConcepts(options.definition, byId, byAbsolute, diagnostics);
+  const selection = selectConcepts(options.definition, byId, byAbsolute, diagnostics);
   if (strict && diagnostics.some((item) => item.severity === 'error'))
     throw compilationError(diagnostics);
 
-  const included = [...selected.values()].sort((left, right) => compare(left.id, right.id));
+  const included = [...selection.concepts.values()].sort((left, right) =>
+    compare(left.id, right.id),
+  );
   const destination = new Map(included.map((concept) => [concept.id, outputPath(concept.id)]));
   const files = new Map<string, string>();
   const allowedBrokenLinks: OkfAllowedBrokenLink[] = [];
@@ -141,6 +144,7 @@ export async function compileOkfBundle(options: CompileOkfBundleOptions): Promis
       options.definition.unresolved_links,
       diagnostics,
       allowedBrokenLinks,
+      selection.depthLimitedLinks,
     );
     files.set(destination.get(concept.id)!, content);
   }
@@ -150,10 +154,13 @@ export async function compileOkfBundle(options: CompileOkfBundleOptions): Promis
   files.set('concepts/index.md', renderDirectoryIndex('Concepts', [...destination.entries()]));
   files.set('index.md', renderRootIndex(options.definition));
   const sourceManifest = makeManifest(options.definition, included, destination);
+  const changeSummary = summarizeChanges(sourceManifest, options.previous_manifest);
+  const sortedAllowedBrokenLinks = sortAllowedBrokenLinks(allowedBrokenLinks);
   const manifest: OkfBuildManifest = {
     ...sourceManifest,
-    change_summary: summarizeChanges(sourceManifest, options.previous_manifest),
-    allowed_broken_links: sortAllowedBrokenLinks(allowedBrokenLinks),
+    build_id: buildId(sourceManifest, changeSummary, sortedAllowedBrokenLinks),
+    change_summary: changeSummary,
+    allowed_broken_links: sortedAllowedBrokenLinks,
   };
   files.set('log.md', renderLog(manifest));
   const fileHashes = [...files.entries()]
@@ -172,7 +179,7 @@ export async function compileOkfBundle(options: CompileOkfBundleOptions): Promis
   return { files, manifest: finalManifest, diagnostics: sortDiagnostics(diagnostics), validation };
 }
 
-/** Writes a compiled projection atomically. It never deletes arbitrary existing bundle files. */
+/** Stages a replacement with rollback on an observed rename failure; it never deletes arbitrary files. */
 export async function writeOkfBuild(directory: string, build: OkfBuild): Promise<void> {
   const root = resolve(directory);
   const staging = `${root}.staging-${randomUUID()}`;
@@ -210,11 +217,15 @@ function selectConcepts(
   byId: ReadonlyMap<string, WikiConcept>,
   byAbsolute: ReadonlyMap<string, WikiConcept>,
   diagnostics: OkfDiagnostic[],
-): Map<string, WikiConcept> {
+): {
+  readonly concepts: Map<string, WikiConcept>;
+  readonly depthLimitedLinks: ReadonlySet<string>;
+} {
   const selected = new Map<string, WikiConcept>();
+  const depthLimitedLinks = new Set<string>();
   const enqueue = (
     id: string,
-    selection: { readonly kind: 'explicit' | 'dependency' | 'include'; readonly path?: string },
+    selection: { readonly kind: 'explicit' | 'discovered'; readonly path?: string },
   ): WikiConcept | undefined => {
     const concept = byId.get(id);
     if (concept === undefined) {
@@ -229,14 +240,14 @@ function selectConcepts(
     }
     if (concept.status !== 'active') {
       diagnostics.push({
-        severity: selection.kind === 'include' ? 'warning' : 'error',
+        severity: selection.kind === 'explicit' ? 'error' : 'warning',
         code: 'OKF_CONCEPT_ARCHIVED',
         concept_id: id,
         path: selection.path,
         message:
-          selection.kind === 'include'
-            ? `Linked concept '${id}' is not active and was not included.`
-            : `Selected concept '${id}' is not active.`,
+          selection.kind === 'explicit'
+            ? `Explicitly selected concept '${id}' is not active.`
+            : `Discovered concept '${id}' is not active and was not included.`,
       });
       return undefined;
     }
@@ -255,27 +266,18 @@ function selectConcepts(
   const queue = roots.map((concept) => ({ concept, depth: 0 }));
   while (queue.length > 0) {
     const { concept, depth } = queue.shift()!;
-    if (depth >= limit) continue;
     for (const target of internalTargets(concept, byAbsolute)) {
       if (selected.has(target.id)) continue;
-      const included = enqueue(target.id, { kind: 'dependency', path: concept.sourcePath });
+      if (depth >= limit) {
+        if (definition.unresolved_links === 'include')
+          depthLimitedLinks.add(depthLimitedLinkKey(concept.id, target.id));
+        continue;
+      }
+      const included = enqueue(target.id, { kind: 'discovered', path: concept.sourcePath });
       if (included !== undefined) queue.push({ concept: included, depth: depth + 1 });
     }
   }
-  // A finite vault bounds this closure. Process every newly included concept so a link chain
-  // is portable regardless of the configured dependency-selection depth.
-  if (definition.unresolved_links === 'include') {
-    const queue = [...selected.values()];
-    while (queue.length > 0) {
-      const concept = queue.shift()!;
-      for (const target of internalTargets(concept, byAbsolute)) {
-        if (selected.has(target.id)) continue;
-        const included = enqueue(target.id, { kind: 'include', path: concept.sourcePath });
-        if (included !== undefined) queue.push(included);
-      }
-    }
-  }
-  return selected;
+  return { concepts: selected, depthLimitedLinks };
 }
 
 function renderConcept(
@@ -285,6 +287,7 @@ function renderConcept(
   policy: UnresolvedLinkPolicy,
   diagnostics: OkfDiagnostic[],
   allowedBrokenLinks: OkfAllowedBrokenLink[],
+  depthLimitedLinks: ReadonlySet<string>,
 ): string {
   const output = destinations.get(concept.id)!;
   const body = rewriteLinks(
@@ -295,6 +298,7 @@ function renderConcept(
     policy,
     diagnostics,
     allowedBrokenLinks,
+    depthLimitedLinks,
   );
   const frontmatter: Record<string, unknown> = {
     type: concept.type,
@@ -322,6 +326,7 @@ function rewriteLinks(
   policy: UnresolvedLinkPolicy,
   diagnostics: OkfDiagnostic[],
   allowedBrokenLinks: OkfAllowedBrokenLink[],
+  depthLimitedLinks: ReadonlySet<string>,
 ): string {
   const protectedText = maskProtectedMarkdown(concept.body);
   const links = /(?<!!)\[([^\]]*)\]\(([^\s)]+)((?:\s+(?:"[^"]*"|'[^']*'))?)\)/gu;
@@ -338,7 +343,10 @@ function rewriteLinks(
         const relativePath = relativePortable(output, mapped);
         return `[${label}](${relativePath}${suffix}${title})`;
       }
-      const message = `Concept link '${target}' from ${concept.sourcePath} is not included in this bundle.`;
+      const limited = depthLimitedLinks.has(depthLimitedLinkKey(concept.id, targetConcept.id));
+      const message = limited
+        ? `Concept link '${target}' from ${concept.sourcePath} exceeds the configured dependency depth and was not included.`
+        : `Concept link '${target}' from ${concept.sourcePath} is not included in this bundle.`;
       if (policy === 'remove') {
         diagnostics.push({
           severity: 'warning',
@@ -350,7 +358,7 @@ function rewriteLinks(
       }
       diagnostics.push({
         severity: 'warning',
-        code: 'OKF_LINK_UNRESOLVED',
+        code: limited ? 'OKF_LINK_DEPTH_LIMIT' : 'OKF_LINK_UNRESOLVED',
         path: concept.sourcePath,
         message,
       });
@@ -373,18 +381,32 @@ function makeManifest(
     timestamp: concept.timestamp,
     entity: concept.entity,
   }));
-  const seed = JSON.stringify({ definition_hash: definitionHash(definition), source });
   return {
     schema_version: 1,
     okf_version: '0.1',
     bundle_id: definition.bundle_id,
-    build_id: sha256(seed),
+    build_id: '',
     definition_hash: definitionHash(definition),
     source: { format: 'sheldon-vault/v1', concepts: source },
     change_summary: { date: '1970-01-01T00:00:00.000Z', added: [], changed: [], removed: [] },
     allowed_broken_links: [],
     files: [],
   };
+}
+
+function buildId(
+  manifest: OkfBuildManifest,
+  changeSummary: OkfChangeSummary,
+  allowedBrokenLinks: readonly OkfAllowedBrokenLink[],
+): string {
+  return sha256(
+    JSON.stringify({
+      definition_hash: manifest.definition_hash,
+      source: manifest.source,
+      change_summary: changeSummary,
+      allowed_broken_links: allowedBrokenLinks,
+    }),
+  );
 }
 
 function renderRootIndex(definition: OkfBundleDefinition): string {
@@ -633,6 +655,10 @@ function sortAllowedBrokenLinks(
         item.path !== sorted[index - 1]!.path ||
         item.target !== sorted[index - 1]!.target,
     );
+}
+
+function depthLimitedLinkKey(sourceId: string, targetId: string): string {
+  return `${sourceId}\u0000${targetId}`;
 }
 
 function stringList(value: unknown): readonly string[] {

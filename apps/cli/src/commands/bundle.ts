@@ -6,7 +6,9 @@ import {
   diffOkfBuilds,
   OkfError,
   parseBundleDefinition,
+  readFrontmatter,
   validateOkf,
+  validateOkfManifestFiles,
   writeOkfBuild,
   type OkfBuildManifest,
   type OkfValidationMode,
@@ -29,6 +31,8 @@ export interface BundleCreateOptions extends VaultOption {
 
 export interface BundleBuildOptions extends VaultOption {
   readonly mode?: OkfValidationMode;
+  /** A build is preview-only by default; apply opts into materializing the projection. */
+  readonly apply?: boolean;
 }
 
 export interface BundleValidateOptions {
@@ -85,7 +89,12 @@ export async function createBundle(
   );
 }
 
-/** Compiles only approved wiki concepts into a self-contained local OKF projection. */
+/**
+ * Previews an approved-only local OKF projection, or materializes it after explicit --apply.
+ *
+ * Compilation remains in memory until the caller opts into writing, so dependency expansion and
+ * its sensitivity signals can be reviewed before a portable copy exists on disk.
+ */
 export async function buildBundle(
   bundleId: string,
   options: BundleBuildOptions,
@@ -98,29 +107,39 @@ export async function buildBundle(
   const definition = parseBundleDefinition(await readFile(definitionPath, 'utf8'), definitionPath);
   const output = join(directory, 'build');
   const previousManifest = await readManifest(output);
+  // A preview must surface selection diagnostics instead of aborting before it can show them.
+  // The requested validation policy is applied below before an --apply write is permitted.
   const build = await compileOkfBundle({
     vault_root: root,
     definition,
-    mode: options.mode ?? 'strict',
+    mode: 'lenient',
     ...(previousManifest === undefined ? {} : { previous_manifest: previousManifest }),
   });
-  if (!build.validation.valid) {
-    throw new OkfError('OKF build did not pass validation.', 'OKF_BUILD_INVALID');
-  }
-  await writeOkfBuild(output, build);
+  const mode = options.mode ?? 'strict';
+  const validation = validateOkf(build.files, {
+    mode,
+    allowed_broken_links: build.manifest.allowed_broken_links,
+  });
+  const selectionValid = !build.diagnostics.some((item) => item.severity === 'error');
   context.write(
     JSON.stringify(
       {
         bundleId: definition.bundle_id,
         buildId: build.manifest.build_id,
         directory: relative(root, output).replace(/\\/g, '/'),
+        preview: !options.apply,
+        selection: selectionPreview(build),
         diagnostics: build.diagnostics,
-        validation: build.validation,
+        validation,
       },
       null,
       2,
     ),
   );
+  if (!selectionValid || !validation.valid) {
+    throw new OkfError('OKF build did not pass selection or validation.', 'OKF_BUILD_INVALID');
+  }
+  if (options.apply) await writeOkfBuild(output, build);
 }
 
 /** Validates an already copied build, which deliberately does not require a Sheldon vault. */
@@ -135,8 +154,16 @@ export async function validateBundle(
     mode: options.mode ?? 'strict',
     ...(manifest === undefined ? {} : { allowed_broken_links: manifest.allowed_broken_links }),
   });
-  context.write(JSON.stringify(report, null, 2));
-  if (!report.valid) throw new OkfError('OKF validation failed.', 'OKF_VALIDATION_FAILED');
+  const manifestIssues = manifest === undefined ? [] : validateOkfManifestFiles(manifest, files);
+  const issues = [...report.issues, ...manifestIssues].sort(
+    (left, right) =>
+      compareStrings(left.path, right.path) ||
+      compareStrings(left.code, right.code) ||
+      compareStrings(left.message, right.message),
+  );
+  const combined = { ...report, valid: !issues.some((item) => item.severity === 'error'), issues };
+  context.write(JSON.stringify(combined, null, 2));
+  if (!combined.valid) throw new OkfError('OKF validation failed.', 'OKF_VALIDATION_FAILED');
 }
 
 /** Diffs two portable build directories by their manifests, independently of the vault. */
@@ -155,6 +182,40 @@ export async function diffBundles(
 
 function bundleDirectory(vaultRoot: string, bundleId: string): string {
   return join(vaultPaths(vaultRoot).bundles, bundleId);
+}
+
+function selectionPreview(build: Awaited<ReturnType<typeof compileOkfBundle>>): {
+  readonly count: number;
+  readonly concepts: readonly {
+    readonly concept_id: string;
+    readonly path: string;
+    readonly source_path: string;
+    readonly entity: OkfBuildManifest['source']['concepts'][number]['entity'];
+    readonly tags: readonly string[];
+    readonly sensitivity: { readonly level: 'unspecified' };
+  }[];
+} {
+  const concepts = build.manifest.source.concepts.map((concept) => {
+    const rendered = build.files.get(concept.path);
+    const frontmatter =
+      rendered === undefined ? { kind: 'missing' as const } : readFrontmatter(rendered);
+    const tags =
+      frontmatter.kind === 'valid' && Array.isArray(frontmatter.value.tags)
+        ? frontmatter.value.tags
+            .filter((tag): tag is string => typeof tag === 'string')
+            .sort(compareStrings)
+        : [];
+    return {
+      concept_id: concept.concept_id,
+      path: concept.path,
+      source_path: concept.source_path,
+      entity: concept.entity,
+      tags,
+      // No vault sensitivity taxonomy exists in M6. Do not infer one from tags.
+      sensitivity: { level: 'unspecified' as const },
+    };
+  });
+  return { count: concepts.length, concepts };
 }
 
 function assertBundleId(value: string): void {
@@ -176,6 +237,7 @@ async function readManifest(directory: string): Promise<OkfBuildManifest | undef
       typeof manifest.bundle_id !== 'string' ||
       typeof manifest.build_id !== 'string' ||
       !Array.isArray(manifest.files) ||
+      !validAllowedBrokenLinks(manifest.allowed_broken_links) ||
       typeof manifest.source !== 'object' ||
       manifest.source === null
     ) {
@@ -186,6 +248,20 @@ async function readManifest(directory: string): Promise<OkfBuildManifest | undef
     if (isMissing(error)) return undefined;
     throw error;
   }
+}
+
+function validAllowedBrokenLinks(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        typeof item === 'object' &&
+        item !== null &&
+        !Array.isArray(item) &&
+        typeof (item as Record<string, unknown>).path === 'string' &&
+        typeof (item as Record<string, unknown>).target === 'string',
+    )
+  );
 }
 
 async function readPortableFiles(root: string): Promise<Map<string, string>> {
