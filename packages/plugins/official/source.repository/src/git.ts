@@ -231,12 +231,21 @@ function singleLine(value: Uint8Array, code: RepositoryGitErrorCode): string {
   return line;
 }
 
-function samePath(first: string, second: string): boolean {
-  const firstPath = resolve(first);
-  const secondPath = resolve(second);
-  return process.platform === 'win32'
-    ? firstPath.toLowerCase() === secondPath.toLowerCase()
-    : firstPath === secondPath;
+/** @internal Exported for platform-specific path validation tests. */
+export function samePath(first: string, second: string): boolean {
+  if (process.platform !== 'win32') return resolve(first) === resolve(second);
+
+  const withoutNamespacePrefix = (path: string): string => {
+    if (path.startsWith('\\\\?\\UNC\\')) return `\\\\${path.slice('\\\\?\\UNC\\'.length)}`;
+    if (path.startsWith('\\\\?\\')) return path.slice('\\\\?\\'.length);
+    return path;
+  };
+  const normalize = (path: string): string =>
+    resolve(withoutNamespacePrefix(path))
+      .replace(/[\\/]+$/, '')
+      .toLowerCase();
+
+  return normalize(first) === normalize(second);
 }
 
 async function validateWorktreePath(inputPath: string): Promise<string> {

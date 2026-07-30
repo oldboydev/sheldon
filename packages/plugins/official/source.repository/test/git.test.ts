@@ -20,6 +20,7 @@ import { describe, expect, it } from 'vitest';
 import {
   openCommittedGitHead,
   REPOSITORY_VALIDATION_LIMITS,
+  samePath,
   type GitCommand,
   type GitCommandResult,
   type GitRunner,
@@ -37,6 +38,13 @@ const hostileFilterProgram = [
   'process.exit(1);',
   '',
 ].join('\n');
+
+it.skipIf(process.platform !== 'win32')(
+  'treats a Windows extended-length canonical path as the requested worktree',
+  () => {
+    expect(samePath('C:\\vault\\project', '\\\\?\\C:\\vault\\project')).toBe(true);
+  },
+);
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
