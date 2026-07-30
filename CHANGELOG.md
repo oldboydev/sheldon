@@ -24,6 +24,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- A CI de pull request usa Windows para executar o gate unificado, alinhando a validação à plataforma Windows-first do MVP e aos testes de isolamento de processo.
 - Configuração MCP compensa falhas de escrita sem apagar a configuração Claude existente; bundles e adaptadores locais passaram a ter cobertura de integração contra um vault real.
 - `read_concept` do MCP agora lê o corpo aprovado da wiki através de um adaptador local com orçamento explícito, enquanto buscas MCP preservam a ordem BM25, possuem limite padrão e o transporte decodifica UTF-8 entre chunks sem corromper texto.
 - Busca e consulta reutilizam o índice local existente por padrão, com `--rebuild` para forçar uma projeção nova; um schema de índice desatualizado também é recriado automaticamente. A consulta deixa de materializar o vault inteiro para seguir links e backlinks, aplica `--max-context-chars` e registra truncamento no output da resposta.

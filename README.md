@@ -46,7 +46,7 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que valida `wiki/` antes de substituir transacionalmente `system/search-index.db`. Esse banco é cache reconstruível, não é a fonte de verdade e pode ser removido quando necessário; `SearchIndex.open(vaultRoot)` falha com diagnóstico explícito se ele ainda não foi construído.
 
-Pull requests e commits para `main` executam `npm run verify` na CI. O mesmo gate local cobre formatação, lint, typecheck, testes, cobertura, build, contratos de plugin, validações de domínio/repositório e o check de diff.
+Pull requests e commits para `main` executam `npm run verify` na CI Windows (`windows-2022`), a plataforma suportada pelo MVP e pelos testes de isolamento de processo. O mesmo gate local cobre formatação, lint, typecheck, testes, cobertura, build, contratos de plugin, validações de domínio/repositório e o check de diff.
 
 A reconstrução dessa projeção é uma operação de processo único: não execute comandos com `--rebuild` concorrentemente sobre o mesmo vault. Se houver contenção, aguarde o outro comando terminar e tente novamente; Sheldon não substitui um erro de lock por uma reconstrução automática.
 
