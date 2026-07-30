@@ -63,6 +63,15 @@ import {
   type McpConfigureOptions,
   type McpInstallSkillOptions,
 } from './commands/mcp.js';
+import {
+  buildBundle,
+  createBundle,
+  diffBundles,
+  validateBundle,
+  type BundleBuildOptions,
+  type BundleCreateOptions,
+  type BundleValidateOptions,
+} from './commands/bundle.js';
 import type { OfficialPlatform } from '@sheldon/plugin-host';
 
 import {
@@ -176,6 +185,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
   addEntityCommands(program, 'topic', context);
   addEntityCommands(program, 'project', context);
   addMemoryCommands(program, context, dependencies);
+  addBundleCommands(program, context);
   program
     .command('search <query>')
     .option('--topic <slug>', 'restrict results to one topic')
@@ -301,6 +311,69 @@ function catalogTemporaryRoot(environment: NodeJS.ProcessEnv, homeDirectory: str
   return environment.APPDATA
     ? `${environment.APPDATA}\\Sheldon\\temporary`
     : `${homeDirectory}\\.config\\sheldon\\temporary`;
+}
+
+function addBundleCommands(program: Command, context: CommandContext): void {
+  const bundle = program
+    .command('bundle')
+    .description('Create, compile, validate, and compare local portable OKF bundles.');
+  bundle
+    .command('create <bundle-id>')
+    .requiredOption('--concept <concept-id...>', 'stable approved concept id; repeat as needed')
+    .option('--title <title>', 'human-readable bundle title')
+    .option('--description <description>', 'bundle purpose')
+    .option('--dependencies <mode>', 'explicit, direct, or recursive', 'explicit')
+    .option(
+      '--max-depth <depth>',
+      'maximum recursive dependency depth',
+      boundedInteger('--max-depth', 1, 32),
+    )
+    .option('--unresolved-link <policy>', 'include, keep-broken, or remove-warning', 'include')
+    .option('--vault <path>', 'explicit vault path')
+    .action((bundleId: string, options: BundleCreateOptions) => {
+      if (!['explicit', 'direct', 'recursive'].includes(options.dependencies ?? 'explicit')) {
+        throw new InvalidArgumentError('--dependencies must be explicit, direct, or recursive.');
+      }
+      if (
+        !['include', 'keep-broken', 'remove-warning'].includes(options.unresolvedLink ?? 'include')
+      ) {
+        throw new InvalidArgumentError(
+          '--unresolved-link must be include, keep-broken, or remove-warning.',
+        );
+      }
+      if (options.maxDepth !== undefined && options.dependencies !== 'recursive') {
+        throw new InvalidArgumentError('--max-depth is valid only with --dependencies recursive.');
+      }
+      return createBundle(bundleId, options, context);
+    });
+  bundle
+    .command('build <bundle-id>')
+    .option('--mode <mode>', 'strict or lenient validation', 'strict')
+    .option('--vault <path>', 'explicit vault path')
+    .action((bundleId: string, options: BundleBuildOptions) => {
+      assertOkfMode(options.mode);
+      return buildBundle(bundleId, options, context);
+    });
+  bundle
+    .command('validate <directory>')
+    .option('--mode <mode>', 'strict or lenient validation', 'strict')
+    .action((directory: string, options: BundleValidateOptions) => {
+      assertOkfMode(options.mode);
+      return validateBundle(directory, options, context);
+    });
+  bundle
+    .command('diff <previous-directory> <next-directory>')
+    .action((previousDirectory: string, nextDirectory: string) =>
+      diffBundles(previousDirectory, nextDirectory, context),
+    );
+}
+
+function assertOkfMode(
+  value: string | undefined,
+): asserts value is 'strict' | 'lenient' | undefined {
+  if (value !== undefined && value !== 'strict' && value !== 'lenient') {
+    throw new InvalidArgumentError('--mode must be strict or lenient.');
+  }
 }
 
 function addMemoryCommands(

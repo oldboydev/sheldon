@@ -10,7 +10,7 @@ Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de en
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
-O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude.
+O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude. O M6 acrescenta bundles OKF v0.1: projeções locais, portáteis, determinísticas e reconstruíveis de conceitos aprovados.
 
 ## Decisões principais
 
@@ -121,9 +121,9 @@ npm run sheldon -- mcp doctor --consumer C:\src\app-consumidor
 
 O skill ensina a buscar e citar IDs, paths e proveniência; não depende de `kb`, SaaS ou APIs. As sete ferramentas são `list_scopes`, `search_knowledge`, `read_concept`, `read_source_excerpt`, `get_project_context`, `list_related` e `file_feedback`. `search_knowledge` retorna no máximo 20 resultados por padrão, mantendo a ordem local BM25 (score menor é mais relevante). `read_concept` devolve o corpo da wiki aprovada, limitado a 12.000 caracteres por padrão e marcado quando truncado. `read_source_excerpt` exige que o conceito cite explicitamente o raw e registra o acesso em `system/mcp-raw-audit.jsonl`, sem armazenar o trecho na auditoria. `file_feedback` exige um escopo autorizado e cria um JSON pendente em `outputs/feedback/` da entidade, vinculado ao projeto consumidor e à sessão; nunca altera `wiki/` nem `raw/`.
 
-Quando houver uma definição de bundle local, `--bundle <arquivo>` a referencia relativamente a `bundles/`. O servidor só aceita uma definição que reduza os escopos já autorizados; uma definição ausente, fora de `bundles/` ou que amplie o acesso é recusada. Assim, um projeto pode preferir a seleção congelada sem criar uma rota alternativa para o vault inteiro.
+Quando houver um descritor de escopo local, `--bundle <arquivo>` o referencia relativamente a `bundles/`. O servidor só aceita um descritor que reduza os escopos já autorizados; um arquivo ausente, fora de `bundles/` ou que amplie o acesso é recusado. Assim, um projeto pode preferir a seleção congelada sem criar uma rota alternativa para o vault inteiro.
 
-Enquanto o compilador OKF do M6 não existe, a definição mínima de bundle usada pelo MCP é local e declarativa:
+Esse descritor pertence somente ao MCP e não é a definição de compilação OKF do M6:
 
 ```yaml
 # bundles/contexto-congelado.yaml
@@ -133,6 +133,67 @@ scopes:
 ```
 
 Cada item deve já constar dos escopos do consumidor; o bundle só pode estreitar a seleção.
+
+## Bundles OKF portáteis (M6)
+
+Um bundle OKF é uma projeção descartável e copiável da wiki aprovada. Ele seleciona conceitos pelo
+`concept_id` estável, nunca pelo caminho mutável da wiki, e grava sua definição em
+`bundles/<bundle-id>/definition.yaml`. A definição declara a finalidade do bundle, os conceitos
+explícitos e as políticas de dependência e de links para conceitos não selecionados. Use `bundle
+create` para criar uma definição versionável:
+
+```powershell
+npm run sheldon -- bundle create app-contexto `
+  --concept arquitetura-local `
+  --concept convencoes-api `
+  --title "Contexto para a aplicação" `
+  --description "Conhecimento aprovado necessário para a manutenção local." `
+  --dependencies recursive `
+  --max-depth 2 `
+  --unselected-link include `
+  --vault C:\knowledge\sheldon
+```
+
+As dependências podem ser `explicit` (somente os IDs indicados), `direct` (um salto de links) ou
+`recursive` (até `--max-depth`). Para um link cujo alvo não faça parte da seleção, a política é
+`include`, `keep-broken` ou `remove-warning`. Revise e versione `definition.yaml` como qualquer
+outra configuração do projeto; a seleção permanece estável se páginas da wiki forem renomeadas.
+O arquivo criado usa este formato canônico:
+
+```yaml
+version: 1
+bundle_id: app-contexto
+concept_ids:
+  - arquitetura-local
+  - convencoes-api
+dependencies:
+  mode: recursive
+  max_depth: 2
+unresolved_links: include
+```
+
+Construa e valide a projeção. O modo `strict` bloqueia conceito ausente, arquivado ou não aprovado
+e falhas de conformidade; `lenient` preserva diagnósticos que não impedem o artefato, como um tipo
+local desconhecido.
+
+```powershell
+npm run sheldon -- bundle build app-contexto --mode strict --vault C:\knowledge\sheldon
+npm run sheldon -- bundle validate C:\knowledge\sheldon\bundles\app-contexto\build --mode strict
+```
+
+O diretório `build/` contém somente Markdown UTF-8 com frontmatter OKF v0.1, links relativos
+portáteis, índices `index.md` para descoberta progressiva, `log.md` e um manifesto de build com a
+definição, conceitos, hashes e proveniência no vault. Não é necessário manter Sheldon instalado
+para ler uma cópia desse diretório. Compare duas projeções com saída determinística antes de
+distribuí-las:
+
+```powershell
+npm run sheldon -- bundle diff C:\releases\app-contexto-anterior C:\knowledge\sheldon\bundles\app-contexto\build
+```
+
+O compilador lê exclusivamente conceitos já aprovados; nunca usa OKF como raw ou wiki interna. A
+operação é local e não acessa a rede, não importa bundles externos e não publica o artefato. Um
+novo build com a mesma definição e a mesma wiki aprovada produz conteúdo idêntico.
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 

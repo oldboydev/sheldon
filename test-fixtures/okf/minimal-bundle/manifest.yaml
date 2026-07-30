@@ -1,0 +1,25 @@
+schema_version: 1
+okf_version: '0.1'
+bundle_id: minimal-bundle
+build_id: 1b1f9f124535c675454824901023655622bad9722443492599d8c6a78f51bc15
+definition_hash: 40668700eb89bdff94a2d1bf570c789f1b65fcc6348bb020bc1bd73f0d44dfe7
+source:
+  format: sheldon-vault/v1
+  concepts:
+    - concept_id: retrieval-practice
+      path: concepts/retrieval-practice-e390fccb1a.md
+      source_path: topics/learning/wiki/retrieval-practice.md
+      source_sha256: 22b0e2f57f850b35aa8dc15208fd0825667f257474973c4ee2f2ff3f78397840
+      entity:
+        kind: topic
+        slug: learning
+        id: learning-topic-001
+files:
+  - path: concepts/index.md
+    sha256: a237cd7e243fae6628b949f339ebd1829ede1f8aea5766bd6953b30297eaf2c7
+  - path: concepts/retrieval-practice-e390fccb1a.md
+    sha256: 69b2cac1380056e919db67a667eb673f261799a219161c00ab4c77d4d53eaa04
+  - path: index.md
+    sha256: 9ae846ce98cf86ab96db8649f2da1ac6d77e955caef85d8d80e4012c1deffa52
+  - path: log.md
+    sha256: 23754e0893cbedc02635abae5d10c7cd561321d4e2297bcf24fea403cf3ea478

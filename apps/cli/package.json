@@ -14,6 +14,7 @@
     "@sheldon/agent-runtime": "*",
     "@sheldon/ingestion": "*",
     "@sheldon/mcp": "*",
+    "@sheldon/okf": "*",
     "@sheldon/persistence": "*",
     "@sheldon/plugin-host": "*",
     "@sheldon/plugin-sdk": "*",
