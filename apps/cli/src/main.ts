@@ -73,6 +73,7 @@ import {
   type BundleValidateOptions,
 } from './commands/bundle.js';
 import type { OfficialPlatform } from '@sheldon/plugin-host';
+import { startWebServer } from '@sheldon/web';
 
 import {
   createOfficialCatalogClient,
@@ -181,6 +182,26 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .command('doctor')
     .option('--vault <path>', 'explicit vault path')
     .action((options: VaultOption) => executeDoctor(options, context));
+
+  program
+    .command('web')
+    .description('Start the local Sheldon web interface on loopback only.')
+    .option('--vault <path>', 'explicit vault path')
+    .option(
+      '--port <port>',
+      'loopback port; omit to choose a free port',
+      boundedInteger('--port', 0, 65_535),
+    )
+    .action(async (options: VaultOption & { port?: number }) => {
+      const vaultRoot = await resolveVaultPath(context, options.vault);
+      const started = await startWebServer({
+        vaultRoot,
+        context,
+        ...(options.port === undefined ? {} : { port: options.port }),
+      });
+      context.write(`Sheldon web: ${started.url}`);
+      context.write('Access is restricted to 127.0.0.1. Press Ctrl+C to stop the local server.');
+    });
 
   addEntityCommands(program, 'topic', context);
   addEntityCommands(program, 'project', context);

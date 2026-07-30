@@ -3,6 +3,9 @@ export {
   type DatabaseHealth,
   type OperationInput,
   type OperationRecord,
+  type JobEventRecord,
+  type JobRecord,
+  type JobStatus,
   type RebuildStatus,
 } from './operations-db.js';
 export {

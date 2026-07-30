@@ -12,6 +12,17 @@ O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preserv
 
 O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude. O M6 acrescenta bundles OKF v0.1: projeções locais, portáteis, determinísticas e reconstruíveis de conceitos aprovados.
 
+## Interface Web Local (M7)
+
+Depois de inicializar ou selecionar um vault, abra a bancada local com:
+
+```powershell
+npm run build
+npm run sheldon -- web --vault C:\knowledge\sheldon
+```
+
+O comando informa uma URL em `http://127.0.0.1:<porta>` e escolhe uma porta livre quando `--port` não é informado. A interface nunca escuta em rede; ela reúne o estado do vault, fontes, jobs, conhecimento e diagnósticos sem alterar as regras de domínio existentes. Os trabalhos ficam no SQLite operacional e o navegador pode ser recarregado durante a execução: a tela retoma os eventos pelo cursor persistido.
+
 ## Decisões principais
 
 - Core em TypeScript sobre Node.js LTS.

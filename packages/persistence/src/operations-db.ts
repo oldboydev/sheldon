@@ -17,6 +17,29 @@ export interface OperationRecord {
   readonly details: Readonly<Record<string, unknown>>;
 }
 
+export type JobStatus =
+  'queued' | 'running' | 'cancelling' | 'succeeded' | 'failed' | 'cancelled' | 'interrupted';
+
+export interface JobRecord {
+  readonly id: string;
+  readonly type: string;
+  readonly status: JobStatus;
+  readonly payload: Readonly<Record<string, unknown>>;
+  readonly createdAt: string;
+  readonly startedAt?: string;
+  readonly completedAt?: string;
+  readonly error?: string;
+}
+
+export interface JobEventRecord {
+  readonly id: number;
+  readonly jobId: string;
+  readonly at: string;
+  readonly stage: string;
+  readonly message: string;
+  readonly details: Readonly<Record<string, unknown>>;
+}
+
 export interface RebuildStatus {
   readonly rebuildable: true;
   readonly sourceOfTruth: false;
@@ -36,6 +59,25 @@ export class OperationsDatabase {
         at TEXT NOT NULL,
         details_json TEXT NOT NULL
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS jobs (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'cancelling', 'succeeded', 'failed', 'cancelled', 'interrupted')),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        started_at TEXT,
+        completed_at TEXT,
+        error TEXT
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS job_events (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id TEXT NOT NULL REFERENCES jobs(id),
+        at TEXT NOT NULL,
+        stage TEXT NOT NULL,
+        message TEXT NOT NULL,
+        details_json TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS job_events_job_id_id ON job_events(job_id, id);
     `);
   }
 
@@ -91,6 +133,68 @@ export class OperationsDatabase {
     }));
   }
 
+  public createJob(input: Omit<JobRecord, 'startedAt' | 'completedAt' | 'error'>): JobRecord {
+    this.database
+      .prepare(
+        `INSERT INTO jobs (id, type, status, payload_json, created_at)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(input.id, input.type, input.status, JSON.stringify(input.payload), input.createdAt);
+    return input;
+  }
+
+  public updateJob(
+    id: string,
+    input: Pick<JobRecord, 'status'> &
+      Partial<Pick<JobRecord, 'startedAt' | 'completedAt' | 'error'>>,
+  ): JobRecord {
+    this.database
+      .prepare(
+        `UPDATE jobs
+         SET status = ?, started_at = COALESCE(?, started_at), completed_at = COALESCE(?, completed_at), error = ?
+         WHERE id = ?`,
+      )
+      .run(
+        input.status,
+        input.startedAt ?? null,
+        input.completedAt ?? null,
+        input.error ?? null,
+        id,
+      );
+    const job = this.getJob(id);
+    if (job === undefined) throw new Error(`Unknown job: ${id}`);
+    return job;
+  }
+
+  public getJob(id: string): JobRecord | undefined {
+    const row = this.database.prepare(`SELECT * FROM jobs WHERE id = ?`).get(id);
+    return row === undefined ? undefined : toJobRecord(row);
+  }
+
+  public listJobs(): readonly JobRecord[] {
+    return this.database
+      .prepare(`SELECT * FROM jobs ORDER BY created_at DESC, id DESC`)
+      .all()
+      .map(toJobRecord);
+  }
+
+  public appendJobEvent(input: Omit<JobEventRecord, 'id'>): JobEventRecord {
+    const result = this.database
+      .prepare(
+        `INSERT INTO job_events (job_id, at, stage, message, details_json)
+         VALUES (?, ?, ?, ?, ?)`,
+      )
+      .run(input.jobId, input.at, input.stage, input.message, JSON.stringify(input.details));
+    return { ...input, id: Number(result.lastInsertRowid) };
+  }
+
+  public listJobEvents(jobId: string, after = 0): readonly JobEventRecord[] {
+    return this.database
+      .prepare(`SELECT * FROM job_events WHERE job_id = ? AND id > ? ORDER BY id`)
+      .all(jobId, after)
+      .map(toJobEventRecord);
+  }
+
   public getRebuildStatus(): RebuildStatus {
     return {
       rebuildable: true,
@@ -110,4 +214,28 @@ function parseDetails(value: string): Readonly<Record<string, unknown>> {
     throw new Error('Operation details must be a JSON object.');
   }
   return parsed as Readonly<Record<string, unknown>>;
+}
+
+function toJobRecord(row: Record<string, unknown>): JobRecord {
+  return {
+    id: String(row.id),
+    type: String(row.type),
+    status: row.status as JobStatus,
+    payload: parseDetails(String(row.payload_json)),
+    createdAt: String(row.created_at),
+    ...(row.started_at === null ? {} : { startedAt: String(row.started_at) }),
+    ...(row.completed_at === null ? {} : { completedAt: String(row.completed_at) }),
+    ...(row.error === null ? {} : { error: String(row.error) }),
+  };
+}
+
+function toJobEventRecord(row: Record<string, unknown>): JobEventRecord {
+  return {
+    id: Number(row.id),
+    jobId: String(row.job_id),
+    at: String(row.at),
+    stage: String(row.stage),
+    message: String(row.message),
+    details: parseDetails(String(row.details_json)),
+  };
 }
