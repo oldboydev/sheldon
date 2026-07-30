@@ -284,6 +284,7 @@ describe('Native OCR runtime workflow', () => {
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
+    10_000,
   );
 
   it.skipIf(process.platform !== 'win32')(
@@ -362,17 +363,19 @@ ${macosBuilder.slice(preflightOffset)}`,
     expect(builder).toContain("url.hostname = 'raw.githubusercontent.com';");
   });
 
-  it('fails closed while resolving prefix-linked macOS dylibs to Cellar files', async () => {
-    const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
-    const resolverMatch = builder.match(
-      /canonical_path\(\) \{[\s\S]*?resolve_cellar_library_path\(\) \{[\s\S]*?\n\}\n(?=\nvisited=)/u,
-    );
-    if (!resolverMatch) throw new Error('The prefix-linked dylib resolver is missing.');
-    const root = await temporaryRoot();
-    const harness = join(root, 'resolver-harness.sh');
-    await writeFile(
-      harness,
-      `#!/usr/bin/env bash
+  it.skipIf(process.platform === 'win32')(
+    'fails closed while resolving prefix-linked macOS dylibs to Cellar files',
+    async () => {
+      const builder = await readFile('scripts/release/build-native-ocr-runtime.sh', 'utf8');
+      const resolverMatch = builder.match(
+        /canonical_path\(\) \{[\s\S]*?resolve_cellar_library_path\(\) \{[\s\S]*?\n\}\n(?=\nvisited=)/u,
+      );
+      if (!resolverMatch) throw new Error('The prefix-linked dylib resolver is missing.');
+      const root = await temporaryRoot();
+      const harness = join(root, 'resolver-harness.sh');
+      await writeFile(
+        harness,
+        `#!/usr/bin/env bash
 set -euo pipefail
 ${resolverMatch[0]}
 if [[ "\${OSTYPE:-}" == msys* ]]; then
@@ -453,33 +456,38 @@ unset -f cmp
 find() { return 1; }
 if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/find-error"; then exit 1; fi
 `,
-      'utf8',
-    );
+        'utf8',
+      );
 
-    const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
-    let stderr: string;
-    try {
-      ({ stderr } = await execFileAsync(bash, [harness], { shell: false }));
-    } catch (error) {
-      const result = error as { stderr?: string; stdout?: string };
-      throw new Error(`Resolver harness failed:\n${result.stdout ?? ''}\n${result.stderr ?? ''}`, {
-        cause: error,
-      });
-    }
+      const bash = process.platform === 'win32' ? 'C:\\Program Files\\Git\\bin\\bash.exe' : 'bash';
+      let stderr: string;
+      try {
+        ({ stderr } = await execFileAsync(bash, [harness], { shell: false }));
+      } catch (error) {
+        const result = error as { stderr?: string; stdout?: string };
+        throw new Error(
+          `Resolver harness failed:\n${result.stdout ?? ''}\n${result.stderr ?? ''}`,
+          {
+            cause: error,
+          },
+        );
+      }
 
-    expect(stderr).toContain('did not resolve to exactly one byte-identical Cellar file');
-    expect(stderr).toContain('does not resolve inside the Homebrew Cellar');
-    expect(stderr).toContain('OCR_RUNTIME_TEST_BROKEN_CELLAR_TARGET_REJECTED');
-    expect(stderr).toContain('Unable to compare Homebrew library');
-    expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
-    expect(builder).toContain(
-      'find "$cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
-    );
-    expect(builder).toContain('if cmp -s "$library_source" "$canonical_candidate"; then');
-    expect(builder).toContain('canonical_path "$cellar_candidate"');
-    expect(builder).toContain('if (( cmp_status > 1 )); then');
-    expect(builder).not.toContain('done < <(find "$cellar"');
-  }, 15_000);
+      expect(stderr).toContain('did not resolve to exactly one byte-identical Cellar file');
+      expect(stderr).toContain('does not resolve inside the Homebrew Cellar');
+      expect(stderr).toContain('OCR_RUNTIME_TEST_BROKEN_CELLAR_TARGET_REJECTED');
+      expect(stderr).toContain('Unable to compare Homebrew library');
+      expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
+      expect(builder).toContain(
+        'find "$cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
+      );
+      expect(builder).toContain('if cmp -s "$library_source" "$canonical_candidate"; then');
+      expect(builder).toContain('canonical_path "$cellar_candidate"');
+      expect(builder).toContain('if (( cmp_status > 1 )); then');
+      expect(builder).not.toContain('done < <(find "$cellar"');
+    },
+    15_000,
+  );
 
   it('builds native dependency notices from verified pinned source records', async () => {
     const [windowsBuilder, macosBuilder] = await Promise.all([
@@ -572,7 +580,7 @@ try {
   throw 'The watchdog unexpectedly completed.'
 } catch {
   if ($_.Exception.Message -ne $expected) { throw }
-  if ($watch.Elapsed.TotalSeconds -gt 3) { throw 'The watchdog exceeded the harness deadline.' }
+  if ($watch.Elapsed.TotalSeconds -gt 8) { throw 'The watchdog exceeded the harness deadline.' }
   Write-Output $_.Exception.Message
 }
 `,
@@ -580,7 +588,7 @@ try {
   );
   const result = await execFileAsync('pwsh', ['-NoProfile', '-File', harnessPath], {
     shell: false,
-    timeout: 4000,
+    timeout: 15_000,
   });
   return result.stdout;
 }

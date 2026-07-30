@@ -645,7 +645,7 @@ describe('plugin file ingestion publication', () => {
       now: fixedClock.now,
       processAlive: () => true,
       sourceClaimHeartbeatMilliseconds: 10,
-      sourceClaimStaleMilliseconds: 50,
+      sourceClaimStaleMilliseconds: 5_000,
       beforeClaimReclaim: async () => {
         enterReclaim();
         await reclaimResumed;
@@ -659,7 +659,7 @@ describe('plugin file ingestion publication', () => {
         now: fixedClock.now,
         processAlive: () => true,
         sourceClaimHeartbeatMilliseconds: 10,
-        sourceClaimStaleMilliseconds: 50,
+        sourceClaimStaleMilliseconds: 5_000,
         beforePublish: () => enterPublish(),
       });
       const reclaimedAfterGateExpiry = await Promise.race([

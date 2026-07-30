@@ -11,7 +11,7 @@ import fsPromises, {
 } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -607,78 +607,81 @@ describe('committed Git boundary', { timeout: 15_000 }, () => {
     ).rejects.toMatchObject({ code: 'REPOSITORY_DIRTY_WORKTREE' });
   });
 
-  it('uses only the POSIX owner execute bit when matching a regular file to Git mode', async () => {
-    const repository = await cleanRepositoryDirectory();
-    const targetPath = join(repository, 'a-first.md');
-    const originalLstat = fsPromises.lstat;
-    const originalOpen = fsPromises.open;
-    const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
-    const withGroupExecute = <T extends { mode: bigint | number }>(stats: T): T => {
-      Object.defineProperty(stats, 'mode', {
-        configurable: true,
-        value: typeof stats.mode === 'bigint' ? stats.mode | 0o010n : stats.mode | 0o010,
-      });
-      return stats;
-    };
-
-    Object.defineProperty(fsPromises, 'lstat', {
-      configurable: true,
-      value: async (...args: unknown[]) => {
-        const stats = (await Reflect.apply(originalLstat, fsPromises, args)) as {
-          mode: bigint | number;
-        };
-        return String(args[0]) === targetPath ? withGroupExecute(stats) : stats;
-      },
-      writable: true,
-    });
-    Object.defineProperty(fsPromises, 'open', {
-      configurable: true,
-      value: async (...args: unknown[]) => {
-        const handle = (await Reflect.apply(originalOpen, fsPromises, args)) as Awaited<
-          ReturnType<typeof originalOpen>
-        >;
-        if (String(args[0]) !== targetPath) return handle;
-        return new Proxy(handle, {
-          get(target, property) {
-            if (property === 'stat') {
-              return async (...statArgs: unknown[]) =>
-                withGroupExecute(
-                  (await Reflect.apply(target.stat, target, statArgs)) as {
-                    mode: bigint | number;
-                  },
-                );
-            }
-            const value = Reflect.get(target, property, target) as unknown;
-            return typeof value === 'function' ? value.bind(target) : value;
-          },
+  it.skipIf(process.platform === 'win32')(
+    'uses only the POSIX owner execute bit when matching a regular file to Git mode',
+    async () => {
+      const repository = await cleanRepositoryDirectory();
+      const targetPath = join(repository, 'a-first.md');
+      const originalLstat = fsPromises.lstat;
+      const originalOpen = fsPromises.open;
+      const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
+      const withGroupExecute = <T extends { mode: bigint | number }>(stats: T): T => {
+        Object.defineProperty(stats, 'mode', {
+          configurable: true,
+          value: typeof stats.mode === 'bigint' ? stats.mode | 0o010n : stats.mode | 0o010,
         });
-      },
-      writable: true,
-    });
-    Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' });
-    syncBuiltinESMExports();
+        return stats;
+      };
 
-    try {
-      await expect(
-        openCommittedGitHead(repository, {
-          runner: cleanRunner(repository, []),
-        }),
-      ).resolves.toMatchObject({ commitSha });
-    } finally {
       Object.defineProperty(fsPromises, 'lstat', {
         configurable: true,
-        value: originalLstat,
+        value: async (...args: unknown[]) => {
+          const stats = (await Reflect.apply(originalLstat, fsPromises, args)) as {
+            mode: bigint | number;
+          };
+          return String(args[0]) === targetPath ? withGroupExecute(stats) : stats;
+        },
         writable: true,
       });
       Object.defineProperty(fsPromises, 'open', {
         configurable: true,
-        value: originalOpen,
+        value: async (...args: unknown[]) => {
+          const handle = (await Reflect.apply(originalOpen, fsPromises, args)) as Awaited<
+            ReturnType<typeof originalOpen>
+          >;
+          if (String(args[0]) !== targetPath) return handle;
+          return new Proxy(handle, {
+            get(target, property) {
+              if (property === 'stat') {
+                return async (...statArgs: unknown[]) =>
+                  withGroupExecute(
+                    (await Reflect.apply(target.stat, target, statArgs)) as {
+                      mode: bigint | number;
+                    },
+                  );
+              }
+              const value = Reflect.get(target, property, target) as unknown;
+              return typeof value === 'function' ? value.bind(target) : value;
+            },
+          });
+        },
         writable: true,
       });
-      Object.defineProperty(process, 'platform', platformDescriptor);
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'linux' });
       syncBuiltinESMExports();
-    }
-  });
+
+      try {
+        await expect(
+          openCommittedGitHead(repository, {
+            runner: cleanRunner(repository, []),
+          }),
+        ).resolves.toMatchObject({ commitSha });
+      } finally {
+        Object.defineProperty(fsPromises, 'lstat', {
+          configurable: true,
+          value: originalLstat,
+          writable: true,
+        });
+        Object.defineProperty(fsPromises, 'open', {
+          configurable: true,
+          value: originalOpen,
+          writable: true,
+        });
+        Object.defineProperty(process, 'platform', platformDescriptor);
+        syncBuiltinESMExports();
+      }
+    },
+  );
 
   it('rejects a parent-directory replacement between path inspection and file open', async () => {
     const repository = await repositoryDirectory();
@@ -824,6 +827,24 @@ describe('committed Git boundary', { timeout: 15_000 }, () => {
 
     await expect(
       openCommittedGitHead(linkedRepository, {
+        runner: async (command) => {
+          commands.push(command);
+          return result();
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'REPOSITORY_SYMLINK_FORBIDDEN' });
+    expect(commands).toHaveLength(0);
+  });
+
+  it('rejects a worktree reached through a symlinked parent directory', async () => {
+    const repository = await cleanRepositoryDirectory();
+    const parent = join(repository, '..');
+    const linkedParent = join(parent, 'linked-parent');
+    await symlink(parent, linkedParent, process.platform === 'win32' ? 'junction' : 'dir');
+    const commands: GitCommand[] = [];
+
+    await expect(
+      openCommittedGitHead(join(linkedParent, basename(repository)), {
         runner: async (command) => {
           commands.push(command);
           return result();

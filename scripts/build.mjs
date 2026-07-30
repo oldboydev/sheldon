@@ -17,6 +17,7 @@ const targets = [
   ['packages/agent-runtime/src', 'packages/agent-runtime/dist'],
   ['packages/review/src', 'packages/review/dist'],
   ['packages/search/src', 'packages/search/dist'],
+  ['packages/mcp/src', 'packages/mcp/dist'],
   ['packages/plugins/official/source.file/src', 'packages/plugins/official/source.file/dist'],
   ['packages/plugins/official/source.image/src', 'packages/plugins/official/source.image/dist'],
   [
@@ -63,3 +64,4 @@ if (process.platform === 'win32') {
 await Promise.all(targets.map(([source, output]) => compile(source, output)));
 await rm(join('apps', 'cli', 'dist', 'plugins'), { recursive: true, force: true });
 await cp('release/official-catalog-public.pem', 'apps/cli/dist/official-catalog-public.pem');
+await cp('packages/skill', 'apps/cli/dist/skill', { recursive: true });

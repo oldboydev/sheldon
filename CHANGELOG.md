@@ -8,6 +8,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Workflow de CI para pull requests e `main`, executando o gate completo `npm run verify` em runner Linux sem depender do limite local de execução.
+- Servidor MCP M5 somente local por `stdio`, com contrato das sete ferramentas, autorização explícita e fail-closed por projeto consumidor, leitura de raw citada com auditoria e feedback pendente que não altera wiki nem raws.
+- Configuração explícita de projeto consumidor, prévia antes de aplicar configurações Codex/Claude, `sheldon mcp doctor` e skill Sheldon de fonte única para os dois clientes sem dependência de `kb`, API ou SaaS.
+- Fundação do domínio `@sheldon/mcp` para M5: escopos explícitos por projeto consumidor e fachada local de leitura autorizada para listar escopos, buscar, ler conceitos e navegar relações sem expor raws ou escrita.
 - Índice local SQLite/FTS5 reconstruível de conceitos aprovados, com busca lexical e filtros de metadados para o M4.
 - Relações diretas entre conceitos da mesma entidade, projetadas a partir de links Markdown locais e expostas também como backlinks no índice M4.
 - Consulta M4 index-first por Codex ou Claude, com expansão limitada de links Markdown, backlinks e orçamento explícito de contexto, citações de wiki/raw, lacunas explícitas e outputs duráveis em `outputs/answers/`.
@@ -20,6 +24,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- A CI de pull request usa Windows para executar o gate unificado, alinhando a validação à plataforma Windows-first do MVP e aos testes de isolamento de processo.
+- Configuração MCP compensa falhas de escrita sem apagar a configuração Claude existente; bundles e adaptadores locais passaram a ter cobertura de integração contra um vault real.
+- `read_concept` do MCP agora lê o corpo aprovado da wiki através de um adaptador local com orçamento explícito, enquanto buscas MCP preservam a ordem BM25, possuem limite padrão e o transporte decodifica UTF-8 entre chunks sem corromper texto.
 - Busca e consulta reutilizam o índice local existente por padrão, com `--rebuild` para forçar uma projeção nova; um schema de índice desatualizado também é recriado automaticamente. A consulta deixa de materializar o vault inteiro para seguir links e backlinks, aplica `--max-context-chars` e registra truncamento no output da resposta.
 - A projeção de relações passou a paginar consultas SQLite para vaults grandes; o orçamento de contexto conta pontos de código Unicode dos registros de conceito selecionados e não corta pares substitutos.
 - O corte de corpos longos preserva o orçamento quando uma fronteira de palavra distante seria ineficiente; respostas sem conceitos agora distinguem ausência de cobertura de cobertura excluída pelo orçamento.

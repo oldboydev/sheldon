@@ -10,7 +10,7 @@ Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de en
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
-O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão.
+O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude.
 
 ## Decisões principais
 
@@ -45,6 +45,8 @@ npm run verify
 Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agrega formatação, lint, typecheck, lint de Markdown, testes, cobertura, build, validações de domínio, política documental e `git diff --check`. Worktrees locais e scratch de automação são excluídos da descoberta de Markdown e testes, portanto não duplicam suites nem validam dependências de outra cópia do repositório.
 
 O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que valida `wiki/` antes de substituir transacionalmente `system/search-index.db`. Esse banco é cache reconstruível, não é a fonte de verdade e pode ser removido quando necessário; `SearchIndex.open(vaultRoot)` falha com diagnóstico explícito se ele ainda não foi construído.
+
+Pull requests e commits para `main` executam `npm run verify` na CI Windows (`windows-2022`), a plataforma suportada pelo MVP e pelos testes de isolamento de processo. O mesmo gate local cobre formatação, lint, typecheck, testes, cobertura, build, contratos de plugin, validações de domínio/repositório e o check de diff.
 
 A reconstrução dessa projeção é uma operação de processo único: não execute comandos com `--rebuild` concorrentemente sobre o mesmo vault. Se houver contenção, aguarde o outro comando terminar e tente novamente; Sheldon não substitui um erro de lock por uma reconstrução automática.
 
@@ -88,6 +90,49 @@ O `npm run build` compila os workspaces com SWC para seus diretórios `dist/`. N
 Testes de integração que criam processos Git ou Git Bash definem um limite finito específico quando o seu trabalho legítimo excede o padrão do Vitest sob carga concorrente; isso preserva tanto o timeout quanto as verificações de falha fechada. No Windows, os arquivos de teste também são serializados para isolar Git, Git Bash e o supervisor nativo enquanto usam os diretórios temporários do sistema.
 
 `npm run verify:plugin-contract` executa os contratos pós-build dos fixtures Node SDK e PowerShell, além do plugin oficial `source.file`; `npm run verify` já o inclui antes do lint de domínio.
+
+## MCP local e skill Sheldon (M5)
+
+O MCP de Sheldon é exclusivamente local: Codex e Claude o iniciam por `stdio`; ele não abre porta, não chama API nem envia o vault para um serviço. Cada projeto consumidor declara um ID estável e os únicos tópicos ou projetos que pode consultar em `.sheldon/mcp.yaml`. Sem esse arquivo, um escopo não vazio e um índice local existente, o servidor falha fechado.
+
+Primeiro crie a prévia. Ela lista integralmente o arquivo de escopo e as entradas de descoberta dos dois clientes, sem escrever nada. Passe `--apply` somente depois de conferi-la:
+
+```powershell
+npm run sheldon -- mcp configure C:\src\app-consumidor `
+  --vault C:\knowledge\sheldon `
+  --consumer-id app-consumidor-01 `
+  --scope project:app-conhecimento `
+  --scope topic:arquitetura
+npm run sheldon -- mcp configure C:\src\app-consumidor `
+  --vault C:\knowledge\sheldon `
+  --consumer-id app-consumidor-01 `
+  --scope project:app-conhecimento `
+  --scope topic:arquitetura `
+  --apply
+```
+
+O comando não substitui uma configuração de cliente já existente. Ele cria `.codex/config.toml` e `.mcp.json` no projeto consumidor, ambos apontando para `sheldon mcp serve --consumer-config ...`. Instale o mesmo skill canônico para um ou ambos os clientes, também com prévia antes da cópia:
+
+```powershell
+npm run sheldon -- mcp install-skill C:\src\app-consumidor
+npm run sheldon -- mcp install-skill C:\src\app-consumidor --apply
+npm run sheldon -- mcp doctor --consumer C:\src\app-consumidor
+```
+
+O skill ensina a buscar e citar IDs, paths e proveniência; não depende de `kb`, SaaS ou APIs. As sete ferramentas são `list_scopes`, `search_knowledge`, `read_concept`, `read_source_excerpt`, `get_project_context`, `list_related` e `file_feedback`. `search_knowledge` retorna no máximo 20 resultados por padrão, mantendo a ordem local BM25 (score menor é mais relevante). `read_concept` devolve o corpo da wiki aprovada, limitado a 12.000 caracteres por padrão e marcado quando truncado. `read_source_excerpt` exige que o conceito cite explicitamente o raw e registra o acesso em `system/mcp-raw-audit.jsonl`, sem armazenar o trecho na auditoria. `file_feedback` exige um escopo autorizado e cria um JSON pendente em `outputs/feedback/` da entidade, vinculado ao projeto consumidor e à sessão; nunca altera `wiki/` nem `raw/`.
+
+Quando houver uma definição de bundle local, `--bundle <arquivo>` a referencia relativamente a `bundles/`. O servidor só aceita uma definição que reduza os escopos já autorizados; uma definição ausente, fora de `bundles/` ou que amplie o acesso é recusada. Assim, um projeto pode preferir a seleção congelada sem criar uma rota alternativa para o vault inteiro.
+
+Enquanto o compilador OKF do M6 não existe, a definição mínima de bundle usada pelo MCP é local e declarativa:
+
+```yaml
+# bundles/contexto-congelado.yaml
+scopes:
+  - kind: project
+    slug: app-conhecimento
+```
+
+Cada item deve já constar dos escopos do consumidor; o bundle só pode estreitar a seleção.
 
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 

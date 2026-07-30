@@ -17,6 +17,7 @@
       "@sheldon/agent-runtime": ["./packages/agent-runtime/src/index.ts"],
       "@sheldon/review": ["./packages/review/src/index.ts"],
       "@sheldon/search": ["./packages/search/src/index.ts"],
+      "@sheldon/mcp": ["./packages/mcp/src/index.ts"],
       "@sheldon/plugin-source-file": ["./packages/plugins/official/source.file/src/index.ts"],
       "@sheldon/plugin-source-image": ["./packages/plugins/official/source.image/src/index.ts"],
       "@sheldon/plugin-source-repository": [
