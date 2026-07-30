@@ -123,7 +123,7 @@ export type FeedbackKind = 'insight' | 'correction' | 'gap';
 export interface FeedbackInput {
   readonly consumerProjectId: string;
   readonly sessionId: string;
-  readonly scope?: KnowledgeScope;
+  readonly scope: KnowledgeScope;
   readonly conceptId?: string;
   readonly kind: FeedbackKind;
   readonly message: string;

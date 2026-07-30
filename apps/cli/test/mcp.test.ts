@@ -133,6 +133,33 @@ describe('mcp consumer setup', () => {
     expect(result.stderr).toContain('Refusing to overwrite existing client configuration');
     await expect(access(join(consumer, '.sheldon', 'mcp.yaml'))).rejects.toThrow();
   });
+
+  it('restores an existing Claude configuration when a later setup write fails', async () => {
+    const { vault, consumer } = await fixture();
+    await mkdir(consumer, { recursive: true });
+    const originalClaude = '{\n  "mcpServers": { "other": { "command": "other" } }\n}\n';
+    await writeFile(join(consumer, '.mcp.json'), originalClaude, 'utf8');
+    // A file where the Codex directory must be created bypasses the path pre-check
+    // but makes the later atomic write fail.
+    await writeFile(join(consumer, '.codex'), 'not a directory', 'utf8');
+
+    const result = await runCli([
+      'mcp',
+      'configure',
+      consumer,
+      '--vault',
+      vault,
+      '--consumer-id',
+      'consumer-a',
+      '--scope',
+      'project:alpha',
+      '--apply',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(await readFile(join(consumer, '.mcp.json'), 'utf8')).toBe(originalClaude);
+    await expect(access(join(consumer, '.sheldon', 'mcp.yaml'))).rejects.toThrow();
+  });
 });
 
 async function fixture(): Promise<{ readonly vault: string; readonly consumer: string }> {

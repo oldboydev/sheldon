@@ -49,6 +49,7 @@ export async function configureMcpConsumer(
   const codexPath = join(root, '.codex', 'config.toml');
   const claudePath = join(root, '.mcp.json');
   await assertConfigurationTargetsWritable(mcpPath, codexPath);
+  const originalClaude = await existingFileContents(claudePath);
   const claudeContent = await projectedClaudeConfig(claudePath, root);
   const changes = [
     { path: mcpPath, content: stringify(configuration) },
@@ -65,7 +66,7 @@ export async function configureMcpConsumer(
     await writeNewFile(codexPath, codexConfig(root));
     await atomicWriteFile(claudePath, claudeContent);
   } catch (error) {
-    await Promise.all([mcpPath, codexPath, claudePath].map((path) => rm(path, { force: true })));
+    await rollbackConfigure(mcpPath, codexPath, claudePath, originalClaude);
     throw error;
   }
   context.write(`Configured local MCP consumer: ${root}`);
@@ -348,6 +349,30 @@ async function exists(path: string): Promise<boolean> {
   }
 }
 
+async function existingFileContents(path: string): Promise<string | undefined> {
+  try {
+    return await readFile(path, 'utf8');
+  } catch {
+    return undefined;
+  }
+}
+
+/** Best-effort compensation that never replaces the original write failure. */
+async function rollbackConfigure(
+  mcpPath: string,
+  codexPath: string,
+  claudePath: string,
+  originalClaude: string | undefined,
+): Promise<void> {
+  try {
+    await Promise.all([rm(mcpPath, { force: true }), rm(codexPath, { force: true })]);
+    if (originalClaude === undefined) await rm(claudePath, { force: true });
+    else await atomicWriteFile(claudePath, originalClaude);
+  } catch {
+    // The primary configuration error is the actionable one; never mask it.
+  }
+}
+
 async function hasExpectedCodexConfig(path: string, consumer: string): Promise<boolean> {
   try {
     return (await readFile(path, 'utf8')) === codexConfig(consumer);
@@ -465,14 +490,11 @@ class LocalFeedbackWriter {
 
   public async file(input: FeedbackInput): Promise<FeedbackRecord> {
     const record: FeedbackRecord = { ...input, id: randomUUID(), status: 'pending' };
-    const parent =
-      input.scope === undefined
-        ? join(resolve(this.vault), 'system', 'feedback')
-        : join(
-            entityDirectory(this.vault, input.scope.kind, input.scope.slug),
-            'outputs',
-            'feedback',
-          );
+    const parent = join(
+      entityDirectory(this.vault, input.scope.kind, input.scope.slug),
+      'outputs',
+      'feedback',
+    );
     await atomicWriteFile(
       join(parent, `${record.id}.json`),
       `${JSON.stringify(record, null, 2)}\n`,
