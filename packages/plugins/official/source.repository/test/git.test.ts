@@ -11,7 +11,7 @@ import fsPromises, {
 } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
 
@@ -20,7 +20,6 @@ import { describe, expect, it } from 'vitest';
 import {
   openCommittedGitHead,
   REPOSITORY_VALIDATION_LIMITS,
-  samePath,
   type GitCommand,
   type GitCommandResult,
   type GitRunner,
@@ -38,13 +37,6 @@ const hostileFilterProgram = [
   'process.exit(1);',
   '',
 ].join('\n');
-
-it.skipIf(process.platform !== 'win32')(
-  'treats a Windows extended-length canonical path as the requested worktree',
-  () => {
-    expect(samePath('C:\\vault\\project', '\\\\?\\C:\\vault\\project')).toBe(true);
-  },
-);
 
 function bytes(value: string): Uint8Array {
   return new TextEncoder().encode(value);
@@ -832,6 +824,24 @@ describe('committed Git boundary', { timeout: 15_000 }, () => {
 
     await expect(
       openCommittedGitHead(linkedRepository, {
+        runner: async (command) => {
+          commands.push(command);
+          return result();
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'REPOSITORY_SYMLINK_FORBIDDEN' });
+    expect(commands).toHaveLength(0);
+  });
+
+  it('rejects a worktree reached through a symlinked parent directory', async () => {
+    const repository = await cleanRepositoryDirectory();
+    const parent = join(repository, '..');
+    const linkedParent = join(parent, 'linked-parent');
+    await symlink(parent, linkedParent, process.platform === 'win32' ? 'junction' : 'dir');
+    const commands: GitCommand[] = [];
+
+    await expect(
+      openCommittedGitHead(join(linkedParent, basename(repository)), {
         runner: async (command) => {
           commands.push(command);
           return result();

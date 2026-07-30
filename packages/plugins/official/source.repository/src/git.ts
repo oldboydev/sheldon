@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { constants, type BigIntStats } from 'node:fs';
 import { access, lstat, open, opendir, realpath, type FileHandle } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { join, parse, relative, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 export type RepositoryGitErrorCode =
@@ -231,21 +231,31 @@ function singleLine(value: Uint8Array, code: RepositoryGitErrorCode): string {
   return line;
 }
 
-/** @internal Exported for platform-specific path validation tests. */
-export function samePath(first: string, second: string): boolean {
-  if (process.platform !== 'win32') return resolve(first) === resolve(second);
+async function samePath(first: string, second: string): Promise<boolean> {
+  try {
+    const [firstPath, secondPath] = await Promise.all([realpath(first), realpath(second)]);
+    return process.platform === 'win32'
+      ? firstPath.toLowerCase() === secondPath.toLowerCase()
+      : firstPath === secondPath;
+  } catch {
+    return false;
+  }
+}
 
-  const withoutNamespacePrefix = (path: string): string => {
-    if (path.startsWith('\\\\?\\UNC\\')) return `\\\\${path.slice('\\\\?\\UNC\\'.length)}`;
-    if (path.startsWith('\\\\?\\')) return path.slice('\\\\?\\'.length);
-    return path;
-  };
-  const normalize = (path: string): string =>
-    resolve(withoutNamespacePrefix(path))
-      .replace(/[\\/]+$/, '')
-      .toLowerCase();
-
-  return normalize(first) === normalize(second);
+async function assertNoSymbolicLinkComponents(path: string): Promise<void> {
+  const root = parse(path).root;
+  let componentPath = root;
+  for (const component of relative(root, path).split(/[\\/]+/)) {
+    if (!component) continue;
+    componentPath = join(componentPath, component);
+    let componentStats;
+    try {
+      componentStats = await lstat(componentPath);
+    } catch {
+      return fail('REPOSITORY_INPUT_UNREADABLE');
+    }
+    if (componentStats.isSymbolicLink()) return fail('REPOSITORY_SYMLINK_FORBIDDEN');
+  }
 }
 
 async function validateWorktreePath(inputPath: string): Promise<string> {
@@ -261,15 +271,17 @@ async function validateWorktreePath(inputPath: string): Promise<string> {
   if (requestedStats.isSymbolicLink()) return fail('REPOSITORY_SYMLINK_FORBIDDEN');
   if (!requestedStats.isDirectory()) return fail('REPOSITORY_INPUT_INVALID');
 
-  let canonicalPath: string;
   try {
     await access(requestedPath, constants.R_OK);
-    canonicalPath = await realpath(requestedPath);
   } catch {
     return fail('REPOSITORY_INPUT_UNREADABLE');
   }
-  if (!samePath(requestedPath, canonicalPath)) return fail('REPOSITORY_SYMLINK_FORBIDDEN');
-  return canonicalPath;
+  await assertNoSymbolicLinkComponents(requestedPath);
+  try {
+    return await realpath(requestedPath);
+  } catch {
+    return fail('REPOSITORY_INPUT_UNREADABLE');
+  }
 }
 
 function validateObjectId(value: string, code: RepositoryGitErrorCode): string {
@@ -449,7 +461,7 @@ async function validateOpenedWorktreeFile(
   if (expectedFile.sizeBytes === null) return fail('REPOSITORY_DIRTY_WORKTREE');
   const openedStats = await handle.stat({ bigint: true });
   const canonicalPath = await realpath(candidatePath);
-  if (!samePath(candidatePath, canonicalPath)) return fail('REPOSITORY_DIRTY_WORKTREE');
+  if (!(await samePath(candidatePath, canonicalPath))) return fail('REPOSITORY_DIRTY_WORKTREE');
   const resolvedStats = await lstat(canonicalPath, { bigint: true });
   if (
     !pathStats.isFile() ||
@@ -600,7 +612,7 @@ export async function openCommittedGitHead(
   } catch {
     return fail('REPOSITORY_NOT_WORKTREE');
   }
-  if (!samePath(worktreePath, topLevelPath)) return fail('REPOSITORY_NOT_WORKTREE');
+  if (!(await samePath(worktreePath, topLevelPath))) return fail('REPOSITORY_NOT_WORKTREE');
 
   const headResult = await runGit(
     runner,
