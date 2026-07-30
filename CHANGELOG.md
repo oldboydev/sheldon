@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Workflow de CI para pull requests e `main`, executando o gate completo `npm run verify` em runner Linux sem depender do limite local de execução.
 - Servidor MCP M5 somente local por `stdio`, com contrato das sete ferramentas, autorização explícita e fail-closed por projeto consumidor, leitura de raw citada com auditoria e feedback pendente que não altera wiki nem raws.
 - Configuração explícita de projeto consumidor, prévia antes de aplicar configurações Codex/Claude, `sheldon mcp doctor` e skill Sheldon de fonte única para os dois clientes sem dependência de `kb`, API ou SaaS.
 - Fundação do domínio `@sheldon/mcp` para M5: escopos explícitos por projeto consumidor e fachada local de leitura autorizada para listar escopos, buscar, ler conceitos e navegar relações sem expor raws ou escrita.
