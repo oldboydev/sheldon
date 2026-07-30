@@ -64,7 +64,8 @@ export interface GitDependencies {
   readonly runner?: GitRunner;
 }
 
-const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
+const isWindows = process.platform === 'win32';
+const nullDevice = isWindows ? 'NUL' : '/dev/null';
 const metadataOutputLimit = 16 * 1024;
 const treeOutputLimit = 16 * 1024 * 1024;
 const blobOutputLimit = 16 * 1024 * 1024;
@@ -234,7 +235,7 @@ function singleLine(value: Uint8Array, code: RepositoryGitErrorCode): string {
 async function samePath(first: string, second: string): Promise<boolean> {
   try {
     const [firstPath, secondPath] = await Promise.all([realpath(first), realpath(second)]);
-    return process.platform === 'win32'
+    return isWindows
       ? firstPath.toLowerCase() === secondPath.toLowerCase()
       : firstPath === secondPath;
   } catch {
@@ -244,7 +245,7 @@ async function samePath(first: string, second: string): Promise<boolean> {
 
 function sameCanonicalPath(first: string, second: string): boolean {
   const normalize = (path: string): string => {
-    if (process.platform !== 'win32') return path;
+    if (!isWindows) return path;
     if (path.startsWith('\\\\?\\UNC\\'))
       return `\\\\${path.slice('\\\\?\\UNC\\'.length)}`.toLowerCase();
     if (path.startsWith('\\\\?\\')) return path.slice('\\\\?\\'.length).toLowerCase();

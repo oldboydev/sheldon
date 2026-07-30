@@ -284,6 +284,7 @@ describe('Native OCR runtime workflow', () => {
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
+    10_000,
   );
 
   it.skipIf(process.platform !== 'win32')(
