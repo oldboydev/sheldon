@@ -54,6 +54,21 @@ describe('ScopedKnowledgeFacade', () => {
     ).toThrow(McpScopeError);
   });
 
+  it('authorizes a scope without searching or materializing concepts', async () => {
+    const facade = await createFacade({
+      consumerProject: { id: 'consumer-a' },
+      scopes: [{ kind: 'project', slug: 'alpha' }],
+    });
+
+    expect(facade.assertScopeAuthorized({ kind: 'project', slug: 'alpha' })).toEqual({
+      kind: 'project',
+      slug: 'alpha',
+    });
+    expect(() => facade.assertScopeAuthorized({ kind: 'project', slug: 'bravo' })).toThrow(
+      McpScopeError,
+    );
+  });
+
   it('does not let consumer project A search or read consumer project B knowledge', async () => {
     const facade = await createFacade({
       consumerProject: { id: 'consumer-a' },

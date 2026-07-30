@@ -4,6 +4,13 @@ import { join } from 'node:path';
 
 import { SearchIndex } from '@sheldon/search';
 import { VaultService } from '@sheldon/vault';
+import {
+  LocalFeedbackWriter,
+  LocalRawAudit,
+  LocalRawExcerptReader,
+  LocalWikiConceptReader,
+  preferredScopes,
+} from '../src/commands/mcp.js';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli } from '../src/main.js';
@@ -65,14 +72,7 @@ describe('mcp consumer setup', () => {
       '--apply',
     ]);
     expect(configure.exitCode).toBe(0);
-    const priorDirectory = process.cwd();
-    let skill: Awaited<ReturnType<typeof runCli>>;
-    try {
-      process.chdir(consumer);
-      skill = await runCli(['mcp', 'install-skill', consumer, '--apply']);
-    } finally {
-      process.chdir(priorDirectory);
-    }
+    const skill = await runCli(['mcp', 'install-skill', consumer, '--apply']);
     expect(skill).toMatchObject({ exitCode: 0, stderr: '' });
     const codex = await readFile(join(consumer, '.codex', 'skills', 'sheldon', 'SKILL.md'), 'utf8');
     const claude = await readFile(
@@ -159,6 +159,122 @@ describe('mcp consumer setup', () => {
     expect(result.exitCode).toBe(1);
     expect(await readFile(join(consumer, '.mcp.json'), 'utf8')).toBe(originalClaude);
     await expect(access(join(consumer, '.sheldon', 'mcp.yaml'))).rejects.toThrow();
+  });
+
+  it('enforces bundle containment and narrowing, including a valid frozen selection', async () => {
+    const { vault } = await fixture();
+    const base = {
+      version: 1 as const,
+      consumer_project: { id: 'consumer-a' },
+      vault,
+      scopes: [
+        { kind: 'project' as const, slug: 'alpha' },
+        { kind: 'topic' as const, slug: 'shared' },
+      ],
+      transport: 'stdio' as const,
+    };
+    await mkdir(join(vault, 'bundles'), { recursive: true });
+    await writeFile(
+      join(vault, 'bundles', 'narrow.yaml'),
+      'scopes:\n  - kind: project\n    slug: alpha\n',
+    );
+    await expect(preferredScopes({ ...base, bundle: 'narrow.yaml' })).resolves.toEqual([
+      { kind: 'project', slug: 'alpha' },
+    ]);
+    await expect(preferredScopes({ ...base, bundle: '../escape.yaml' })).rejects.toThrow(
+      'under vault/bundles',
+    );
+    await expect(preferredScopes({ ...base, bundle: 'missing.yaml' })).rejects.toThrow(
+      'could not be read',
+    );
+    await writeFile(join(vault, 'bundles', 'invalid.yaml'), 'scopes: []\n');
+    await expect(preferredScopes({ ...base, bundle: 'invalid.yaml' })).rejects.toThrow(
+      'one or more scopes',
+    );
+    await writeFile(
+      join(vault, 'bundles', 'widen.yaml'),
+      'scopes:\n  - kind: project\n    slug: bravo\n',
+    );
+    await expect(preferredScopes({ ...base, bundle: 'widen.yaml' })).rejects.toThrow('widens');
+  });
+
+  it('uses local adapters without exposing wiki or raw mutations', async () => {
+    const { vault } = await fixture();
+    const entity = join(vault, 'projects', 'alpha');
+    const wiki = join(entity, 'wiki', 'note.md');
+    const raw = join(entity, 'raw', 'source', 'content.md');
+    await mkdir(join(entity, 'wiki'), { recursive: true });
+    await mkdir(join(entity, 'raw', 'source'), { recursive: true });
+    await writeFile(wiki, '---\nid: note\n---\n# Note\n\nabcdefghijklmno', 'utf8');
+    await writeFile(
+      raw,
+      Array.from({ length: 501 }, (_, index) => `line ${index + 1}`).join('\n'),
+      'utf8',
+    );
+    const wikiBefore = await readFile(wiki, 'utf8');
+    const rawBefore = await readFile(raw, 'utf8');
+    const scope = { kind: 'project' as const, slug: 'alpha' };
+
+    await expect(
+      new LocalWikiConceptReader(vault).readConcept({ scope, path: 'wiki/note.md' }, 12),
+    ).resolves.toEqual({
+      body: expect.stringContaining('… [truncated]'),
+      truncated: true,
+    });
+    await expect(
+      new LocalRawExcerptReader(vault).readExcerpt({
+        scope,
+        conceptId: 'note',
+        sourcePath: 'raw/source/content.md',
+        startLine: 1,
+        endLine: 500,
+      }),
+    ).resolves.toMatchObject({ startLine: 1, endLine: 500 });
+    await expect(
+      new LocalRawExcerptReader(vault).readExcerpt({
+        scope,
+        conceptId: 'note',
+        sourcePath: 'raw/source/content.md',
+        startLine: 1,
+        endLine: 501,
+      }),
+    ).rejects.toThrow('exceeds 500');
+    await expect(
+      new LocalRawExcerptReader(vault).readExcerpt({
+        scope,
+        conceptId: 'note',
+        sourcePath: 'raw/../wiki/note.md',
+        startLine: 1,
+        endLine: 1,
+      }),
+    ).rejects.toThrow('outside');
+
+    await new LocalRawAudit(vault).append({
+      scope,
+      conceptId: 'note',
+      sourcePath: 'raw/source/content.md',
+      startLine: 1,
+      endLine: 1,
+      consumerProjectId: 'consumer-a',
+      sessionId: 'session-a',
+      requestedAt: '2026-07-29T00:00:00.000Z',
+    });
+    const audit = await readFile(join(vault, 'system', 'mcp-raw-audit.jsonl'), 'utf8');
+    expect(audit).toContain('sourcePath');
+    expect(audit).not.toContain('line 1');
+    const feedback = await new LocalFeedbackWriter(vault).file({
+      consumerProjectId: 'consumer-a',
+      sessionId: 'session-a',
+      scope,
+      kind: 'gap',
+      message: 'Needs review.',
+      createdAt: '2026-07-29T00:00:00.000Z',
+    });
+    await expect(
+      access(join(entity, 'outputs', 'feedback', `${feedback.id}.json`)),
+    ).resolves.toBeUndefined();
+    expect(await readFile(wiki, 'utf8')).toBe(wikiBefore);
+    expect(await readFile(raw, 'utf8')).toBe(rawBefore);
   });
 });
 

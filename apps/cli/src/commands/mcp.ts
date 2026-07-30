@@ -1,4 +1,14 @@
-import { appendFile, cp, lstat, readFile, readdir, realpath, rm, stat } from 'node:fs/promises';
+import {
+  appendFile,
+  cp,
+  lstat,
+  readFile,
+  readdir,
+  realpath,
+  rm,
+  rmdir,
+  stat,
+} from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
@@ -48,6 +58,7 @@ export async function configureMcpConsumer(
   const mcpPath = consumerMcpConfigPath(root);
   const codexPath = join(root, '.codex', 'config.toml');
   const claudePath = join(root, '.mcp.json');
+  const codexDirectoryExisted = await exists(dirname(codexPath));
   await assertConfigurationTargetsWritable(mcpPath, codexPath);
   const originalClaude = await existingFileContents(claudePath);
   const claudeContent = await projectedClaudeConfig(claudePath, root);
@@ -66,7 +77,14 @@ export async function configureMcpConsumer(
     await writeNewFile(codexPath, codexConfig(root));
     await atomicWriteFile(claudePath, claudeContent);
   } catch (error) {
-    await rollbackConfigure(mcpPath, codexPath, claudePath, originalClaude);
+    const rollbackWarnings = await rollbackConfigure(
+      mcpPath,
+      codexPath,
+      claudePath,
+      originalClaude,
+      codexDirectoryExisted,
+    );
+    for (const warning of rollbackWarnings) context.write(`Warning: ${warning}`);
     throw error;
   }
   context.write(`Configured local MCP consumer: ${root}`);
@@ -125,9 +143,7 @@ export async function doctorMcp(consumer: string, context: CommandContext): Prom
       tools?.result as { readonly tools?: readonly { readonly name?: string }[] } | undefined
     )?.tools;
     if (definitions?.length !== 7 || new Set(definitions.map((tool) => tool.name)).size !== 7) {
-      throw new Error(
-        'MCP tool contract is incomplete. Rebuild Sheldon before configuring consumers.',
-      );
+      throw new Error('The bundled MCP tool contract is incomplete. Reinstall Sheldon.');
     }
   } finally {
     index.close();
@@ -144,8 +160,12 @@ export async function doctorMcp(consumer: string, context: CommandContext): Prom
   context.write(
     `Consumer scopes: ${scopes.map((scope) => `${scope.kind}:${scope.slug}`).join(', ')}`,
   );
-  context.write(`Codex discovery: ${codex ? 'configured' : 'not configured (warning)'}`);
-  context.write(`Claude discovery: ${claude ? 'configured' : 'not configured (warning)'}`);
+  context.write(
+    `Codex project config: ${codex ? 'matches expected (client support version-dependent)' : 'not configured (warning)'}`,
+  );
+  context.write(
+    `Claude project config: ${claude ? 'matches expected' : 'not configured (warning)'}`,
+  );
   context.write(`Sheldon executable: ${executable ? 'available' : 'not found (warning)'}`);
   context.write(`Codex skill: ${skillCodex ? 'installed' : 'not installed (warning)'}`);
   context.write(`Claude skill: ${skillClaude ? 'installed' : 'not installed (warning)'}`);
@@ -204,7 +224,7 @@ function parseScope(value: string): { readonly kind: 'topic' | 'project'; readon
  * owns bundle compilation; M5 deliberately rejects an unknown or widening
  * definition rather than silently falling back to the whole vault.
  */
-async function preferredScopes(
+export async function preferredScopes(
   configuration: ConsumerMcpConfiguration,
 ): Promise<ConsumerMcpConfiguration['scopes']> {
   if (configuration.bundle === undefined) return configuration.scopes;
@@ -363,14 +383,33 @@ async function rollbackConfigure(
   codexPath: string,
   claudePath: string,
   originalClaude: string | undefined,
-): Promise<void> {
-  try {
-    await Promise.all([rm(mcpPath, { force: true }), rm(codexPath, { force: true })]);
+  codexDirectoryExisted: boolean,
+): Promise<readonly string[]> {
+  const warnings: string[] = [];
+  const attempt = async (label: string, action: () => Promise<void>): Promise<void> => {
+    try {
+      await action();
+    } catch {
+      warnings.push(label);
+    }
+  };
+  // Restore user-owned content before cleaning Sheldon-owned partial files.
+  await attempt('could not restore the existing Claude MCP configuration.', async () => {
     if (originalClaude === undefined) await rm(claudePath, { force: true });
     else await atomicWriteFile(claudePath, originalClaude);
-  } catch {
-    // The primary configuration error is the actionable one; never mask it.
+  });
+  await attempt('could not remove the partial Sheldon MCP configuration.', () =>
+    rm(mcpPath, { force: true }),
+  );
+  await attempt('could not remove the partial Codex MCP configuration.', () =>
+    rm(codexPath, { force: true }),
+  );
+  if (!codexDirectoryExisted) {
+    await attempt('could not remove the empty partial Codex directory.', () =>
+      rmdir(dirname(codexPath)),
+    );
   }
+  return warnings;
 }
 
 async function hasExpectedCodexConfig(path: string, consumer: string): Promise<boolean> {
@@ -408,7 +447,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-class LocalRawExcerptReader {
+export class LocalRawExcerptReader {
   public constructor(private readonly vault: string) {}
 
   public async readExcerpt(citation: RawSourceCitation): Promise<{
@@ -447,7 +486,9 @@ class LocalRawExcerptReader {
   }
 }
 
-class LocalWikiConceptReader {
+const WIKI_TRUNCATION_MARKER = '… [truncated]';
+
+export class LocalWikiConceptReader {
   public constructor(private readonly vault: string) {}
 
   public async readConcept(
@@ -466,17 +507,23 @@ class LocalWikiConceptReader {
     }
     const stats = await lstat(source);
     if (!stats.isFile()) throw new Error('Concept content must be a regular wiki file.');
+    const resolvedWikiRoot = await realpath(wikiRoot);
+    const resolvedSource = await realpath(source);
+    const resolvedRelation = relative(resolvedWikiRoot, resolvedSource);
+    if (resolvedRelation.startsWith('..') || isAbsolute(resolvedRelation)) {
+      throw new Error('Concept path resolves outside the authorized wiki directory.');
+    }
     const body = markdownBody(await readFile(source, 'utf8'));
     const characters = Array.from(body);
     if (characters.length <= maximumCharacters) return { body, truncated: false };
     return {
-      body: `${characters.slice(0, Math.max(0, maximumCharacters - 14)).join('')}… [truncated]`,
+      body: `${characters.slice(0, Math.max(0, maximumCharacters - Array.from(WIKI_TRUNCATION_MARKER).length)).join('')}${WIKI_TRUNCATION_MARKER}`,
       truncated: true,
     };
   }
 }
 
-class LocalRawAudit {
+export class LocalRawAudit {
   public constructor(private readonly vault: string) {}
 
   public async append(entry: RawAccessAuditEntry): Promise<void> {
@@ -485,7 +532,7 @@ class LocalRawAudit {
   }
 }
 
-class LocalFeedbackWriter {
+export class LocalFeedbackWriter {
   public constructor(private readonly vault: string) {}
 
   public async file(input: FeedbackInput): Promise<FeedbackRecord> {

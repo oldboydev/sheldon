@@ -121,6 +121,17 @@ O skill ensina a buscar e citar IDs, paths e proveniência; não depende de `kb`
 
 Quando houver uma definição de bundle local, `--bundle <arquivo>` a referencia relativamente a `bundles/`. O servidor só aceita uma definição que reduza os escopos já autorizados; uma definição ausente, fora de `bundles/` ou que amplie o acesso é recusada. Assim, um projeto pode preferir a seleção congelada sem criar uma rota alternativa para o vault inteiro.
 
+Enquanto o compilador OKF do M6 não existe, a definição mínima de bundle usada pelo MCP é local e declarativa:
+
+```yaml
+# bundles/contexto-congelado.yaml
+scopes:
+  - kind: project
+    slug: app-conhecimento
+```
+
+Cada item deve já constar dos escopos do consumidor; o bundle só pode estreitar a seleção.
+
 O `@sheldon/plugin-sdk` é o contrato público schema-first para autoria de plugins. O protocolo v1 usa envelopes JSONL em UTF-8 por stdin/stdout; stdout é exclusivo do protocolo e logs devem ir para stderr.
 
 ## Plugins oficiais e OCR
