@@ -25,6 +25,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- Bundles OKF agora distinguem validação strict/lenient para tipos, preservam links deliberadamente quebrados com aviso, fecham links `include` transitivamente e mantêm logs/diffs reproduzíveis entre builds idênticos.
 - A CI de pull request usa Windows para executar o gate unificado, alinhando a validação à plataforma Windows-first do MVP e aos testes de isolamento de processo.
 - Configuração MCP compensa falhas de escrita sem apagar a configuração Claude existente; bundles e adaptadores locais passaram a ter cobertura de integração contra um vault real.
 - `read_concept` do MCP agora lê o corpo aprovado da wiki através de um adaptador local com orçamento explícito, enquanto buscas MCP preservam a ordem BM25, possuem limite padrão e o transporte decodifica UTF-8 entre chunks sem corromper texto.

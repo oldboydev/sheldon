@@ -33,6 +33,12 @@ describe('OKF bundle definitions', () => {
         'version: 1\nbundle_id: demo\nconcept_ids: [alpha]\ndependencies: { mode: recursive, max_depth: 2 }\nunresolved_links: remove\n',
       ),
     ).toMatchObject({ bundle_id: 'demo', concept_ids: ['alpha'], unresolved_links: 'remove' });
+    expect(
+      parseBundleDefinition('version: 1\nbundle_id: default\nconcept_ids: [alpha]\n'),
+    ).toMatchObject({
+      dependencies: { mode: 'none' },
+      unresolved_links: 'include',
+    });
   });
 });
 
@@ -61,7 +67,8 @@ describe('OKF compiler', () => {
     const beta = first.manifest.source.concepts.find((item) => item.concept_id === 'beta')!;
 
     expect(first.validation).toMatchObject({ valid: true });
-    expect(first.files.get(alpha.path)).toContain(`](${beta.path.slice('concepts/'.length)})`);
+    expect(first.files.get(alpha.path)).toContain(`](./${beta.path.slice('concepts/'.length)})`);
+    expect(first.files.get(alpha.path)).not.toContain('# Alpha');
     expect(first.files.get('index.md')).toContain('okf_version: "0.1"');
     expect(first.files.get('log.md')).toContain('## Added');
     expect(first.manifest.build_id).toBe(second.manifest.build_id);
@@ -115,6 +122,106 @@ describe('OKF compiler', () => {
     expect(removed.diagnostics).toEqual([expect.objectContaining({ code: 'OKF_LINK_REMOVED' })]);
   });
 
+  it('keeps an intentionally unresolved concept link as a warning without blocking strict builds', async () => {
+    const root = await vault();
+    await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', '[Beta](b.md)'));
+    await concept(root, 'topics', 'memory', 'b.md', wiki('beta', 'Beta', 'Secret.'));
+
+    const build = await compileOkfBundle({
+      vault_root: root,
+      definition: parseBundleDefinition(
+        'version: 1\nbundle_id: keep\nconcept_ids: [alpha]\nunresolved_links: keep\n',
+      ),
+    });
+    const alpha = build.manifest.source.concepts.find((item) => item.concept_id === 'alpha')!;
+
+    expect(build.manifest.source.concepts.map((item) => item.concept_id)).toEqual(['alpha']);
+    expect(build.files.get(alpha.path)).toContain('](b.md)');
+    expect(build.manifest.allowed_broken_links).toEqual([{ path: alpha.path, target: 'b.md' }]);
+    expect(build.validation).toMatchObject({ valid: true });
+    expect(build.validation.issues).toEqual([
+      expect.objectContaining({ code: 'OKF_LINK_BROKEN', severity: 'warning' }),
+    ]);
+    expect(build.diagnostics).toEqual([
+      expect.objectContaining({ code: 'OKF_LINK_UNRESOLVED', severity: 'warning' }),
+    ]);
+    expect(
+      validateOkf(build.files, {
+        mode: 'strict',
+        allowed_broken_links: build.manifest.allowed_broken_links,
+      }),
+    ).toMatchObject({ valid: true });
+  });
+
+  it('closes included links transitively and skips archived link targets with a warning', async () => {
+    const root = await vault();
+    await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', '[Beta](b.md)'));
+    await concept(root, 'topics', 'memory', 'b.md', wiki('beta', 'Beta', '[Gamma](c.md)'));
+    await concept(root, 'topics', 'memory', 'c.md', wiki('gamma', 'Gamma', 'Portable.'));
+    await concept(root, 'topics', 'memory', 'old.md', wiki('old', 'Old', 'Archived.', 'archived'));
+
+    const closed = await compileOkfBundle({
+      vault_root: root,
+      definition: parseBundleDefinition(
+        'version: 1\nbundle_id: included\nconcept_ids: [alpha]\nunresolved_links: include\n',
+      ),
+    });
+    expect(closed.manifest.source.concepts.map((item) => item.concept_id)).toEqual([
+      'alpha',
+      'beta',
+      'gamma',
+    ]);
+
+    await writeFile(
+      join(root, 'topics', 'memory', 'wiki', 'a.md'),
+      wiki('alpha', 'Alpha', '[Old](old.md)'),
+      'utf8',
+    );
+    const archived = await compileOkfBundle({
+      vault_root: root,
+      definition: parseBundleDefinition(
+        'version: 1\nbundle_id: archived-link\nconcept_ids: [alpha]\nunresolved_links: include\n',
+      ),
+    });
+    expect(archived.manifest.source.concepts.map((item) => item.concept_id)).toEqual(['alpha']);
+    expect(archived.validation).toMatchObject({ valid: true });
+    expect(archived.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'OKF_CONCEPT_ARCHIVED', severity: 'warning' }),
+        expect.objectContaining({ code: 'OKF_LINK_UNRESOLVED', severity: 'warning' }),
+      ]),
+    );
+  });
+
+  it('preserves the last deterministic change summary on an unchanged rebuild', async () => {
+    const root = await vault();
+    const path = join(root, 'topics', 'memory', 'wiki', 'a.md');
+    await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', 'Before.'));
+    const definition = parseBundleDefinition(
+      'version: 1\nbundle_id: stable-log\nconcept_ids: [alpha]\n',
+    );
+    const first = await compileOkfBundle({ vault_root: root, definition });
+
+    await writeFile(path, wiki('alpha', 'Alpha', 'After.'), 'utf8');
+    const second = await compileOkfBundle({
+      vault_root: root,
+      definition,
+      previous_manifest: first.manifest,
+    });
+    const third = await compileOkfBundle({
+      vault_root: root,
+      definition,
+      previous_manifest: second.manifest,
+    });
+
+    expect(second.files.get('log.md')).toContain('Date: 2026-07-30T00:00:00.000Z');
+    expect(second.files.get('log.md')).toContain('- alpha');
+    expect(third.files.get('log.md')).toBe(second.files.get('log.md'));
+    expect(third.manifest.files).toEqual(second.manifest.files);
+    expect(third.manifest.build_id).toBe(second.manifest.build_id);
+    expect(diffOkfBuilds(second.manifest, third.manifest)).toMatchObject({ empty: true });
+  });
+
   it('replaces a materialized build directory so stale files cannot survive a later build', async () => {
     const root = await vault();
     await concept(root, 'topics', 'memory', 'a.md', wiki('alpha', 'Alpha', 'Body.'));
@@ -146,6 +253,29 @@ describe('OKF validation', () => {
     });
     expect(validateOkf(files, { mode: 'strict', known_types: ['note'] })).toMatchObject({
       valid: false,
+    });
+  });
+
+  it('uses the product type policy and validates links in generated indexes', () => {
+    const unknown = new Map([
+      ['index.md', '# Index\n'],
+      ['log.md', '# Log\n'],
+      ['concepts/example.md', '---\ntype: unfamiliar\n---\n\nText.\n'],
+    ]);
+    expect(validateOkf(unknown, { mode: 'strict' })).toMatchObject({ valid: false });
+    expect(validateOkf(unknown, { mode: 'lenient' })).toMatchObject({
+      valid: true,
+      issues: [expect.objectContaining({ code: 'OKF_TYPE_UNKNOWN', severity: 'warning' })],
+    });
+
+    const brokenIndex = new Map([
+      ['index.md', '# Index\n\n[Missing](./concepts/missing.md)\n'],
+      ['log.md', '# Log\n'],
+      ['concepts/example.md', '---\ntype: note\n---\n\nText.\n'],
+    ]);
+    expect(validateOkf(brokenIndex, { mode: 'strict' })).toMatchObject({
+      valid: false,
+      issues: [expect.objectContaining({ code: 'OKF_LINK_BROKEN', path: 'index.md' })],
     });
   });
 });

@@ -62,7 +62,7 @@ export function parseBundleDefinition(
     invalid(source, "recursive dependencies require 'max_depth'");
   if (mode !== 'recursive' && maxDepth !== undefined)
     invalid(source, "'max_depth' is only valid for recursive dependencies");
-  const unresolvedLinks = value.unresolved_links ?? 'keep';
+  const unresolvedLinks = value.unresolved_links ?? 'include';
   if (!['include', 'keep', 'remove'].includes(String(unresolvedLinks)))
     invalid(source, "'unresolved_links' must be include, keep, or remove");
 

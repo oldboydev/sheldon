@@ -19,11 +19,13 @@ export {
 export { diffOkfBuilds, type OkfBuildDiff } from './diff.js';
 export { OkfError } from './errors.js';
 export {
+  DEFAULT_OKF_KNOWN_TYPES,
   markdownTargets,
   readFrontmatter,
   resolvePortable,
   validateOkf,
   type OkfValidationIssue,
+  type OkfAllowedBrokenLink,
   type OkfValidationMode,
   type OkfValidationReport,
   type ValidateOkfOptions,

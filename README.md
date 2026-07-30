@@ -150,14 +150,16 @@ npm run sheldon -- bundle create app-contexto `
   --description "Conhecimento aprovado necessário para a manutenção local." `
   --dependencies recursive `
   --max-depth 2 `
-  --unselected-link include `
+  --unresolved-link include `
   --vault C:\knowledge\sheldon
 ```
 
-As dependências podem ser `explicit` (somente os IDs indicados), `direct` (um salto de links) ou
-`recursive` (até `--max-depth`). Para um link cujo alvo não faça parte da seleção, a política é
-`include`, `keep-broken` ou `remove-warning`. Revise e versione `definition.yaml` como qualquer
-outra configuração do projeto; a seleção permanece estável se páginas da wiki forem renomeadas.
+Na CLI, as dependências podem ser `explicit` (somente os IDs indicados), `direct` (um salto de
+links) ou `recursive` (até `--max-depth`). No arquivo, os mesmos valores são respectivamente
+`none`, `direct` e `recursive`. Para um link cujo alvo não faça parte da seleção, a política da CLI
+é `include`, `keep-broken` ou `remove-warning`; no YAML ela é `include`, `keep` ou `remove`.
+Revise e versione `definition.yaml` como qualquer outra configuração do projeto; a seleção
+permanece estável se páginas da wiki forem renomeadas.
 O arquivo criado usa este formato canônico:
 
 ```yaml
@@ -174,7 +176,9 @@ unresolved_links: include
 
 Construa e valide a projeção. O modo `strict` bloqueia conceito ausente, arquivado ou não aprovado
 e falhas de conformidade; `lenient` preserva diagnósticos que não impedem o artefato, como um tipo
-local desconhecido.
+local desconhecido. A política OKF v0.1 atual reconhece `note`: em `strict`, outro tipo é um erro;
+em `lenient`, é um aviso explícito. Um link mantido deliberadamente por `keep-broken` também é
+reportado como aviso sem invalidar o bundle gerado.
 
 ```powershell
 npm run sheldon -- bundle build app-contexto --mode strict --vault C:\knowledge\sheldon
@@ -183,9 +187,10 @@ npm run sheldon -- bundle validate C:\knowledge\sheldon\bundles\app-contexto\bui
 
 O diretório `build/` contém somente Markdown UTF-8 com frontmatter OKF v0.1, links relativos
 portáteis, índices `index.md` para descoberta progressiva, `log.md` e um manifesto de build com a
-definição, conceitos, hashes e proveniência no vault. Não é necessário manter Sheldon instalado
-para ler uma cópia desse diretório. Compare duas projeções com saída determinística antes de
-distribuí-las:
+definição, conceitos, hashes e proveniência no vault. O log registra a data determinística da última
+mudança a partir do timestamp dos conceitos-fonte e preserva esse resumo em rebuilds idênticos. Não
+é necessário manter Sheldon instalado para ler uma cópia desse diretório. Compare duas projeções
+com saída determinística antes de distribuí-las:
 
 ```powershell
 npm run sheldon -- bundle diff C:\releases\app-contexto-anterior C:\knowledge\sheldon\bundles\app-contexto\build

@@ -130,7 +130,11 @@ export async function validateBundle(
   context: CommandContext,
 ): Promise<void> {
   const files = await readPortableFiles(directory);
-  const report = validateOkf(files, { mode: options.mode ?? 'strict' });
+  const manifest = await readManifest(resolve(directory));
+  const report = validateOkf(files, {
+    mode: options.mode ?? 'strict',
+    ...(manifest === undefined ? {} : { allowed_broken_links: manifest.allowed_broken_links }),
+  });
   context.write(JSON.stringify(report, null, 2));
   if (!report.valid) throw new OkfError('OKF validation failed.', 'OKF_VALIDATION_FAILED');
 }

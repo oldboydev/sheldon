@@ -28,11 +28,22 @@ export interface OkfValidationReport {
   readonly issues: readonly OkfValidationIssue[];
 }
 
+/** A portable link deliberately retained by the compiler’s configured unresolved-link policy. */
+export interface OkfAllowedBrokenLink {
+  readonly path: string;
+  readonly target: string;
+}
+
 export interface ValidateOkfOptions {
   readonly mode?: OkfValidationMode;
-  /** If supplied, a non-listed type is warning in lenient mode and error in strict mode. */
+  /** A non-listed type is a warning in lenient mode and an error in strict mode. */
   readonly known_types?: readonly string[];
+  /** Deliberately retained links remain visible as warnings; all other broken links are errors. */
+  readonly allowed_broken_links?: readonly OkfAllowedBrokenLink[];
 }
+
+/** The concept types currently emitted by Sheldon’s approved wiki projection. */
+export const DEFAULT_OKF_KNOWN_TYPES = ['note'] as const;
 
 /**
  * Validates the portable projection, not Sheldon’s internal wiki schema. The v0.1 baseline is
@@ -44,7 +55,10 @@ export function validateOkf(
 ): OkfValidationReport {
   const entries = toEntries(files).sort(([left], [right]) => compare(left, right));
   const mode = options.mode ?? 'strict';
-  const known = options.known_types === undefined ? undefined : new Set(options.known_types);
+  const known = new Set(options.known_types ?? DEFAULT_OKF_KNOWN_TYPES);
+  const allowedBrokenLinks = new Set(
+    (options.allowed_broken_links ?? []).map((item) => brokenLinkKey(item.path, item.target)),
+  );
   const issues: OkfValidationIssue[] = [];
   const paths = new Set(entries.map(([path]) => path));
   if (!paths.has('index.md'))
@@ -63,40 +77,39 @@ export function validateOkf(
       );
       continue;
     }
-    if (!path.endsWith('.md') || basename(path) === 'index.md' || basename(path) === 'log.md')
-      continue;
-    const frontmatter = readFrontmatter(content);
-    if (frontmatter.kind === 'missing') {
-      issue(issues, 'error', 'OKF_FRONTMATTER_MISSING', path, 'Concept has no YAML frontmatter.');
-      continue;
-    }
-    if (frontmatter.kind === 'invalid') {
-      issue(
-        issues,
-        'error',
-        'OKF_FRONTMATTER_INVALID',
-        path,
-        'Concept frontmatter is not a YAML mapping.',
-      );
-      continue;
-    }
-    const type = frontmatter.value.type;
-    if (typeof type !== 'string' || type.trim().length === 0) {
-      issue(
-        issues,
-        'error',
-        'OKF_TYPE_MISSING',
-        path,
-        "Concept frontmatter requires a non-empty 'type'.",
-      );
-    } else if (known !== undefined && !known.has(type)) {
-      issue(
-        issues,
-        mode === 'strict' ? 'error' : 'warning',
-        'OKF_TYPE_UNKNOWN',
-        path,
-        `Concept type '${type}' is not recognized by this validation policy.`,
-      );
+    if (!path.endsWith('.md')) continue;
+    if (basename(path) !== 'index.md' && basename(path) !== 'log.md') {
+      const frontmatter = readFrontmatter(content);
+      if (frontmatter.kind === 'missing') {
+        issue(issues, 'error', 'OKF_FRONTMATTER_MISSING', path, 'Concept has no YAML frontmatter.');
+      } else if (frontmatter.kind === 'invalid') {
+        issue(
+          issues,
+          'error',
+          'OKF_FRONTMATTER_INVALID',
+          path,
+          'Concept frontmatter is not a YAML mapping.',
+        );
+      } else {
+        const type = frontmatter.value.type;
+        if (typeof type !== 'string' || type.trim().length === 0) {
+          issue(
+            issues,
+            'error',
+            'OKF_TYPE_MISSING',
+            path,
+            "Concept frontmatter requires a non-empty 'type'.",
+          );
+        } else if (!known.has(type)) {
+          issue(
+            issues,
+            mode === 'strict' ? 'error' : 'warning',
+            'OKF_TYPE_UNKNOWN',
+            path,
+            `Concept type '${type}' is not recognized by this validation policy.`,
+          );
+        }
+      }
     }
     for (const target of markdownTargets(content)) {
       if (externalTarget(target)) continue;
@@ -104,7 +117,7 @@ export function validateOkf(
       if (destination !== undefined && !paths.has(destination))
         issue(
           issues,
-          'error',
+          allowedBrokenLinks.has(brokenLinkKey(path, target)) ? 'warning' : 'error',
           'OKF_LINK_BROKEN',
           path,
           `Portable Markdown link target is missing: ${target}`,
@@ -117,6 +130,10 @@ export function validateOkf(
     checked_files: entries.length,
     issues,
   };
+}
+
+function brokenLinkKey(path: string, target: string): string {
+  return `${path}\u0000${target}`;
 }
 
 export function readFrontmatter(
