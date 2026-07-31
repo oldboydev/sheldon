@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { lstat, mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -13,6 +13,11 @@ import {
   type SourceArtifact,
 } from '@sheldon/plugin-sdk';
 import { canonicalInstagramVideo } from './instagram-url.js';
+import { resolveYtDlpExecutable } from './runtime.js';
+
+const DEFAULT_PLATFORM = `${process.platform}-${process.arch}`;
+const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
+const MAX_STT_INPUT_BYTES = 50 * 1024 * 1024;
 
 const description: PluginDescription = {
   id: 'source.instagram',
@@ -30,13 +35,14 @@ const description: PluginDescription = {
       id: 'yt-dlp',
       kind: 'executable',
       required: true,
-      remediation: 'Reinstall the experimental source.instagram plugin.',
+      remediation: 'Reinstall the experimental source.instagram plugin for this platform.',
     },
     {
       id: 'local-stt',
       kind: 'runtime',
       required: false,
-      remediation: 'Install and configure a local STT runtime before using --stt.',
+      remediation:
+        'Install an offline local STT runtime and configure SHELDON_LOCAL_STT_EXECUTABLE (and optional JSON SHELDON_LOCAL_STT_ARGUMENTS) before using --stt.',
     },
   ],
 };
@@ -54,35 +60,37 @@ export interface InstagramRunner {
   ): Promise<{ readonly stdout: string; readonly stderr: string }>;
 }
 export interface InstagramDependencies {
+  readonly pluginRoot?: string;
+  readonly platform?: string;
   readonly executable?: string;
   readonly runner?: InstagramRunner;
+  readonly version?: () => Promise<string>;
   readonly sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
   readonly transcribe?: (input: {
     readonly directory: string;
     readonly signal: AbortSignal;
   }) => Promise<string | undefined>;
+  readonly sttRunner?: InstagramRunner;
+  /** Allows tests and embedded hosts to supply a non-secret local STT configuration. */
+  readonly environment?: NodeJS.ProcessEnv;
 }
 
 export function createOfficialSourceInstagramPlugin(
   dependencies: InstagramDependencies = {},
 ): PluginImplementation {
+  const root = dependencies.pluginRoot ?? process.cwd();
+  const platform = dependencies.platform ?? DEFAULT_PLATFORM;
+  const executable = dependencies.executable ?? resolveYtDlpExecutable(root, platform);
+  const runner = dependencies.runner ?? systemRunner;
   return definePlugin({
     describe: async () => description,
     probe: async ({ input }) => probeInstagram(input),
-    ingest: async (request, context) => ingest(request, context.signal, dependencies),
+    ingest: async (request, context) =>
+      ingest(request, context.signal, dependencies, executable, runner),
     healthcheck: async () => ({
       checks: [
-        {
-          id: 'yt-dlp',
-          severity: 'info',
-          message: 'yt-dlp is configured for experimental public Instagram extraction.',
-        },
-        {
-          id: 'local-stt',
-          severity: 'warning',
-          message: 'Local STT is optional and no model is downloaded automatically.',
-          remediation: 'Use captions or configure a local STT runtime before passing --stt.',
-        },
+        await ytDlpCheck(executable, runner, dependencies.version),
+        localSttCheck(dependencies.environment ?? process.env),
       ],
     }),
     cancel: async () => undefined,
@@ -131,10 +139,13 @@ async function ingest(
   request: Parameters<PluginImplementation['ingest']>[0],
   signal: AbortSignal,
   dependencies: InstagramDependencies,
+  executable: string,
+  runner: InstagramRunner,
 ): Promise<readonly SourceArtifact[]> {
   const video = validatedInput(request.input);
   const options = validatedOptions(request.options);
-  if (options.stt && dependencies.transcribe === undefined)
+  const localStt = localSttConfiguration(dependencies.environment ?? process.env);
+  if (options.stt && dependencies.transcribe === undefined && localStt === undefined)
     throw socialError('INSTAGRAM_STT_UNAVAILABLE', 'No local STT runtime is configured.');
   await mkdir(request.temporaryDirectory, { recursive: true });
   const cookieFile = process.env.SHELDON_SOCIAL_COOKIE_FILE;
@@ -146,6 +157,8 @@ async function ingest(
     '--write-auto-subs',
     '--sub-format',
     'vtt',
+    '--sub-langs',
+    options.languages.join(','),
     '--print-json',
     '--output',
     join(request.temporaryDirectory, 'media.%(ext)s'),
@@ -153,10 +166,9 @@ async function ingest(
     ...(options.media === 'thumbnail' ? ['--write-thumbnail'] : []),
     video.canonicalUri,
   ];
-  const runner = dependencies.runner ?? systemRunner;
   const output = await boundedExtraction(
     runner,
-    dependencies.executable ?? 'yt-dlp',
+    executable,
     args,
     request.temporaryDirectory,
     signal,
@@ -164,18 +176,41 @@ async function ingest(
   );
   const info = parseInfo(output.stdout);
   const caption = stringValue(info.description);
-  const transcript = await transcriptText(info, request.temporaryDirectory, dependencies, signal);
+  let transcript = await transcriptText(info, request.temporaryDirectory);
+  if (transcript === undefined && options.stt) {
+    if (dependencies.transcribe !== undefined) {
+      transcript = await dependencies.transcribe({ directory: request.temporaryDirectory, signal });
+    } else if (localStt !== undefined) {
+      const input = await downloadSttInput(
+        runner,
+        executable,
+        request.temporaryDirectory,
+        video.canonicalUri,
+        cookieFile,
+        signal,
+        dependencies.sleep ?? defaultSleep,
+      );
+      transcript = await transcribeLocalInput(
+        localStt,
+        input,
+        request.temporaryDirectory,
+        signal,
+        dependencies.sttRunner ?? systemRunner,
+      );
+    }
+  }
   const warnings =
     transcript === undefined
       ? ['No speech transcript was available; no transcript was invented.']
       : [];
   const content = markdown(video.canonicalUri, info, caption, transcript);
+  const original = JSON.stringify(sanitizedInfo(video.canonicalUri, info), null, 2) + '\n';
   const metadata = JSON.stringify(safeMetadata(video.canonicalUri, info), null, 2) + '\n';
   const artifacts: SourceArtifact[] = [
     await artifact(
       request.temporaryDirectory,
       'original.info.json',
-      output.stdout,
+      original,
       'application/json',
       'original',
       { canonicalUri: video.canonicalUri, extractor: 'yt-dlp' },
@@ -219,10 +254,28 @@ async function ingest(
         'asset',
       ),
     );
-  if (options.media === 'thumbnail')
-    for (const entry of await readdir(request.temporaryDirectory))
-      if (/^media\.(?:jpe?g|png|webp)$/iu.test(entry))
-        artifacts.push(await existingArtifact(request.temporaryDirectory, entry, 'image/*'));
+  if (options.media === 'thumbnail') {
+    const media = await thumbnailArtifact(request.temporaryDirectory);
+    if (media === undefined) {
+      warnings.push('The requested thumbnail was unavailable.');
+      artifacts[1] = await artifact(
+        request.temporaryDirectory,
+        'content.md',
+        content,
+        'text/markdown',
+        'normalized',
+        {
+          canonicalUri: video.canonicalUri,
+          extractor: 'yt-dlp',
+          format: 'instagram-video',
+          extractionStatus: 'gap',
+          warnings,
+        },
+      );
+    } else {
+      artifacts.push(media);
+    }
+  }
   return artifacts;
 }
 
@@ -234,6 +287,7 @@ function validatedInput(input: Readonly<Record<string, unknown>>) {
 function validatedOptions(options: Readonly<Record<string, unknown>>): {
   readonly media: 'none' | 'thumbnail';
   readonly stt: boolean;
+  readonly languages: readonly string[];
 } {
   if (
     Object.keys(options).some((key) => key !== 'media' && key !== 'stt' && key !== 'language') ||
@@ -245,7 +299,27 @@ function validatedOptions(options: Readonly<Record<string, unknown>>): {
       'INSTAGRAM_INPUT_INVALID',
       'options may contain only media, language, and stt.',
     );
-  return { media: (options.media ?? 'none') as 'none' | 'thumbnail', stt: options.stt === true };
+  const languages =
+    options.language === undefined
+      ? ['pt', 'en']
+      : options.language
+          .split(',')
+          .map((language) => language.trim().toLowerCase())
+          .filter(Boolean);
+  if (
+    languages.length === 0 ||
+    languages.some((language) => !/^[a-z]{2,3}(?:-[a-z0-9]{2,8})?$/u.test(language))
+  ) {
+    throw socialError(
+      'INSTAGRAM_INPUT_INVALID',
+      'options.language must contain comma-separated language tags.',
+    );
+  }
+  return {
+    media: (options.media ?? 'none') as 'none' | 'thumbnail',
+    stt: options.stt === true,
+    languages: [...new Set(languages)],
+  };
 }
 async function boundedExtraction(
   runner: InstagramRunner,
@@ -255,14 +329,14 @@ async function boundedExtraction(
   signal: AbortSignal,
   sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>,
 ) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await runner.run(executable, args, { cwd, signal, shell: false });
     } catch (error) {
       const code = externalCode(error);
-      if (code !== 'INSTAGRAM_RATE_LIMITED' || attempt === 1)
-        throw socialError(code, 'Instagram extraction did not complete.');
-      await sleep(250, signal);
+      if (code !== 'INSTAGRAM_RATE_LIMITED' || attempt === 2)
+        throw socialError(code, 'Instagram extraction did not complete.', error);
+      await sleep(250 * 2 ** attempt, signal);
     }
   }
   throw socialError('INSTAGRAM_RATE_LIMITED', 'Instagram rate limit retries were exhausted.');
@@ -296,8 +370,6 @@ function parseInfo(stdout: string): Readonly<Record<string, unknown>> {
 async function transcriptText(
   info: Readonly<Record<string, unknown>>,
   directory: string,
-  dependencies: InstagramDependencies,
-  signal: AbortSignal,
 ): Promise<string | undefined> {
   const subtitles = info.requested_subtitles;
   if (subtitles !== null && typeof subtitles === 'object' && !Array.isArray(subtitles))
@@ -308,8 +380,19 @@ async function transcriptText(
         'filepath' in value &&
         typeof value.filepath === 'string'
       ) {
+        let path: string;
         try {
-          const raw = await readFile(value.filepath, 'utf8');
+          path = safeCaptionPath(directory, value.filepath);
+          await assertRegularCaptionFile(directory, path);
+        } catch (error) {
+          throw socialError(
+            'INSTAGRAM_EXTRACTION_FAILED',
+            'yt-dlp returned an unsafe caption artifact.',
+            error,
+          );
+        }
+        try {
+          const raw = await readFile(path, 'utf8');
           const text = raw
             .split(/\r?\n/u)
             .filter((line) => line.trim() && !line.includes('-->') && line.trim() !== 'WEBVTT')
@@ -319,9 +402,122 @@ async function transcriptText(
           /* unavailable caption */
         }
       }
-  return dependencies.transcribe === undefined
-    ? undefined
-    : dependencies.transcribe({ directory, signal });
+  return undefined;
+}
+interface LocalSttConfiguration {
+  readonly executable: string;
+  readonly arguments_: readonly string[];
+}
+function localSttConfiguration(environment: NodeJS.ProcessEnv): LocalSttConfiguration | undefined {
+  const executable = environment.SHELDON_LOCAL_STT_EXECUTABLE?.trim();
+  if (executable === undefined || executable.length === 0) return undefined;
+  const configuredArguments = environment.SHELDON_LOCAL_STT_ARGUMENTS;
+  let arguments_: string[] = [];
+  if (configuredArguments !== undefined) {
+    try {
+      const parsed: unknown = JSON.parse(configuredArguments);
+      if (
+        !Array.isArray(parsed) ||
+        parsed.some((argument) => typeof argument !== 'string' || argument.length > 4_096)
+      ) {
+        return undefined;
+      }
+      arguments_ = [...parsed];
+    } catch {
+      return undefined;
+    }
+  }
+  const inputPlaceholders = arguments_.filter((argument) => argument === '{input}').length;
+  if (inputPlaceholders > 1) return undefined;
+  if (inputPlaceholders === 0) arguments_.push('{input}');
+  return { executable, arguments_ };
+}
+function localSttCheck(environment: NodeJS.ProcessEnv) {
+  return localSttConfiguration(environment) === undefined
+    ? {
+        id: 'local-stt',
+        severity: 'warning' as const,
+        message: 'Local STT is optional and no model is downloaded automatically.',
+        remediation:
+          'Configure SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS before passing --stt.',
+      }
+    : {
+        id: 'local-stt',
+        severity: 'info' as const,
+        message: 'A local STT runtime is configured; the plugin will not download a model.',
+      };
+}
+async function downloadSttInput(
+  runner: InstagramRunner,
+  executable: string,
+  directory: string,
+  uri: string,
+  cookieFile: string | undefined,
+  signal: AbortSignal,
+  sleep: (milliseconds: number, signal: AbortSignal) => Promise<void>,
+): Promise<string> {
+  await boundedExtraction(
+    runner,
+    executable,
+    [
+      '--no-config',
+      '--no-playlist',
+      '--no-progress',
+      '--format',
+      'bestaudio/best',
+      '--max-filesize',
+      '50M',
+      '--output',
+      join(directory, 'stt-input.%(ext)s'),
+      ...(cookieFile === undefined ? [] : ['--cookies', cookieFile]),
+      uri,
+    ],
+    directory,
+    signal,
+    sleep,
+  );
+  const inputs: string[] = [];
+  for (const entry of await readdir(directory)) {
+    if (!/^stt-input\.[a-z0-9]{1,8}$/iu.test(entry)) continue;
+    const path = join(directory, entry);
+    const status = await lstat(path);
+    if (status.isSymbolicLink() || !status.isFile()) {
+      throw socialError('INSTAGRAM_EXTRACTION_FAILED', 'yt-dlp returned an unsafe STT media path.');
+    }
+    if (status.size > MAX_STT_INPUT_BYTES) {
+      throw socialError('INSTAGRAM_MEDIA_LIMIT_EXCEEDED', 'The local STT input exceeds 50 MiB.');
+    }
+    inputs.push(path);
+  }
+  if (inputs.length !== 1)
+    throw socialError(
+      'INSTAGRAM_STT_UNAVAILABLE',
+      'No bounded local media input was available for STT.',
+    );
+  return inputs[0] as string;
+}
+async function transcribeLocalInput(
+  configuration: LocalSttConfiguration,
+  input: string,
+  directory: string,
+  signal: AbortSignal,
+  runner: InstagramRunner,
+): Promise<string | undefined> {
+  try {
+    const result = await runner.run(
+      configuration.executable,
+      configuration.arguments_.map((argument) => (argument === '{input}' ? input : argument)),
+      { cwd: directory, signal, shell: false },
+    );
+    const transcript = result.stdout.trim();
+    return transcript.length === 0 ? undefined : `${transcript}\n`;
+  } catch (error) {
+    throw socialError(
+      'INSTAGRAM_STT_UNAVAILABLE',
+      'The configured local STT runtime did not complete.',
+      error,
+    );
+  }
 }
 function markdown(
   uri: string,
@@ -330,13 +526,13 @@ function markdown(
   transcript: string | undefined,
 ): string {
   return [
-    `# ${stringValue(info.title) ?? 'Instagram video'}`,
+    `# ${escapeMarkdown(stringValue(info.title) ?? 'Instagram video')}`,
     '',
     `- Source: ${uri}`,
     '',
     '## Post text',
     '',
-    caption ?? '',
+    escapeMarkdown(caption ?? ''),
     ...(transcript === undefined ? [] : ['', '## Transcript', '', transcript.trimEnd()]),
     '',
   ].join('\n');
@@ -352,6 +548,17 @@ function safeMetadata(uri: string, info: Readonly<Record<string, unknown>>) {
         ? info.duration
         : undefined,
   };
+}
+function sanitizedInfo(uri: string, info: Readonly<Record<string, unknown>>) {
+  return {
+    ...safeMetadata(uri, info),
+    id: stringValue(info.id),
+    uploadDate: stringValue(info.upload_date),
+    extractor: stringValue(info.extractor),
+  };
+}
+function escapeMarkdown(value: string): string {
+  return value.replace(/^#{1,6}(?=\s)/gmu, '\\#');
 }
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -389,6 +596,106 @@ async function existingArtifact(
     ...(metadata === undefined ? {} : { metadata }),
   };
 }
+async function thumbnailArtifact(directory: string): Promise<SourceArtifact | undefined> {
+  const entries = await readdir(directory);
+  for (const entry of entries) {
+    const mediaType = thumbnailMediaType(entry);
+    if (mediaType === undefined) continue;
+    const path = join(directory, entry);
+    const status = await lstat(path);
+    if (status.isSymbolicLink() || !status.isFile()) {
+      throw socialError('INSTAGRAM_EXTRACTION_FAILED', 'yt-dlp returned an unsafe thumbnail path.');
+    }
+    if (status.size > MAX_THUMBNAIL_BYTES) {
+      throw socialError(
+        'INSTAGRAM_MEDIA_LIMIT_EXCEEDED',
+        'The requested thumbnail exceeds 10 MiB.',
+      );
+    }
+    return existingArtifact(directory, entry, mediaType);
+  }
+  return undefined;
+}
+function thumbnailMediaType(path: string): string | undefined {
+  const extension = path.match(/^media\.(jpe?g|png|webp)$/iu)?.[1]?.toLowerCase();
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg';
+  if (extension === 'png') return 'image/png';
+  if (extension === 'webp') return 'image/webp';
+  return undefined;
+}
+function safeCaptionPath(outputDirectory: string, declaredPath: string): string {
+  const directory = resolve(outputDirectory);
+  const path = resolve(directory, declaredPath);
+  const relativePath = relative(directory, path);
+  if (
+    relativePath.length === 0 ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..\\`) ||
+    relativePath.startsWith('../') ||
+    isAbsolute(relativePath)
+  ) {
+    throw socialError('INSTAGRAM_EXTRACTION_FAILED', 'yt-dlp returned an unsafe caption path.');
+  }
+  return path;
+}
+async function assertRegularCaptionFile(outputDirectory: string, path: string): Promise<void> {
+  const directory = resolve(outputDirectory);
+  const directoryStatus = await lstat(directory);
+  if (directoryStatus.isSymbolicLink() || !directoryStatus.isDirectory()) {
+    throw new Error('Output directory is not a regular directory.');
+  }
+  const components = relative(directory, path).split(/[\\/]/u).filter(Boolean);
+  let current = directory;
+  for (const [index, component] of components.entries()) {
+    current = resolve(current, component);
+    const status = await lstat(current);
+    if (status.isSymbolicLink()) throw new Error('Caption path contains a symbolic link.');
+    const isLast = index === components.length - 1;
+    if ((isLast && !status.isFile()) || (!isLast && !status.isDirectory())) {
+      throw new Error(
+        isLast ? 'Caption path is not a regular file.' : 'Caption path is not a directory.',
+      );
+    }
+  }
+}
+async function ytDlpCheck(
+  executable: string,
+  runner: InstagramRunner,
+  version: InstagramDependencies['version'],
+) {
+  try {
+    const value =
+      version === undefined ? await boundedVersionProbe(executable, runner) : await version();
+    if (value.trim().length === 0) throw new Error('yt-dlp returned no version.');
+    return {
+      id: 'yt-dlp',
+      severity: 'info' as const,
+      message: `yt-dlp ${value.trim()} is available.`,
+    };
+  } catch {
+    return {
+      id: 'yt-dlp',
+      severity: 'error' as const,
+      message: 'yt-dlp is unavailable or did not respond to the version probe.',
+      remediation: 'Reinstall the experimental source.instagram plugin for this platform.',
+    };
+  }
+}
+async function boundedVersionProbe(executable: string, runner: InstagramRunner): Promise<string> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 1_000);
+  try {
+    return (
+      await runner.run(executable, ['--no-config', '--version'], {
+        cwd: process.cwd(),
+        signal: controller.signal,
+        shell: false,
+      })
+    ).stdout;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 const execFileAsync = promisify(execFile);
 const systemRunner: InstagramRunner = {
   async run(file, args, options) {
@@ -424,6 +731,8 @@ type InstagramErrorCode =
   | 'INSTAGRAM_EXTRACTION_FAILED'
   | 'INSTAGRAM_STT_UNAVAILABLE'
   | 'INSTAGRAM_MEDIA_LIMIT_EXCEEDED';
-function socialError(code: InstagramErrorCode, message: string): Error {
-  return Object.assign(new Error(`${code}: ${message}`), { code });
+function socialError(code: InstagramErrorCode, message: string, cause?: unknown): Error {
+  const error = Object.assign(new Error(`${code}: ${message}`), { code });
+  if (cause !== undefined) Object.assign(error, { cause });
+  return error;
 }

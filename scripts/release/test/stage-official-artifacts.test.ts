@@ -126,6 +126,9 @@ describe('official release staging', () => {
     await expect(
       access(join(output, 'source.youtube', 'runtime', 'linux-x64', 'yt-dlp')),
     ).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'source.instagram', 'runtime', 'linux-x64', 'yt-dlp')),
+    ).resolves.toBeUndefined();
     await expect(access(join(output, 'source.file', 'src', 'index.ts'))).rejects.toThrow();
   });
 });

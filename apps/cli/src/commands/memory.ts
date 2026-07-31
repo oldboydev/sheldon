@@ -1,4 +1,4 @@
-import { lstat, open, readFile, realpath, stat } from 'node:fs/promises';
+import { lstat, open, realpath, stat } from 'node:fs/promises';
 import { basename, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -114,13 +114,6 @@ export async function ingestUrl(
   const canonical = canonicalUrl(value);
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const input = { url: canonical.href };
-  const pluginOptions: Readonly<Record<string, string | boolean>> = {
-    ...(options.language === undefined ? {} : { language: options.language }),
-    ...(options.media === undefined ? {} : { media: options.media }),
-    ...(options.stt === undefined ? {} : { stt: options.stt }),
-  };
-  const cookies =
-    options.cookies === undefined ? undefined : await localCookieFile(options.cookies);
   await withPluginServices(context, async ({ discovery, runner }) => {
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-url',
@@ -136,6 +129,30 @@ export async function ingestUrl(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
+    const socialPlugin = selection.plugin.manifest.id === 'source.instagram';
+    if (!socialPlugin && (options.media !== undefined || options.stt === true)) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support social media or local STT options.',
+        selection.plugin.manifest.id,
+        'Remove --media/--stt or select source.instagram for a supported public Instagram video.',
+      );
+    }
+    if (options.cookies !== undefined && !selection.plugin.manifest.permissions.cookies) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support local cookies.',
+        selection.plugin.manifest.id,
+        'Remove --cookies or select a plugin that explicitly declares local cookie access.',
+      );
+    }
+    const pluginOptions: Readonly<Record<string, string | boolean>> = {
+      ...(options.language === undefined ? {} : { language: options.language }),
+      ...(socialPlugin && options.media !== undefined ? { media: options.media } : {}),
+      ...(socialPlugin && options.stt === true ? { stt: true } : {}),
+    };
+    const cookies =
+      options.cookies === undefined ? undefined : await localCookieFile(options.cookies);
     const result = await runner.ingest(
       selection.plugin,
       input,
@@ -163,7 +180,6 @@ export async function ingestUrl(
           ? {}
           : {
               secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: cookies.path },
-              secretRedactions: cookies.redactions,
             }),
       },
     );
@@ -458,7 +474,6 @@ function invalidUrlInput(): never {
 
 async function localCookieFile(value: string): Promise<{
   readonly path: string;
-  readonly redactions: readonly string[];
 }> {
   const inputPath = resolve(value);
   let metadata: Awaited<ReturnType<typeof lstat>>;
@@ -471,20 +486,13 @@ async function localCookieFile(value: string): Promise<{
     throw cookieInputError();
   }
   let path: string;
-  let content: string;
   try {
     path = await realpath(inputPath);
-    content = await readFile(path, 'utf8');
+    if (!(await lstat(path)).isFile()) throw new Error('not a regular file');
   } catch {
     throw cookieInputError();
   }
-  // Keep only likely values (never paths or complete lines) for host stderr redaction.
-  const redactions = content
-    .split(/[\s;=,]+/u)
-    .map((part) => part.replaceAll(/^["']|["']$/gu, ''))
-    .filter((part) => part.length >= 8 && part.length <= 4_096)
-    .filter((part) => !part.startsWith('#'));
-  return { path, redactions };
+  return { path };
 }
 
 function cookieInputError(): PluginHostError {

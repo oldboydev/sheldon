@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -76,8 +76,10 @@ describe('experimental source.instagram', () => {
         context,
       ),
     ).rejects.toMatchObject({ code: 'INSTAGRAM_RATE_LIMITED' });
-    expect(run).toHaveBeenCalledTimes(2);
-    expect(sleep).toHaveBeenCalledTimes(1);
+    expect(run).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenNthCalledWith(1, 250, expect.any(AbortSignal));
+    expect(sleep).toHaveBeenNthCalledWith(2, 500, expect.any(AbortSignal));
   });
 
   it('reports Instagram-known blocked input distinctly from an unknown URL', async () => {
@@ -108,6 +110,209 @@ describe('experimental source.instagram', () => {
     ).rejects.toMatchObject({ code: 'INSTAGRAM_STT_UNAVAILABLE' });
     await expect(plugin.describe(context)).resolves.toMatchObject({
       permissions: { network: true, cookies: true, media: true },
+    });
+  });
+
+  it('runs a configured local STT runtime with a bounded local media input and never downloads a model', async () => {
+    const directory = await temporaryDirectory();
+    const run = vi.fn(async (_file, args, options) => {
+      if (args.includes('--format')) await writeFile(join(options.cwd, 'stt-input.m4a'), 'audio');
+      return {
+        stdout: args.includes('--format')
+          ? ''
+          : JSON.stringify({ title: 'Fixture', description: 'Post text' }),
+        stderr: '',
+      };
+    });
+    const sttRunner = { run: vi.fn().mockResolvedValue({ stdout: 'fala local', stderr: '' }) };
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: { run },
+      sttRunner,
+      environment: {
+        SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt',
+        SHELDON_LOCAL_STT_ARGUMENTS: JSON.stringify(['--offline', '{input}']),
+      },
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+        options: { stt: true },
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+
+    expect(artifacts.map((artifact) => artifact.path)).toContain('assets/transcript.txt');
+    expect(sttRunner.run).toHaveBeenCalledWith(
+      'local-stt',
+      ['--offline', join(directory, 'stt-input.m4a')],
+      expect.objectContaining({ cwd: directory, shell: false }),
+    );
+    expect(run.mock.calls[1]?.[1]).toEqual(
+      expect.arrayContaining(['--format', 'bestaudio/best', '--max-filesize', '50M']),
+    );
+    expect(run.mock.calls[1]?.[1]).not.toContain('--write-auto-subs');
+  });
+
+  it('rejects a caption path outside the plugin temporary directory', async () => {
+    const directory = await temporaryDirectory();
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: {
+        run: vi.fn().mockResolvedValue({
+          stdout: JSON.stringify({ requested_subtitles: { pt: { filepath: '../outside.vtt' } } }),
+          stderr: '',
+        }),
+      },
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INSTAGRAM_EXTRACTION_FAILED' });
+  });
+
+  it('rejects a caption path that traverses a symbolic link inside the temporary directory', async () => {
+    const directory = await temporaryDirectory();
+    const outside = await temporaryDirectory();
+    await writeFile(join(outside, 'caption.vtt'), 'WEBVTT\n\n00:00.000 --> 00:01.000\nOutside\n');
+    await symlink(
+      outside,
+      join(directory, 'linked'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: {
+        run: vi.fn().mockResolvedValue({
+          stdout: JSON.stringify({
+            requested_subtitles: { pt: { filepath: 'linked/caption.vtt' } },
+          }),
+          stderr: '',
+        }),
+      },
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INSTAGRAM_EXTRACTION_FAILED' });
+  });
+
+  it('records a missing requested thumbnail as a gap and rejects an oversized one', async () => {
+    const missingDirectory = await temporaryDirectory();
+    const runner = {
+      run: vi.fn().mockResolvedValue({ stdout: JSON.stringify({ title: 'Fixture' }), stderr: '' }),
+    };
+    const plugin = createOfficialSourceInstagramPlugin({ runner });
+    const missing = await plugin.ingest(
+      {
+        input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+        options: { media: 'thumbnail' },
+        temporaryDirectory: missingDirectory,
+      },
+      context,
+    );
+    expect(missing.find((artifact) => artifact.path === 'content.md')?.metadata).toMatchObject({
+      extractionStatus: 'gap',
+      warnings: [
+        'No speech transcript was available; no transcript was invented.',
+        'The requested thumbnail was unavailable.',
+      ],
+    });
+
+    const oversizedDirectory = await temporaryDirectory();
+    await writeFile(join(oversizedDirectory, 'media.jpg'), Buffer.alloc(10 * 1024 * 1024 + 1));
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: { media: 'thumbnail' },
+          temporaryDirectory: oversizedDirectory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INSTAGRAM_MEDIA_LIMIT_EXCEEDED' });
+  });
+
+  it('does not retain yt-dlp headers or signed URLs in original metadata', async () => {
+    const directory = await temporaryDirectory();
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: {
+        run: vi.fn().mockResolvedValue({
+          stdout: JSON.stringify({
+            id: 'id',
+            title: 'Fixture',
+            url: 'https://cdn.example.test/video?signature=secret',
+            http_headers: { Cookie: 'secret-cookie' },
+          }),
+          stderr: '',
+        }),
+      },
+    });
+    await plugin.ingest(
+      {
+        input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+        options: {},
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+    await expect(
+      import('node:fs/promises').then(({ readFile }) =>
+        readFile(join(directory, 'original.info.json'), 'utf8'),
+      ),
+    ).resolves.not.toContain('secret');
+  });
+
+  it('passes requested languages and the ephemeral cookie file only to yt-dlp', async () => {
+    const directory = await temporaryDirectory();
+    const cookie = join(directory, 'cookies.txt');
+    const originalCookie = process.env.SHELDON_SOCIAL_COOKIE_FILE;
+    process.env.SHELDON_SOCIAL_COOKIE_FILE = cookie;
+    try {
+      const run = vi
+        .fn()
+        .mockResolvedValue({ stdout: JSON.stringify({ title: 'Fixture' }), stderr: '' });
+      const plugin = createOfficialSourceInstagramPlugin({ runner: { run } });
+      await plugin.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: { language: 'en,pt' },
+          temporaryDirectory: directory,
+        },
+        context,
+      );
+      expect(run).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.arrayContaining(['--sub-langs', 'en,pt', '--cookies', cookie]),
+        expect.objectContaining({ shell: false }),
+      );
+    } finally {
+      if (originalCookie === undefined) delete process.env.SHELDON_SOCIAL_COOKIE_FILE;
+      else process.env.SHELDON_SOCIAL_COOKIE_FILE = originalCookie;
+    }
+  });
+
+  it('reports an unavailable packaged runtime in the health check', async () => {
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: { run: vi.fn().mockRejectedValue(new Error('missing runtime')) },
+    });
+    await expect(plugin.healthcheck(context)).resolves.toMatchObject({
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'yt-dlp', severity: 'error' }),
+      ]),
     });
   });
 });

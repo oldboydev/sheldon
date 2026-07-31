@@ -11,6 +11,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Conector experimental `source.instagram` para Reels e posts de vídeo públicos, com cookies
   locais opcionais efêmeros, raws separados, diagnósticos estáveis e backoff limitado. Nenhum
   cookie é serializado em vault, manifesto, protocolo ou logs do host.
+
+### Changed
+
+- O conector experimental `source.instagram` agora inclui o runtime verificado de `yt-dlp` no
+  artefato oficial, confina toda saída do extrator ao diretório temporário e remove metadata de
+  sessão antes de publicar raws. Opções sociais são rejeitadas para plugins incompatíveis.
 - Interface Web Local M7 em React, servida por Fastify no mesmo processo e limitada a `127.0.0.1`, com dashboard, entrada de fontes, acompanhamento de jobs e navegação inicial do vault.
 - Contrato OpenAPI local em `/api/v1/openapi.json`, cliente tipado do navegador e eventos SSE retomáveis por cursor para trabalhos persistidos no SQLite operacional.
 - Comando `sheldon web` com escolha segura de porta livre, além de declaração opcional de efeitos de plugin para OCR, STT e download de modelo.

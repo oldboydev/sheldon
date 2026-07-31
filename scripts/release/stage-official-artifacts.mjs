@@ -30,7 +30,7 @@ export async function stageOfficialArtifacts(source, output, runtimeArtifacts, y
       await copyRequired(join(pluginSource, 'runtime'), join(pluginOutput, 'runtime'), true);
       if (runtimeArtifacts) await mergeOcrRuntimeArtifacts(runtimeArtifacts, pluginOutput);
     }
-    if (id === 'source.youtube' && youtubeRuntime) {
+    if ((id === 'source.youtube' || id === 'source.instagram') && youtubeRuntime) {
       await copyRequired(join(youtubeRuntime, 'runtime'), join(pluginOutput, 'runtime'), true);
     }
   }

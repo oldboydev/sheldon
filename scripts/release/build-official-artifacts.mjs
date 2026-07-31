@@ -101,7 +101,9 @@ async function validatePluginStage(root, expectedId) {
   }
   await requireRegularFile(join(root, 'THIRD_PARTY_NOTICES'), 'OFFICIAL_RELEASE_NOTICES_MISSING');
   if (expectedId === 'source.image') await validateImageStage(root);
-  if (expectedId === 'source.youtube') await validateYoutubeStage(root);
+  if (expectedId === 'source.youtube' || expectedId === 'source.instagram') {
+    await validateYoutubeStage(root);
+  }
   return { root, id: expectedId, version: manifest.version, name: manifest.name };
 }
 
@@ -153,7 +155,7 @@ async function createPluginArchive(plugin, platform, timestamp) {
 }
 
 function includeInPlatformArchive(id, path, platform) {
-  if (id === 'source.youtube') {
+  if (id === 'source.youtube' || id === 'source.instagram') {
     return !path.startsWith('runtime/') || path.startsWith(`runtime/${platform}/`);
   }
   if (id !== 'source.image') return true;
@@ -169,7 +171,8 @@ function archivePermissions(id, path, platform) {
   const unixRuntime =
     platform !== 'win32-x64' &&
     ((id === 'source.image' && path === `runtime/${platform}/tesseract`) ||
-      (id === 'source.youtube' && path === `runtime/${platform}/yt-dlp`));
+      ((id === 'source.youtube' || id === 'source.instagram') &&
+        path === `runtime/${platform}/yt-dlp`));
   return unixRuntime ? 0o100755 : 0o100644;
 }
 

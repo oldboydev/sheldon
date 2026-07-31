@@ -88,7 +88,8 @@ Saída: o fluxo principal pode ser concluído sem conhecer comandos da CLI.
 
 **PRD:** 010
 
-**Status:** concluído em 31 de julho de 2026.
+**Status:** parcialmente entregue em 31 de julho de 2026; o primeiro conector experimental está
+em revisão de segurança e release antes da conclusão do marco.
 
 Entrega: framework de plugins autenticados por cookies locais efêmeros e o conector experimental
 `source.instagram` para Reels e posts de vídeo públicos. O conector mantém post, metadados,

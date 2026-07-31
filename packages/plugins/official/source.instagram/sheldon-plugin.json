@@ -16,13 +16,13 @@
       "id": "yt-dlp",
       "kind": "executable",
       "required": true,
-      "remediation": "Reinstall the experimental source.instagram plugin."
+      "remediation": "Reinstall the experimental source.instagram plugin for this platform."
     },
     {
       "id": "local-stt",
       "kind": "runtime",
       "required": false,
-      "remediation": "Install and configure a local STT runtime before using --stt."
+      "remediation": "Install an offline local STT runtime and configure SHELDON_LOCAL_STT_EXECUTABLE (and optional JSON SHELDON_LOCAL_STT_ARGUMENTS) before using --stt."
     }
   ]
 }

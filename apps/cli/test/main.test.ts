@@ -34,6 +34,22 @@ it('advertises vault and plugin options for URL ingestion', async () => {
   expect(result.stdout).not.toContain('--max-depth');
 });
 
+it.each(['full', 'video', ''])(
+  'rejects an unsupported --media mode at the command boundary: %j',
+  async (value) => {
+    const dependencies = await cliDependencies('sheldon-media-mode-');
+
+    const result = await runCli(
+      ['ingest', 'url', 'topic', 'example', 'https://example.test/article', `--media=${value}`],
+      dependencies,
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain('--media must be none or thumbnail.');
+    await expectPluginMarkersAbsent(dependencies);
+  },
+);
+
 it('advertises required bounded crawl options separately from URL ingestion', async () => {
   const dependencies = await cliDependencies('sheldon-crawl-help-');
 
