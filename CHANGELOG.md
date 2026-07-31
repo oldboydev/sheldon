@@ -14,6 +14,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- O watchdog do builder de runtime OCR para Windows agora encerra o Job Object e retorna o
+  diagnóstico de timeout sem aguardar o cleanup de pipes redirecionados.
 - O conector experimental `source.instagram` agora inclui o runtime verificado de `yt-dlp` no
   artefato oficial, confina toda saída do extrator ao diretório temporário e remove metadata de
   sessão antes de publicar raws. Opções sociais são rejeitadas para plugins incompatíveis.

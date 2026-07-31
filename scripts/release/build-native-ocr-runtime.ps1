@@ -198,7 +198,9 @@ function Invoke-WatchedProcess {
       if (-not $timedOut -and $watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
         $timedOut = $true
         # Do not synchronously close a stream while its background writer is blocked on a full
-        # pipe. Killing the child releases the pipe; dropping the task keeps the watchdog bounded.
+        # pipe. More importantly, do not wait for redirected readers to observe EOF after a
+        # timeout: that observation can itself block on Windows. Killing the job and throwing
+        # immediately keeps the watchdog's bound independent of pipe cleanup scheduling.
         if ($stdinOpen) {
           $stdinOpen = $false
           $stdinWrite = $null
@@ -212,6 +214,7 @@ function Invoke-WatchedProcess {
         }
         $job.Dispose()
         $job = $null
+        throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."
       }
     }
     $process.WaitForExit()

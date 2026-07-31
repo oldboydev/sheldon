@@ -8,6 +8,10 @@ O planejamento do produto está aprovado e a implementação do marco M0 começo
 
 Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins sem misturar o estado operacional ao conhecimento. No M3, `source.file`, URL pública única e crawl público limitado por `ingest crawl`, YouTube público de vídeo único com legendas e snapshots de commits Git locais já estão disponíveis. `source.image`, OCR e seu runtime nativo existem na implementação; estão pausados somente o trabalho de release e a manutenção do runtime nativo, fora do escopo atual de conectores. Git remoto/autenticado, playlists/canais e STT local continuam adiados.
 
+O builder Windows do runtime OCR executa ferramentas filhas em um Job Object com limite por
+etapa; quando expira, encerra a árvore e retorna o diagnóstico de timeout sem depender do cleanup
+dos pipes redirecionados.
+
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
 O M8 acrescenta o plugin experimental `source.instagram` para Reels e posts de vídeo públicos.
