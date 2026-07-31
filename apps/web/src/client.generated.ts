@@ -16,6 +16,11 @@ export interface Job {
   readonly error?: string;
 }
 
+export interface JobPage {
+  readonly jobs: readonly Job[];
+  readonly nextOffset?: number;
+}
+
 export interface Dashboard {
   readonly health: { readonly vault: boolean; readonly sqlite: boolean };
   readonly jobs: { readonly queued: number; readonly failed: number; readonly running: number };
@@ -32,7 +37,7 @@ export const client = {
   dashboard: () => request<Dashboard>('/dashboard'),
   entities: (kind: 'topic' | 'project') => request<unknown[]>(`/entities/${kind}`),
   plugins: () => request<unknown[]>('/plugins'),
-  jobs: () => request<Job[]>('/jobs'),
+  jobs: () => request<JobPage>('/jobs'),
   queueJob: (body: unknown) =>
     request<Job>('/jobs', {
       method: 'POST',

@@ -4,6 +4,7 @@ export {
   type OperationInput,
   type OperationRecord,
   type JobEventRecord,
+  type JobPage,
   type JobRecord,
   type JobStatus,
   type RebuildStatus,

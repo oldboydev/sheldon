@@ -37,7 +37,7 @@ async function sourceFiles(directory) {
     entries.map(async (entry) => {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) return sourceFiles(path);
-      return entry.isFile() && path.endsWith('.ts') ? [path] : [];
+      return entry.isFile() && path.endsWith('.ts') && !path.endsWith('.d.ts') ? [path] : [];
     }),
   );
   return nested.flat();

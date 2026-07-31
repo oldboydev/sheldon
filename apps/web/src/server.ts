@@ -1,39 +1,26 @@
-import { access } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { access, mkdir, realpath, writeFile } from 'node:fs/promises';
+import { randomUUID } from 'node:crypto';
+import { fileURLToPath } from 'node:url';
+import { basename, join, relative, resolve, sep } from 'node:path';
 
 import fastify, { type FastifyInstance } from 'fastify';
+import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 
-import type { EntityKind } from '@sheldon/core';
 import { OperationsDatabase } from '@sheldon/persistence';
-import { PluginSelector } from '@sheldon/plugin-host';
-import type { JsonValue } from '@sheldon/plugin-sdk';
 import { VaultService, vaultPaths } from '@sheldon/vault';
 
-import {
-  approveProposal,
-  archiveEntity,
-  buildBundle,
-  createBundle,
-  lintWiki,
-  listEntities,
-  previewProposal,
-  rejectProposal,
-  searchVault,
-  showEntity,
-  validateBundle,
-  withPluginServices,
-  type BundleBuildOptions,
-  type BundleCreateOptions,
-  type CommandContext,
-  type SearchCommandOptions,
-} from '@sheldon/cli/web-api';
+import type { EntityKind } from '@sheldon/core';
+import type { WebApplication } from './application.js';
 import { webOpenApi } from './contract.js';
-import { WebJobService, type WebJobRequest } from './jobs.js';
+import { InvalidWebJobRequestError, WebJobService } from './jobs.js';
+
+export type { WebApplication } from './application.js';
+export type { WebJobRequest } from './jobs.js';
 
 export interface WebServerOptions {
   readonly vaultRoot: string;
-  readonly context: CommandContext;
+  readonly application: WebApplication;
   readonly staticRoot?: string;
 }
 
@@ -45,7 +32,27 @@ export interface StartedWebServer {
 export async function createWebServer(options: WebServerOptions): Promise<FastifyInstance> {
   const root = resolve(options.vaultRoot);
   const server = fastify({ logger: false, bodyLimit: 16 * 1024 * 1024 });
-  const jobs = new WebJobService(root, options.context);
+  const jobs = new WebJobService(root, options.application.executeJob);
+
+  await server.register(fastifyMultipart, {
+    limits: { files: 1, fileSize: 16 * 1024 * 1024 },
+  });
+
+  server.addHook('onRequest', async (request, reply) => {
+    const host = request.headers.host;
+    if (!isLocalHost(host) || !isAllowedOrigin(request.headers.origin, host)) {
+      return reply
+        .status(421)
+        .send(
+          problem(
+            'WEB_LOCAL_ORIGIN_REQUIRED',
+            'A interface local aceita somente requisições do próprio loopback.',
+            'Host',
+            'Abra a URL exibida pelo comando sheldon web e não use um proxy ou domínio externo.',
+          ),
+        );
+    }
+  });
 
   server.setErrorHandler((error, _request, reply) => {
     const detail = error as Error & {
@@ -53,12 +60,22 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
       readonly target?: string;
       readonly recovery?: string;
     };
-    reply.status(400).send({
+    const clientError =
+      error instanceof InvalidWebJobRequestError ||
+      detail.code !== undefined ||
+      (typeof (error as { statusCode?: unknown }).statusCode === 'number' &&
+        (error as { statusCode: number }).statusCode < 500);
+    const status = clientError ? 400 : 500;
+    reply.status(status).send({
       code: detail.code ?? 'WEB_REQUEST_FAILED',
-      message: detail.message,
+      message: clientError ? detail.message : 'A operação local falhou inesperadamente.',
       ...(detail.target === undefined ? {} : { target: detail.target }),
       ...(detail.recovery === undefined
-        ? { recovery: 'Revise os dados e tente novamente.' }
+        ? {
+            recovery: clientError
+              ? 'Revise os dados e tente novamente.'
+              : 'Consulte os eventos do trabalho e tente novamente.',
+          }
         : { recovery: detail.recovery }),
     });
   });
@@ -67,47 +84,33 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
   server.get('/api/v1/dashboard', async () => dashboard(root));
   server.get('/api/v1/entities/:kind', async (request) => {
     const kind = entityKind((request.params as { kind: string }).kind);
-    return capture(options.context, (context) => listEntities(kind, { vault: root }, context));
+    return options.application.listEntities(kind);
   });
   server.get('/api/v1/entities/:kind/:slug', async (request) => {
     const params = request.params as { kind: string; slug: string };
-    return capture(options.context, (context) =>
-      showEntity(entityKind(params.kind), params.slug, { vault: root }, context),
-    );
+    return options.application.showEntity(entityKind(params.kind), params.slug);
   });
   server.post('/api/v1/entities/:kind/:slug/archive', async (request) => {
     const params = request.params as { kind: string; slug: string };
     requireConfirmation(request.body, `${params.kind}:${params.slug}`);
-    return capture(options.context, (context) =>
-      archiveEntity(entityKind(params.kind), params.slug, { vault: root }, context),
-    );
+    return options.application.archiveEntity(entityKind(params.kind), params.slug);
   });
   server.get('/api/v1/search', async (request) => {
     const query = request.query as { q?: string; topic?: string; project?: string; tag?: string };
-    if (!query.q?.trim()) throw new Error('Informe um termo para buscar.');
-    return capture(options.context, (context) =>
-      searchVault(
-        query.q!,
-        {
-          vault: root,
-          topic: query.topic,
-          project: query.project,
-          tag: query.tag,
-        } as SearchCommandOptions,
-        context,
-      ),
-    );
+    if (!query.q?.trim()) throw badRequest('Informe um termo para buscar.');
+    return options.application.search({
+      q: query.q,
+      topic: query.topic,
+      project: query.project,
+      tag: query.tag,
+    });
   });
   server.get('/api/v1/reviews/:kind/:slug/:proposalId', async (request) => {
     const params = request.params as { kind: string; slug: string; proposalId: string };
-    return capture(options.context, (context) =>
-      previewProposal(
-        entityKind(params.kind),
-        params.slug,
-        params.proposalId,
-        { vault: root },
-        context,
-      ),
+    return options.application.previewProposal(
+      entityKind(params.kind),
+      params.slug,
+      params.proposalId,
     );
   });
   server.post('/api/v1/reviews/:kind/:slug/:proposalId/approve', async (request) => {
@@ -119,15 +122,11 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
     requireConfirmation(body, params.proposalId);
     if (!Array.isArray(body.paths) || body.paths.length === 0)
       throw new Error('Selecione ao menos um arquivo para aprovar.');
-    return capture(options.context, (context) =>
-      approveProposal(
-        entityKind(params.kind),
-        params.slug,
-        params.proposalId,
-        body.paths!,
-        { vault: root },
-        context,
-      ),
+    return options.application.approveProposal(
+      entityKind(params.kind),
+      params.slug,
+      params.proposalId,
+      body.paths!,
     );
   });
   server.post('/api/v1/reviews/:kind/:slug/:proposalId/reject', async (request) => {
@@ -135,22 +134,16 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
     const body = request.body as { readonly reason?: string; readonly confirmation?: string };
     requireConfirmation(body, params.proposalId);
     if (!body.reason?.trim()) throw new Error('Informe o motivo da rejeição.');
-    return capture(options.context, (context) =>
-      rejectProposal(
-        entityKind(params.kind),
-        params.slug,
-        params.proposalId,
-        body.reason!,
-        { vault: root },
-        context,
-      ),
+    return options.application.rejectProposal(
+      entityKind(params.kind),
+      params.slug,
+      params.proposalId,
+      body.reason!,
     );
   });
   server.get('/api/v1/reviews/:kind/:slug/lint', async (request) => {
     const params = request.params as { kind: string; slug: string };
-    return capture(options.context, (context) =>
-      lintWiki(entityKind(params.kind), params.slug, { vault: root }, context),
-    );
+    return options.application.lintWiki(entityKind(params.kind), params.slug);
   });
   server.post('/api/v1/bundles', async (request) => {
     const body = request.body as {
@@ -162,100 +155,59 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
       readonly maxDepth?: number;
       readonly unresolvedLink?: 'include' | 'keep-broken' | 'remove-warning';
     };
-    return capture(options.context, (context) =>
-      createBundle(body.bundleId, { vault: root, ...body } as BundleCreateOptions, context),
-    );
+    return options.application.createBundle(body as unknown as Record<string, unknown>);
   });
   server.post('/api/v1/bundles/:bundleId/preview', async (request) => {
     const params = request.params as { bundleId: string };
-    return capture(options.context, (context) =>
-      buildBundle(params.bundleId, { vault: root } as BundleBuildOptions, context),
-    );
+    return options.application.previewBundle(params.bundleId);
   });
   server.post('/api/v1/bundles/:bundleId/build', async (request) => {
     const params = request.params as { bundleId: string };
     requireConfirmation(request.body, params.bundleId);
-    return capture(options.context, (context) =>
-      buildBundle(params.bundleId, { vault: root, apply: true } as BundleBuildOptions, context),
-    );
+    return options.application.buildBundle(params.bundleId);
   });
   server.post('/api/v1/bundles/validate', async (request) => {
     const body = request.body as {
       readonly directory?: string;
       readonly mode?: 'strict' | 'lenient';
     };
-    if (!body.directory) throw new Error('Informe o diretório do bundle.');
-    return capture(options.context, (context) =>
-      validateBundle(body.directory!, { mode: body.mode }, context),
-    );
+    if (!body.directory || typeof body.directory !== 'string')
+      throw badRequest('Informe o diretório do bundle.');
+    const directory = await bundleDirectoryWithinVault(root, body.directory);
+    return options.application.validateBundle(directory, body.mode);
   });
-  server.get('/api/v1/plugins', async () => {
-    return withPluginServices(options.context, async ({ discovery }) => {
-      const entries = await discovery.discover();
-      return entries.map((entry) => ({
-        id: entry.id,
-        origin: entry.origin,
-        discovery: entry.discovery,
-        health: entry.health,
-        ...(entry.manifest === undefined
-          ? {}
-          : {
-              manifest: {
-                name: entry.manifest.name,
-                version: entry.manifest.version,
-                capabilities: entry.manifest.capabilities,
-                permissions: entry.manifest.permissions,
-                effects: entry.manifest.effects ?? { ocr: false, stt: false, modelDownload: false },
-                dependencies: entry.manifest.dependencies,
-              },
-            }),
-      }));
-    });
-  });
+  server.get('/api/v1/plugins', async () => options.application.listPlugins());
   server.post('/api/v1/sources/probe', async (request) => {
-    const body = request.body as {
-      readonly type: 'file' | 'url' | 'crawl' | 'repository';
-      readonly value: string;
-      readonly plugin?: string;
-    };
-    if (!body || typeof body.value !== 'string')
-      throw new Error('A entrada da fonte é obrigatória.');
-    const capability = capabilityFor(body.type);
-    const input: Readonly<Record<string, JsonValue>> =
-      body.type === 'file'
-        ? { filePath: body.value }
-        : body.type === 'repository'
-          ? { repositoryPath: body.value }
-          : { url: body.value };
-    return withPluginServices(options.context, async ({ discovery, runner }) => {
-      const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
-        capability,
-        pluginId: body.plugin,
-      });
-      if (selection.status === 'ambiguous') return selection;
-      return {
-        status: 'selected',
-        plugin: selection.plugin.manifest.id,
-        reason: selection.probe.reason,
-        confidence: selection.probe.confidence,
-        permissions: selection.plugin.manifest.permissions,
-        effects: selection.plugin.manifest.effects ?? {
-          ocr: false,
-          stt: false,
-          modelDownload: false,
-        },
-        dependencies: selection.plugin.manifest.dependencies,
-      };
-    });
+    if (typeof request.body !== 'object' || request.body === null)
+      throw badRequest('A entrada da fonte é obrigatória.');
+    return options.application.probeSource(request.body as Record<string, unknown>);
   });
-  server.get('/api/v1/jobs', async () => jobs.list());
+  server.post('/api/v1/sources/upload', async (request) => {
+    const upload = await request.file();
+    if (upload === undefined) throw badRequest('Envie um arquivo para a fonte local.');
+    const originalName = basename(upload.filename || 'fonte');
+    if (!originalName || originalName === '.' || originalName === '..') {
+      throw badRequest('O nome do arquivo enviado é inválido.');
+    }
+    const bytes = await upload.toBuffer();
+    if (upload.file.truncated) throw badRequest('O arquivo excede o limite de 16 MiB.');
+    const directory = join(root, '.sheldon', 'uploads');
+    await mkdir(directory, { recursive: true });
+    const path = join(directory, `${randomUUID()}-${originalName}`);
+    await writeFile(path, bytes, { flag: 'wx' });
+    return { path, originalName, bytes: bytes.byteLength };
+  });
+  server.get('/api/v1/jobs', async (request) => {
+    const query = request.query as { limit?: string; offset?: string };
+    return jobs.list(boundedInteger(query.limit, 100, 1, 250), boundedInteger(query.offset, 0, 0));
+  });
   server.get('/api/v1/jobs/:id', async (request, reply) => {
     const job = jobs.get((request.params as { id: string }).id);
     if (job === undefined) return reply.status(404).send(notFound('Trabalho'));
     return job;
   });
   server.post('/api/v1/jobs', async (request, reply) => {
-    const job = jobs.enqueue(request.body as WebJobRequest);
+    const job = jobs.enqueue(request.body);
     return reply.status(202).send(job);
   });
   server.post('/api/v1/jobs/:id/cancel', async (request) =>
@@ -288,7 +240,7 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
     request.raw.once('close', () => clearInterval(timer));
   });
 
-  const staticRoot = options.staticRoot ?? join(process.cwd(), 'apps', 'web', 'dist', 'client');
+  const staticRoot = options.staticRoot ?? fileURLToPath(new URL('./client', import.meta.url));
   if (await directoryExists(staticRoot)) {
     await server.register(fastifyStatic, { root: staticRoot, wildcard: false });
     server.get('/*', async (_request, reply) => reply.sendFile('index.html'));
@@ -310,7 +262,7 @@ async function dashboard(root: string) {
   await VaultService.discover(root);
   const database = OperationsDatabase.open(vaultPaths(root).operationsDatabase);
   try {
-    const jobs = database.listJobs();
+    const jobs = database.listJobs(12).jobs;
     return {
       health: {
         vault: true,
@@ -331,26 +283,7 @@ async function dashboard(root: string) {
 
 function entityKind(value: string): EntityKind {
   if (value === 'topic' || value === 'project') return value;
-  throw new Error('A entidade deve ser topic ou project.');
-}
-
-function capabilityFor(type: 'file' | 'url' | 'crawl' | 'repository'): string {
-  return type === 'file'
-    ? 'ingest-file'
-    : type === 'crawl'
-      ? 'ingest-site'
-      : type === 'repository'
-        ? 'ingest-repository'
-        : 'ingest-url';
-}
-
-async function capture(
-  context: CommandContext,
-  operation: (captureContext: CommandContext) => Promise<void>,
-): Promise<unknown> {
-  const output: string[] = [];
-  await operation({ ...context, write: (message) => output.push(message) });
-  return output.length === 1 ? JSON.parse(output[0]) : output.map((message) => JSON.parse(message));
+  throw badRequest('A entidade deve ser topic ou project.');
 }
 
 function notFound(target: string) {
@@ -378,6 +311,63 @@ function requireConfirmation(value: unknown, target: string): void {
     error.recovery = 'Digite o alvo exibido e confirme a ação.';
     throw error;
   }
+}
+
+function problem(code: string, message: string, target: string | undefined, recovery: string) {
+  return { code, message, ...(target === undefined ? {} : { target }), recovery };
+}
+
+function badRequest(message: string): Error & { readonly code: string; readonly recovery: string } {
+  const error = new Error(message) as Error & { code: string; recovery: string };
+  error.code = 'WEB_REQUEST_INVALID';
+  error.recovery = 'Revise os dados e tente novamente.';
+  return error;
+}
+
+function boundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum = Number.MAX_SAFE_INTEGER,
+): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw badRequest('O parâmetro de paginação é inválido.');
+  }
+  return parsed;
+}
+
+function isLocalHost(host: string | undefined): boolean {
+  if (host === undefined) return false;
+  const value = host.toLowerCase();
+  return /^(?:127\.0\.0\.1|localhost)(?::\d{1,5})?$/u.test(value);
+}
+
+function isAllowedOrigin(origin: string | undefined, host: string | undefined): boolean {
+  if (origin === undefined) return true;
+  if (!isLocalHost(host)) return false;
+  try {
+    const parsed = new URL(origin);
+    return parsed.protocol === 'http:' && parsed.host.toLowerCase() === host!.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+async function bundleDirectoryWithinVault(vaultRoot: string, directory: string): Promise<string> {
+  const bundles = await realpath(vaultPaths(vaultRoot).bundles);
+  const target = await realpath(resolve(directory));
+  const relativePath = relative(bundles, target);
+  if (
+    relativePath === '' ||
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`) ||
+    relativePath.includes(`..${sep}`)
+  ) {
+    throw badRequest('A validação aceita somente diretórios de bundle dentro do vault ativo.');
+  }
+  return target;
 }
 
 async function directoryExists(path: string): Promise<boolean> {

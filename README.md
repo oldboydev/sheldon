@@ -21,7 +21,7 @@ npm run build
 npm run sheldon -- web --vault C:\knowledge\sheldon
 ```
 
-O comando informa uma URL em `http://127.0.0.1:<porta>` e escolhe uma porta livre quando `--port` não é informado. A interface nunca escuta em rede; ela reúne o estado do vault, fontes, jobs, conhecimento e diagnósticos sem alterar as regras de domínio existentes. Os trabalhos ficam no SQLite operacional e o navegador pode ser recarregado durante a execução: a tela retoma os eventos pelo cursor persistido.
+O comando informa uma URL em `http://127.0.0.1:<porta>` e escolhe uma porta livre quando `--port` não é informado. A interface nunca escuta em rede: além do bind em loopback, ela rejeita `Host` e `Origin` externos. Ela reúne o estado do vault, fontes, jobs, conhecimento e diagnósticos sem alterar as regras de domínio existentes. Os trabalhos ficam no SQLite operacional e o navegador pode ser recarregado durante a execução: a tela retoma os eventos pelo cursor persistido. Um cancelamento propaga para plugins e agentes e interrompe a publicação antes que raws, propostas ou builds sejam materializados.
 
 ## Decisões principais
 

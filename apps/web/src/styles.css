@@ -258,6 +258,18 @@ h2 {
   margin-top: 30px;
   border-left: 4px solid #3e7b80;
 }
+
+.upload-drop {
+  border: 1px dashed var(--line);
+  border-radius: 8px;
+  padding: 0.85rem;
+}
+
+.upload-drop small {
+  display: block;
+  color: var(--muted);
+  margin-top: 0.4rem;
+}
 .source-form label {
   display: grid;
   gap: 7px;

@@ -64,7 +64,11 @@ export async function infoPlugin(
   });
 }
 
-export async function doctorPlugin(id: string, context: CommandContext): Promise<void> {
+export async function doctorPlugin(
+  id: string,
+  context: CommandContext,
+  options: { readonly signal?: AbortSignal } = {},
+): Promise<void> {
   await withPluginServices(context, async ({ discovery, doctor }) => {
     const entry = (await discovery.discover()).find((candidate) => candidate.id === id);
     if (entry === undefined) {
@@ -75,7 +79,8 @@ export async function doctorPlugin(id: string, context: CommandContext): Promise
         'Run sheldon plugin list and retry with a listed identifier.',
       );
     }
-    const result = await doctor.check(entry);
+    const result = await doctor.check(entry, options);
+    options.signal?.throwIfAborted();
     context.write(`${id}: ${result.healthy ? 'healthy' : 'unhealthy'}`);
     for (const check of result.checks) {
       context.write(`${check.severity}: ${check.id}: ${check.message}`);

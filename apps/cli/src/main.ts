@@ -74,6 +74,7 @@ import {
 } from './commands/bundle.js';
 import type { OfficialPlatform } from '@sheldon/plugin-host';
 import { startWebServer } from '@sheldon/web';
+import { createWebApplication } from './web-api.js';
 
 import {
   createOfficialCatalogClient,
@@ -196,7 +197,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
       const vaultRoot = await resolveVaultPath(context, options.vault);
       const started = await startWebServer({
         vaultRoot,
-        context,
+        application: createWebApplication(context, vaultRoot),
         ...(options.port === undefined ? {} : { port: options.port }),
       });
       context.write(`Sheldon web: ${started.url}`);

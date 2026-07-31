@@ -24,10 +24,12 @@ export interface QueryCommandOptions extends VaultOption {
   readonly linkDepth?: number;
   readonly maxContextChars?: number;
   readonly rebuild?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export interface PromoteAnswerOptions extends VaultOption {
   readonly prompt: string;
+  readonly signal?: AbortSignal;
 }
 
 export interface QueryCommandDependencies {
@@ -69,6 +71,7 @@ export async function queryVault(
             contextResult.truncation,
           )
         : await answerFromAgent(answerId, options, contextResult, entity, context, dependencies);
+    options.signal?.throwIfAborted();
     const validated = validateQueryAnswer(answer).answer;
     assertAnswerEvidence(validated, contextResult.citations);
     context.write(JSON.stringify(await answers.save(validated), null, 2));
@@ -96,13 +99,16 @@ export async function promoteAnswer(
     answer.agent === 'codex'
       ? createCodexCommandAdapter(executor)
       : createClaudeCommandAdapter(executor);
-  const execution = await adapter.execute({
-    proposalId,
-    prompt: options.prompt,
-    promptVersion: 'query-answer-promotion/v1',
-    rawSources: answer.raws.map((raw) => raw.path),
-    workingDirectory: entity,
-  });
+  const execution = await adapter.execute(
+    {
+      proposalId,
+      prompt: options.prompt,
+      promptVersion: 'query-answer-promotion/v1',
+      rawSources: answer.raws.map((raw) => raw.path),
+      workingDirectory: entity,
+    },
+    { signal: options.signal },
+  );
   if (execution.status !== 'proposal') {
     throw new Error(
       execution.status === 'error'
@@ -140,28 +146,31 @@ async function answerFromAgent(
     options.agent === 'codex'
       ? createCodexQueryAdapter(executor)
       : createClaudeQueryAdapter(executor);
-  const execution = await adapter.execute({
-    answerId,
-    question: options.question,
-    concepts: result.concepts.map((concept) => ({
-      path: concept.result.path,
-      title: concept.result.title,
-      body: concept.body,
-    })),
-    rawSources: result.citations
-      .filter((citation) => citation.kind === 'raw')
-      .map((citation) => citation.path),
-    gaps: [
-      ...result.gaps.map((gap) => gap.message),
-      ...(result.truncated
-        ? [
-            'The local context excludes matching index results or related concepts due to its configured limits.',
-          ]
-        : []),
-    ],
-    truncated: result.truncated,
-    workingDirectory: entity,
-  });
+  const execution = await adapter.execute(
+    {
+      answerId,
+      question: options.question,
+      concepts: result.concepts.map((concept) => ({
+        path: concept.result.path,
+        title: concept.result.title,
+        body: concept.body,
+      })),
+      rawSources: result.citations
+        .filter((citation) => citation.kind === 'raw')
+        .map((citation) => citation.path),
+      gaps: [
+        ...result.gaps.map((gap) => gap.message),
+        ...(result.truncated
+          ? [
+              'The local context excludes matching index results or related concepts due to its configured limits.',
+            ]
+          : []),
+      ],
+      truncated: result.truncated,
+      workingDirectory: entity,
+    },
+    { signal: options.signal },
+  );
   if (execution.status !== 'answer') {
     throw new Error(
       execution.status === 'error'

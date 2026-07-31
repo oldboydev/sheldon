@@ -40,6 +40,15 @@ export interface JobEventRecord {
   readonly details: Readonly<Record<string, unknown>>;
 }
 
+export interface JobPage {
+  readonly jobs: readonly JobRecord[];
+  readonly nextOffset?: number;
+}
+
+const DEFAULT_JOB_PAGE_SIZE = 100;
+const MAX_JOB_PAGE_SIZE = 250;
+const JOB_EVENT_RETENTION = 1_000;
+
 export interface RebuildStatus {
   readonly rebuildable: true;
   readonly sourceOfTruth: false;
@@ -171,11 +180,18 @@ export class OperationsDatabase {
     return row === undefined ? undefined : toJobRecord(row);
   }
 
-  public listJobs(): readonly JobRecord[] {
-    return this.database
-      .prepare(`SELECT * FROM jobs ORDER BY created_at DESC, id DESC`)
-      .all()
+  public listJobs(limit = DEFAULT_JOB_PAGE_SIZE, offset = 0): JobPage {
+    const boundedLimit = Math.min(Math.max(1, Math.floor(limit)), MAX_JOB_PAGE_SIZE);
+    const boundedOffset = Math.max(0, Math.floor(offset));
+    const rows = this.database
+      .prepare(`SELECT * FROM jobs ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`)
+      .all(boundedLimit + 1, boundedOffset)
       .map(toJobRecord);
+    const jobs = rows.slice(0, boundedLimit);
+    return {
+      jobs,
+      ...(rows.length > boundedLimit ? { nextOffset: boundedOffset + boundedLimit } : {}),
+    };
   }
 
   public appendJobEvent(input: Omit<JobEventRecord, 'id'>): JobEventRecord {
@@ -185,6 +201,15 @@ export class OperationsDatabase {
          VALUES (?, ?, ?, ?, ?)`,
       )
       .run(input.jobId, input.at, input.stage, input.message, JSON.stringify(input.details));
+    this.database
+      .prepare(
+        `DELETE FROM job_events
+         WHERE job_id = ?
+           AND id NOT IN (
+             SELECT id FROM job_events WHERE job_id = ? ORDER BY id DESC LIMIT ?
+           )`,
+      )
+      .run(input.jobId, input.jobId, JOB_EVENT_RETENTION);
     return { ...input, id: Number(result.lastInsertRowid) };
   }
 
@@ -193,6 +218,36 @@ export class OperationsDatabase {
       .prepare(`SELECT * FROM job_events WHERE job_id = ? AND id > ? ORDER BY id`)
       .all(jobId, after)
       .map(toJobEventRecord);
+  }
+
+  /** Marks work that was active when this server stopped as safe to retry. */
+  public interruptActiveJobs(at: string): readonly JobRecord[] {
+    const active = this.database
+      .prepare(
+        `SELECT * FROM jobs WHERE status IN ('running', 'cancelling') ORDER BY created_at, id`,
+      )
+      .all()
+      .map(toJobRecord);
+    for (const job of active) {
+      this.updateJob(job.id, {
+        status: 'interrupted',
+        completedAt: at,
+        error: 'O servidor local foi interrompido antes da conclusão.',
+      });
+      this.appendJobEvent({
+        jobId: job.id,
+        at,
+        stage: 'interrupted',
+        message: 'Trabalho interrompido pelo encerramento do servidor local.',
+        details: {},
+      });
+    }
+    return active.map((job) => ({
+      ...job,
+      status: 'interrupted' as const,
+      completedAt: at,
+      error: 'O servidor local foi interrompido antes da conclusão.',
+    }));
   }
 
   public getRebuildStatus(): RebuildStatus {

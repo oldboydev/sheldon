@@ -31,7 +31,7 @@ export function App() {
         client.entities('topic') as Promise<{ title: string; slug: string }[]>,
       ]);
       setDashboard(nextDashboard);
-      setJobs(nextJobs);
+      setJobs(nextJobs.jobs);
       setTopics(nextTopics);
       setError(undefined);
     } catch (reason) {
@@ -135,6 +135,7 @@ function SourceView({
   const [kind, setKind] = useState<'url' | 'file' | 'repository'>('url');
   const [slug, setSlug] = useState(topics[0]?.slug ?? '');
   const [value, setValue] = useState('');
+  const [file, setFile] = useState<File>();
   const [preview, setPreview] = useState<string>();
   const [busy, setBusy] = useState(false);
   useEffect(() => {
@@ -147,10 +148,22 @@ function SourceView({
     setBusy(true);
     setPreview(undefined);
     try {
+      const uploaded =
+        kind === 'file' && file
+          ? await (async () => {
+              const body = new FormData();
+              body.set('file', file);
+              const response = await fetch('/api/v1/sources/upload', { method: 'POST', body });
+              const result = (await response.json()) as { path?: string; message?: string };
+              if (!response.ok || result.path === undefined)
+                throw new Error(result.message ?? 'Não foi possível enviar o arquivo.');
+              return result.path;
+            })()
+          : value;
       const probe = await fetch('/api/v1/sources/probe', {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ type: kind, value }),
+        body: JSON.stringify({ type: kind, value: uploaded }),
       });
       const result = (await probe.json()) as {
         plugin?: string;
@@ -166,7 +179,7 @@ function SourceView({
         type === 'ingest-url'
           ? { type, kind: 'topic', slug, url: value }
           : type === 'ingest-file'
-            ? { type, kind: 'topic', slug, file: value }
+            ? { type, kind: 'topic', slug, file: uploaded }
             : { type, kind: 'topic', slug, directory: value },
       );
       await onQueued();
@@ -219,6 +232,23 @@ function SourceView({
             placeholder={kind === 'url' ? 'https://…' : 'C:\\…'}
           />
         </label>
+        {kind === 'file' && (
+          <label
+            className="upload-drop"
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              setFile(event.dataTransfer.files.item(0) ?? undefined);
+            }}
+          >
+            Arquivo para enviar
+            <input
+              type="file"
+              onChange={(event) => setFile(event.target.files?.item(0) ?? undefined)}
+            />
+            <small>{file?.name ?? 'Arraste um arquivo ou escolha no computador.'}</small>
+          </label>
+        )}
         <button className="primary" disabled={busy || !slug}>
           {busy ? 'Verificando…' : 'Verificar e iniciar'}
         </button>

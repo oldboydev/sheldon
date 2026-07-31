@@ -7,6 +7,7 @@ import type { ProcessOperationResult, RunnablePlugin } from './process-runner.js
 export interface PluginHealthRunner {
   healthcheck(
     plugin: RunnablePlugin,
+    options?: { readonly signal?: AbortSignal },
   ): Promise<ProcessOperationResult<{ readonly checks: readonly HealthcheckItem[] }>>;
 }
 
@@ -31,7 +32,10 @@ export class PluginDoctor {
     this.now = options.now ?? (() => new Date());
   }
 
-  public async check(entry: PluginInventoryEntry): Promise<PluginDoctorResult> {
+  public async check(
+    entry: PluginInventoryEntry,
+    options: { readonly signal?: AbortSignal } = {},
+  ): Promise<PluginDoctorResult> {
     const checkedAt = this.now().toISOString();
     if (
       entry.discovery.status !== 'ready' ||
@@ -61,7 +65,12 @@ export class PluginDoctor {
       manifest: entry.manifest,
       manifestDigest: entry.manifestDigest,
     };
-    const checks = (await this.options.runner.healthcheck(plugin)).result.checks;
+    const checks = (
+      await (options.signal === undefined
+        ? this.options.runner.healthcheck(plugin)
+        : this.options.runner.healthcheck(plugin, { signal: options.signal }))
+    ).result.checks;
+    options.signal?.throwIfAborted();
     const healthy = !checks.some((check) => check.severity === 'error');
     this.options.state.saveHealth({
       pluginId: entry.manifest.id,

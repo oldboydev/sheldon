@@ -1,26 +1,13 @@
 import { randomUUID } from 'node:crypto';
 
 import type { EntityKind } from '@sheldon/core';
-import { OperationsDatabase, type JobRecord, type JobStatus } from '@sheldon/persistence';
-import { vaultPaths } from '@sheldon/vault';
-
 import {
-  buildBundle,
-  compileMemory,
-  doctorPlugin,
-  ingestCrawl,
-  ingestFile,
-  ingestRepository,
-  ingestUrl,
-  queryVault,
-  type BundleBuildOptions,
-  type CrawlIngestionOptions,
-  type FileIngestionOptions,
-  type QueryCommandOptions,
-  type RepositoryIngestionOptions,
-  type UrlIngestionOptions,
-  type CommandContext,
-} from '@sheldon/cli/web-api';
+  OperationsDatabase,
+  type JobPage,
+  type JobRecord,
+  type JobStatus,
+} from '@sheldon/persistence';
+import { vaultPaths } from '@sheldon/vault';
 
 export type WebJobRequest =
   | {
@@ -81,45 +68,82 @@ export type WebJobRequest =
 
 const retryable = new Set<JobStatus>(['failed', 'cancelled', 'interrupted']);
 
+export class InvalidWebJobRequestError extends Error {
+  public readonly code = 'WEB_JOB_INVALID';
+  public readonly recovery = 'Revise o tipo de trabalho e todos os campos obrigatórios.';
+}
+
+export type WebJobExecutor = (
+  request: WebJobRequest,
+  context: { readonly write: (message: string) => void },
+  signal: AbortSignal,
+) => Promise<void>;
+
 export class WebJobService {
   private readonly controllers = new Map<string, AbortController>();
 
   public constructor(
     private readonly vaultRoot: string,
-    private readonly context: CommandContext,
-  ) {}
+    private readonly executor: WebJobExecutor,
+  ) {
+    const database = this.open();
+    try {
+      database.interruptActiveJobs(new Date().toISOString());
+    } finally {
+      database.close();
+    }
+  }
 
-  public list(): readonly JobRecord[] {
-    return this.open().listJobs();
+  public list(limit?: number, offset?: number): JobPage {
+    const database = this.open();
+    try {
+      return database.listJobs(limit, offset);
+    } finally {
+      database.close();
+    }
   }
 
   public get(id: string): JobRecord | undefined {
-    return this.open().getJob(id);
+    const database = this.open();
+    try {
+      return database.getJob(id);
+    } finally {
+      database.close();
+    }
   }
 
   public events(id: string, after = 0) {
-    return this.open().listJobEvents(id, after);
+    const database = this.open();
+    try {
+      return database.listJobEvents(id, after);
+    } finally {
+      database.close();
+    }
   }
 
-  public enqueue(request: WebJobRequest): JobRecord {
+  public enqueue(request: unknown): JobRecord {
+    const validRequest = parseWebJobRequest(request);
     const database = this.open();
-    const job = database.createJob({
-      id: randomUUID(),
-      type: request.type,
-      status: 'queued',
-      payload: request as unknown as Record<string, unknown>,
-      createdAt: new Date().toISOString(),
-    });
-    database.appendJobEvent({
-      jobId: job.id,
-      at: job.createdAt,
-      stage: 'queued',
-      message: 'Trabalho adicionado à fila local.',
-      details: {},
-    });
-    database.close();
-    queueMicrotask(() => void this.run(job.id, request));
-    return job;
+    try {
+      const job = database.createJob({
+        id: randomUUID(),
+        type: validRequest.type,
+        status: 'queued',
+        payload: validRequest as unknown as Record<string, unknown>,
+        createdAt: new Date().toISOString(),
+      });
+      database.appendJobEvent({
+        jobId: job.id,
+        at: job.createdAt,
+        stage: 'queued',
+        message: 'Trabalho adicionado à fila local.',
+        details: {},
+      });
+      queueMicrotask(() => void this.run(job.id, validRequest));
+      return job;
+    } finally {
+      database.close();
+    }
   }
 
   public retry(id: string): JobRecord {
@@ -127,7 +151,7 @@ export class WebJobService {
     if (job === undefined) throw new Error(`Trabalho não encontrado: ${id}`);
     if (!retryable.has(job.status))
       throw new Error('Somente trabalhos finalizados com falha podem ser repetidos.');
-    return this.enqueue(job.payload as unknown as WebJobRequest);
+    return this.enqueue(job.payload);
   }
 
   public cancel(id: string): JobRecord {
@@ -176,18 +200,12 @@ export class WebJobService {
       details: {},
     });
     database.close();
-    const context: CommandContext = {
-      ...this.context,
-      write: (message) => this.event(id, 'log', message),
-    };
+    const context = { write: (message: string) => this.event(id, 'log', message) };
     try {
-      await this.execute(request, context, controller.signal);
-      const status = controller.signal.aborted ? 'cancelled' : 'succeeded';
-      this.finish(
-        id,
-        status,
-        status === 'succeeded' ? 'Trabalho concluído.' : 'Trabalho cancelado.',
-      );
+      await this.executor(request, context, controller.signal);
+      controller.signal.throwIfAborted();
+      const status = 'succeeded';
+      this.finish(id, status, 'Trabalho concluído.');
     } catch (error) {
       const status = controller.signal.aborted ? 'cancelled' : 'failed';
       const message = error instanceof Error ? error.message : String(error);
@@ -199,78 +217,6 @@ export class WebJobService {
       );
     } finally {
       this.controllers.delete(id);
-    }
-  }
-
-  private async execute(
-    request: WebJobRequest,
-    context: CommandContext,
-    signal: AbortSignal,
-  ): Promise<void> {
-    if (signal.aborted) return;
-    const vault = { vault: this.vaultRoot };
-    switch (request.type) {
-      case 'ingest-file':
-        return ingestFile(
-          request.kind,
-          request.slug,
-          request.file,
-          { ...vault, plugin: request.plugin } as FileIngestionOptions,
-          context,
-        );
-      case 'ingest-url':
-        return ingestUrl(
-          request.kind,
-          request.slug,
-          request.url,
-          { ...vault, plugin: request.plugin, language: request.language } as UrlIngestionOptions,
-          context,
-        );
-      case 'ingest-crawl':
-        return ingestCrawl(
-          request.kind,
-          request.slug,
-          request.url,
-          {
-            ...vault,
-            plugin: request.plugin,
-            maxDepth: request.maxDepth,
-            maxPages: request.maxPages,
-          } as CrawlIngestionOptions,
-          context,
-        );
-      case 'ingest-repository':
-        return ingestRepository(
-          request.kind,
-          request.slug,
-          request.directory,
-          { ...vault, plugin: request.plugin } as RepositoryIngestionOptions,
-          context,
-        );
-      case 'compile':
-        return compileMemory(
-          request.kind,
-          request.slug,
-          request.proposalId,
-          { ...vault, agent: request.agent, prompt: request.prompt, raw: request.raw },
-          context,
-        );
-      case 'query':
-        return queryVault(
-          request.kind,
-          request.slug,
-          request.answerId,
-          { ...vault, agent: request.agent, question: request.question } as QueryCommandOptions,
-          context,
-        );
-      case 'plugin-health':
-        return doctorPlugin(request.pluginId, context);
-      case 'bundle-build':
-        return buildBundle(
-          request.bundleId,
-          { ...vault, apply: request.apply, mode: request.mode } as BundleBuildOptions,
-          context,
-        );
     }
   }
 
@@ -311,4 +257,131 @@ export class WebJobService {
   private open(): OperationsDatabase {
     return OperationsDatabase.open(vaultPaths(this.vaultRoot).operationsDatabase);
   }
+}
+
+function parseWebJobRequest(value: unknown): WebJobRequest {
+  if (!isRecord(value) || typeof value.type !== 'string') invalidJob();
+  const type = value.type;
+  if (type === 'plugin-health') {
+    if (typeof value.pluginId !== 'string' || !value.pluginId.trim()) invalidJob();
+    return { type, pluginId: value.pluginId };
+  }
+  if (type === 'bundle-build') {
+    if (typeof value.bundleId !== 'string' || !value.bundleId.trim()) invalidJob();
+    if (value.apply !== undefined && typeof value.apply !== 'boolean') invalidJob();
+    if (value.mode !== undefined && value.mode !== 'strict' && value.mode !== 'lenient')
+      invalidJob();
+    return {
+      type,
+      bundleId: value.bundleId,
+      ...(value.apply === undefined ? {} : { apply: value.apply }),
+      ...(value.mode === undefined ? {} : { mode: value.mode }),
+    };
+  }
+  const kind = value.kind;
+  const slug = value.slug;
+  if ((kind !== 'topic' && kind !== 'project') || typeof slug !== 'string' || !slug.trim())
+    invalidJob();
+  const plugin = optionalString(value.plugin);
+  if (type === 'ingest-file') {
+    return {
+      type,
+      kind,
+      slug,
+      file: requiredString(value, 'file'),
+      ...(plugin === undefined ? {} : { plugin }),
+    };
+  }
+  if (type === 'ingest-url') {
+    const language = optionalString(value.language);
+    return {
+      type,
+      kind,
+      slug,
+      url: requiredString(value, 'url'),
+      ...(plugin === undefined ? {} : { plugin }),
+      ...(language === undefined ? {} : { language }),
+    };
+  }
+  if (type === 'ingest-repository') {
+    return {
+      type,
+      kind,
+      slug,
+      directory: requiredString(value, 'directory'),
+      ...(plugin === undefined ? {} : { plugin }),
+    };
+  }
+  if (type === 'ingest-crawl') {
+    const maxPages = value.maxPages;
+    if (
+      (value.maxDepth !== 0 && value.maxDepth !== 1 && value.maxDepth !== 2) ||
+      typeof maxPages !== 'number' ||
+      !Number.isInteger(maxPages) ||
+      maxPages < 1
+    )
+      invalidJob();
+    return {
+      type,
+      kind,
+      slug,
+      url: requiredString(value, 'url'),
+      maxDepth: value.maxDepth,
+      maxPages,
+      ...(plugin === undefined ? {} : { plugin }),
+    };
+  }
+  if (type === 'compile') {
+    if (
+      !validAgent(value.agent) ||
+      !Array.isArray(value.raw) ||
+      !value.raw.every((raw) => typeof raw === 'string')
+    )
+      invalidJob();
+    return {
+      type,
+      kind,
+      slug,
+      proposalId: requiredString(value, 'proposalId'),
+      prompt: requiredString(value, 'prompt'),
+      agent: value.agent,
+      raw: value.raw,
+    };
+  }
+  if (type === 'query') {
+    if (!validAgent(value.agent)) invalidJob();
+    return {
+      type,
+      kind,
+      slug,
+      answerId: requiredString(value, 'answerId'),
+      question: requiredString(value, 'question'),
+      agent: value.agent,
+    };
+  }
+  return invalidJob();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function optionalString(value: unknown): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== 'string') invalidJob();
+  return value;
+}
+
+function requiredString(value: Record<string, unknown>, field: string): string {
+  const candidate = value[field];
+  if (typeof candidate !== 'string' || !candidate.trim()) invalidJob();
+  return candidate;
+}
+
+function validAgent(value: unknown): value is 'codex' | 'claude' {
+  return value === 'codex' || value === 'claude';
+}
+
+function invalidJob(): never {
+  throw new InvalidWebJobRequestError('O trabalho enviado não segue o contrato da API.');
 }
