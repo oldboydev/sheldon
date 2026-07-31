@@ -11,6 +11,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Conector experimental `source.instagram` para Reels e posts de vídeo públicos, com cookies
   locais opcionais efêmeros, raws separados, diagnósticos estáveis e backoff limitado. Nenhum
   cookie é serializado em vault, manifesto, protocolo ou logs do host.
+- Interface Web Local M7 em React, servida por Fastify no mesmo processo e limitada a `127.0.0.1`, com dashboard, entrada de fontes, acompanhamento de jobs e navegação inicial do vault.
+- Contrato OpenAPI local em `/api/v1/openapi.json`, cliente tipado do navegador e eventos SSE retomáveis por cursor para trabalhos persistidos no SQLite operacional.
+- Comando `sheldon web` com escolha segura de porta livre, além de declaração opcional de efeitos de plugin para OCR, STT e download de modelo.
+- Endurecimento do servidor local: validação de jobs, cancelamento propagado, retomada de jobs interrompidos, paginação e retenção de eventos, proteção contra DNS rebinding e leitura de bundles limitada ao vault.
 - Bundles OKF v0.1 locais e portáteis: definições versionáveis por `concept_id`, seleção com políticas de dependência e links, compilação determinística, índices, log, manifesto de hashes e proveniência, validação leniente/estrita e diff entre builds.
 - Workflow de CI para pull requests e `main`, executando o gate completo `npm run verify` em runner Linux sem depender do limite local de execução.
 - Servidor MCP M5 somente local por `stdio`, com contrato das sete ferramentas, autorização explícita e fail-closed por projeto consumidor, leitura de raw citada com auditoria e feedback pendente que não altera wiki nem raws.

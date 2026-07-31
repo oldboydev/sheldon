@@ -37,6 +37,12 @@ export interface PluginManifest {
     /** Whether the plugin may materialize user-authorized media assets. */
     readonly media?: boolean;
   };
+  /** Additive execution disclosures. Missing values in legacy manifests are treated as false. */
+  readonly effects?: {
+    readonly ocr: boolean;
+    readonly stt: boolean;
+    readonly modelDownload: boolean;
+  };
   readonly dependencies: readonly PluginDependency[];
   readonly origin: PluginOrigin;
 }

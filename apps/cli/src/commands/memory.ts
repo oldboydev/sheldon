@@ -29,6 +29,7 @@ export interface MemoryCommandDependencies {
 
 export interface FileIngestionOptions extends VaultOption {
   readonly plugin?: string;
+  readonly signal?: AbortSignal;
 }
 
 export interface UrlIngestionOptions extends VaultOption {
@@ -38,16 +39,19 @@ export interface UrlIngestionOptions extends VaultOption {
   readonly cookies?: string;
   readonly media?: 'none' | 'thumbnail';
   readonly stt?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export interface CrawlIngestionOptions extends VaultOption {
   readonly plugin?: string;
+  readonly signal?: AbortSignal;
   readonly maxDepth: 0 | 1 | 2;
   readonly maxPages: number;
 }
 
 export interface RepositoryIngestionOptions extends VaultOption {
   readonly plugin?: string;
+  readonly signal?: AbortSignal;
 }
 
 export async function ingestFile(
@@ -66,6 +70,7 @@ export async function ingestFile(
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-file',
       ...(options.plugin === undefined ? {} : { pluginId: options.plugin }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (selection.status === 'ambiguous') {
       const candidates = selection.candidates.map((candidate) => candidate.id).join(', ');
@@ -76,16 +81,24 @@ export async function ingestFile(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
-    const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) =>
-      publishPluginSourceIngestion(
-        {
-          originalName: basename(sourcePath),
-          rawDirectory: join(entity, 'raw'),
-          plugin: selection.plugin.manifest,
-          options: pluginOptions,
-        },
-        lease,
-      ),
+    const result = await runner.ingest(
+      selection.plugin,
+      input,
+      pluginOptions,
+      (lease) => {
+        options.signal?.throwIfAborted();
+        return publishPluginSourceIngestion(
+          {
+            originalName: basename(sourcePath),
+            rawDirectory: join(entity, 'raw'),
+            plugin: selection.plugin.manifest,
+            options: pluginOptions,
+          },
+          lease,
+          { signal: options.signal },
+        );
+      },
+      { signal: options.signal },
     );
     context.write(JSON.stringify(result, null, 2));
   });
@@ -112,6 +125,7 @@ export async function ingestUrl(
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-url',
       ...(options.plugin === undefined ? {} : { pluginId: options.plugin }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (selection.status === 'ambiguous') {
       const candidates = selection.candidates.map((candidate) => candidate.id).join(', ');
@@ -127,6 +141,7 @@ export async function ingestUrl(
       input,
       pluginOptions,
       (lease) => {
+        options.signal?.throwIfAborted();
         const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
         if (originals.length !== 1) {
           throw new Error('Plugin URL ingestion requires exactly one original artifact.');
@@ -139,14 +154,18 @@ export async function ingestUrl(
             options: pluginOptions,
           },
           lease,
+          { signal: options.signal },
         );
       },
-      cookies === undefined
-        ? {}
-        : {
-            secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: cookies.path },
-            secretRedactions: cookies.redactions,
-          },
+      {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(cookies === undefined
+          ? {}
+          : {
+              secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: cookies.path },
+              secretRedactions: cookies.redactions,
+            }),
+      },
     );
     context.write(JSON.stringify(result, null, 2));
   });
@@ -170,6 +189,7 @@ export async function ingestCrawl(
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-site',
       ...(options.plugin === undefined ? {} : { pluginId: options.plugin }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (selection.status === 'ambiguous') {
       const candidates = selection.candidates.map((candidate) => candidate.id).join(', ');
@@ -180,21 +200,29 @@ export async function ingestCrawl(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
-    const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) => {
-      const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
-      if (originals.length !== 1) {
-        throw new Error('Plugin site ingestion requires exactly one original artifact.');
-      }
-      return publishPluginSourceIngestion(
-        {
-          originalName: basename(originals[0].path),
-          rawDirectory: join(entity, 'raw'),
-          plugin: selection.plugin.manifest,
-          options: pluginOptions,
-        },
-        lease,
-      );
-    });
+    const result = await runner.ingest(
+      selection.plugin,
+      input,
+      pluginOptions,
+      (lease) => {
+        options.signal?.throwIfAborted();
+        const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
+        if (originals.length !== 1) {
+          throw new Error('Plugin site ingestion requires exactly one original artifact.');
+        }
+        return publishPluginSourceIngestion(
+          {
+            originalName: basename(originals[0].path),
+            rawDirectory: join(entity, 'raw'),
+            plugin: selection.plugin.manifest,
+            options: pluginOptions,
+          },
+          lease,
+          { signal: options.signal },
+        );
+      },
+      { signal: options.signal },
+    );
     context.write(JSON.stringify(result, null, 2));
   });
 }
@@ -213,6 +241,7 @@ export async function ingestRepository(
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-repository',
       ...(options.plugin === undefined ? {} : { pluginId: options.plugin }),
+      ...(options.signal === undefined ? {} : { signal: options.signal }),
     });
     if (selection.status === 'ambiguous') {
       const candidates = selection.candidates.map((candidate) => candidate.id).join(', ');
@@ -223,21 +252,29 @@ export async function ingestRepository(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
-    const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) => {
-      const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
-      if (originals.length !== 1) {
-        throw new Error('Plugin repository ingestion requires exactly one original artifact.');
-      }
-      return publishPluginSourceIngestion(
-        {
-          originalName: basename(originals[0].path),
-          rawDirectory: join(entity, 'raw'),
-          plugin: selection.plugin.manifest,
-          options: pluginOptions,
-        },
-        lease,
-      );
-    });
+    const result = await runner.ingest(
+      selection.plugin,
+      input,
+      pluginOptions,
+      (lease) => {
+        options.signal?.throwIfAborted();
+        const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
+        if (originals.length !== 1) {
+          throw new Error('Plugin repository ingestion requires exactly one original artifact.');
+        }
+        return publishPluginSourceIngestion(
+          {
+            originalName: basename(originals[0].path),
+            rawDirectory: join(entity, 'raw'),
+            plugin: selection.plugin.manifest,
+            options: pluginOptions,
+          },
+          lease,
+          { signal: options.signal },
+        );
+      },
+      { signal: options.signal },
+    );
     context.write(JSON.stringify(result, null, 2));
   });
 }
@@ -250,6 +287,7 @@ export async function compileMemory(
     readonly agent: AgentKind;
     readonly prompt: string;
     readonly raw: readonly string[];
+    readonly signal?: AbortSignal;
   },
   context: CommandContext,
   dependencies: MemoryCommandDependencies = {},
@@ -262,13 +300,18 @@ export async function compileMemory(
     options.agent === 'codex'
       ? createCodexCommandAdapter(executor)
       : createClaudeCommandAdapter(executor);
-  const result = await new AgentRuntime(new ProposalStore(entity)).run(adapter, {
-    proposalId,
-    prompt: options.prompt,
-    promptVersion: AGENT_PROMPT_VERSION,
-    rawSources: options.raw,
-    workingDirectory: entity,
-  });
+  const result = await new AgentRuntime(new ProposalStore(entity)).run(
+    adapter,
+    {
+      proposalId,
+      prompt: options.prompt,
+      promptVersion: AGENT_PROMPT_VERSION,
+      rawSources: options.raw,
+      workingDirectory: entity,
+    },
+    { signal: options.signal },
+  );
+  options.signal?.throwIfAborted();
   context.write(JSON.stringify(result, null, 2));
 }
 

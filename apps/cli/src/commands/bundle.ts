@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir } from 'node:fs/promises';
+import { lstat, mkdir, readFile, readdir } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
 import {
@@ -34,11 +34,25 @@ export interface BundleBuildOptions extends VaultOption {
   readonly mode?: OkfValidationMode;
   /** A build is preview-only by default; apply opts into materializing the projection. */
   readonly apply?: boolean;
+  readonly signal?: AbortSignal;
 }
 
 export interface BundleValidateOptions {
   readonly mode?: OkfValidationMode;
+  readonly limits?: PortableReadLimits;
 }
+
+export interface PortableReadLimits {
+  readonly maxFiles: number;
+  readonly maxBytes: number;
+  readonly maxDepth: number;
+}
+
+export const defaultPortableReadLimits: PortableReadLimits = {
+  maxFiles: 2_000,
+  maxBytes: 128 * 1024 * 1024,
+  maxDepth: 16,
+};
 
 /** Creates a versionable, concept-id based M6 bundle definition without compiling it. */
 export async function createBundle(
@@ -107,7 +121,7 @@ export async function buildBundle(
   const definitionPath = join(directory, 'definition.yaml');
   const definition = parseBundleDefinition(await readFile(definitionPath, 'utf8'), definitionPath);
   const output = join(directory, 'build');
-  await recoverOkfBuild(output);
+  options.signal?.throwIfAborted();
   const previousManifest = await readManifest(output);
   // A preview must surface selection diagnostics instead of aborting before it can show them.
   // The requested validation policy is applied below before an --apply write is permitted.
@@ -117,6 +131,7 @@ export async function buildBundle(
     mode: 'lenient',
     ...(previousManifest === undefined ? {} : { previous_manifest: previousManifest }),
   });
+  options.signal?.throwIfAborted();
   const mode = options.mode ?? 'strict';
   const validation = validateOkf(build.files, {
     mode,
@@ -141,7 +156,12 @@ export async function buildBundle(
   if (!selectionValid || !validation.valid) {
     throw new OkfError('OKF build did not pass selection or validation.', 'OKF_BUILD_INVALID');
   }
-  if (options.apply) await writeOkfBuild(output, build);
+  if (options.apply) {
+    options.signal?.throwIfAborted();
+    await recoverOkfBuild(output);
+    options.signal?.throwIfAborted();
+    await writeOkfBuild(output, build);
+  }
 }
 
 /** Validates an already copied build, which deliberately does not require a Sheldon vault. */
@@ -150,7 +170,7 @@ export async function validateBundle(
   options: BundleValidateOptions,
   context: CommandContext,
 ): Promise<void> {
-  const files = await readPortableFiles(directory);
+  const files = await readPortableFiles(directory, options.limits);
   const manifest = await readManifest(resolve(directory));
   const report = validateOkf(files, {
     mode: options.mode ?? 'strict',
@@ -266,23 +286,41 @@ function validAllowedBrokenLinks(value: unknown): boolean {
   );
 }
 
-async function readPortableFiles(root: string): Promise<Map<string, string>> {
+async function readPortableFiles(
+  root: string,
+  limits: PortableReadLimits = defaultPortableReadLimits,
+): Promise<Map<string, string>> {
   const resolvedRoot = resolve(root);
   const files = new Map<string, string>();
-  const visit = async (directory: string): Promise<void> => {
+  let totalBytes = 0;
+  const visit = async (directory: string, depth: number): Promise<void> => {
+    if (depth > limits.maxDepth)
+      throw new Error('Portable bundle exceeds the maximum directory depth.');
     for (const entry of (await readdir(directory, { withFileTypes: true })).sort((left, right) =>
       compareStrings(left.name, right.name),
     )) {
       const target = join(directory, entry.name);
-      if (entry.isDirectory()) await visit(target);
+      if (entry.isSymbolicLink())
+        throw new Error(`Portable bundle may not contain symbolic links: ${target}`);
+      if (entry.isDirectory()) await visit(target, depth + 1);
       else if (entry.isFile()) {
         const path = relative(resolvedRoot, target).replace(/\\/g, '/');
         if (!isPortableRelativePath(path)) throw new Error(`Invalid portable bundle path: ${path}`);
+        if (files.size >= limits.maxFiles)
+          throw new Error('Portable bundle exceeds the maximum file count.');
+        const metadata = await lstat(target);
+        totalBytes += metadata.size;
+        if (totalBytes > limits.maxBytes)
+          throw new Error('Portable bundle exceeds the maximum total size.');
         files.set(path, await readFile(target, 'utf8'));
       }
     }
   };
-  await visit(resolvedRoot);
+  const rootMetadata = await lstat(resolvedRoot);
+  if (!rootMetadata.isDirectory() || rootMetadata.isSymbolicLink()) {
+    throw new Error('Portable bundle directory must be a real directory.');
+  }
+  await visit(resolvedRoot, 0);
   return files;
 }
 

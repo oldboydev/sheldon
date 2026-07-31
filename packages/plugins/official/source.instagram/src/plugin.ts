@@ -24,6 +24,7 @@ const description: PluginDescription = {
   priority: 190,
   platforms: ['win32', 'darwin', 'linux'],
   permissions: { network: true, cookies: true, media: true },
+  effects: { ocr: false, stt: true, modelDownload: false },
   dependencies: [
     {
       id: 'yt-dlp',

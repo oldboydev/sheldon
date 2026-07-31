@@ -115,6 +115,8 @@ export interface PluginFileIngestorDependencies {
   readonly processAlive?: (pid: number) => boolean;
   readonly sourceClaimHeartbeatMilliseconds?: number;
   readonly sourceClaimStaleMilliseconds?: number;
+  /** Cancels before a raw source becomes visible in the vault. */
+  readonly signal?: AbortSignal;
 }
 
 export type PluginFileIngestionErrorCode =
@@ -163,6 +165,7 @@ export async function publishPluginSourceIngestion(
   lease: IngestLease,
   dependencies: PluginFileIngestorDependencies = {},
 ): Promise<PluginFileIngestionResult> {
+  dependencies.signal?.throwIfAborted();
   const originalName = safeOriginalName(input.originalName);
   const original = requiredArtifact(lease.artifacts, 'original');
   const normalized = requiredArtifact(lease.artifacts, 'normalized');
@@ -181,6 +184,7 @@ export async function publishPluginSourceIngestion(
   const rawRoot = resolve(input.rawDirectory);
   const rawPath = join(rawRoot, sourceId);
   await mkdir(rawRoot, { recursive: true });
+  dependencies.signal?.throwIfAborted();
   const sourceClaim = await acquireSourceClaim(rawRoot, sourceId, rawPath, dependencies);
   try {
     const existing = await readSourceManifestAt(rawPath);
@@ -256,8 +260,10 @@ export async function publishPluginSourceIngestion(
       ]);
       await writeFile(join(stagingPath, 'manifest.yaml'), stringify(manifest), 'utf8');
 
+      dependencies.signal?.throwIfAborted();
       await dependencies.beforePublish?.(rawPath);
       await sourceClaim.assertOwned();
+      dependencies.signal?.throwIfAborted();
       try {
         await mkdir(rawPath);
       } catch (error) {
@@ -275,6 +281,7 @@ export async function publishPluginSourceIngestion(
         await moveStagedRaw(stagingPath, rawPath, async (committingRawPath) => {
           await dependencies.beforeManifestPublish?.(committingRawPath);
           await sourceClaim.assertOwned();
+          dependencies.signal?.throwIfAborted();
         });
       } catch (error) {
         await rm(rawPath, { recursive: true, force: true });

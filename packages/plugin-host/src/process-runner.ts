@@ -209,7 +209,10 @@ export class PluginProcessRunner {
     );
   }
 
-  public healthcheck(plugin: RunnablePlugin): Promise<ProcessOperationResult<HealthcheckResult>> {
+  public healthcheck(
+    plugin: RunnablePlugin,
+    runOptions: PluginRunOptions = {},
+  ): Promise<ProcessOperationResult<HealthcheckResult>> {
     return this.run(
       plugin,
       'healthcheck',
@@ -220,7 +223,7 @@ export class PluginProcessRunner {
         payload: {},
       }),
       async (value) => handled(this.parseResult(plugin, value, parseHealthcheckResult)),
-      {},
+      runOptions,
       (value, stderrTail, durationMs) => ({ result: value, stderrTail, durationMs }),
     );
   }
@@ -397,7 +400,10 @@ export class PluginProcessRunner {
       ...(exitCode === undefined ? {} : { exitCode }),
       artifactCount,
       artifactBytes,
-      stderrTail: redactSecrets(stderr.text(), runOptions.secretRedactions),
+      stderrTail:
+        runOptions.secretEnvironment === undefined
+          ? redactSecrets(stderr.text(), runOptions.secretRedactions)
+          : '[REDACTED: secret-bearing plugin run]',
       ...(runError === undefined
         ? {}
         : { errorCode: runError.code, errorMessage: recordedErrorMessage }),
@@ -669,6 +675,8 @@ export class PluginProcessRunner {
       description.license === manifest.license &&
       description.permissions.network === manifest.permissions.network &&
       description.permissions.cookies === manifest.permissions.cookies &&
+      description.permissions.media === manifest.permissions.media &&
+      sameEffects(description.effects, manifest.effects) &&
       equalStringCollections(description.capabilities, manifest.capabilities);
     if (!matches) {
       throw this.error(
@@ -843,6 +851,17 @@ function redactSecrets(value: string, secrets: readonly string[] | undefined): s
   return [...new Set(secrets.filter((secret) => secret.length >= 4))]
     .sort((left, right) => right.length - left.length)
     .reduce((redacted, secret) => redacted.split(secret).join('[REDACTED]'), value);
+}
+
+function sameEffects(
+  left: PluginDescription['effects'],
+  right: PluginDescription['effects'],
+): boolean {
+  return (
+    left?.ocr === right?.ocr &&
+    left?.stt === right?.stt &&
+    left?.modelDownload === right?.modelDownload
+  );
 }
 
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<ProcessExit> {

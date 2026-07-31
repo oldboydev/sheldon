@@ -3,6 +3,7 @@
     "target": "ES2023",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
     "skipLibCheck": true,
@@ -19,6 +20,7 @@
       "@sheldon/search": ["./packages/search/src/index.ts"],
       "@sheldon/okf": ["./packages/okf/src/index.ts"],
       "@sheldon/mcp": ["./packages/mcp/src/index.ts"],
+      "@sheldon/web": ["./apps/web/src/server.ts"],
       "@sheldon/plugin-source-file": ["./packages/plugins/official/source.file/src/index.ts"],
       "@sheldon/plugin-source-image": ["./packages/plugins/official/source.image/src/index.ts"],
       "@sheldon/plugin-source-repository": [
@@ -26,9 +28,10 @@
       ],
       "@sheldon/plugin-source-url": ["./packages/plugins/official/source.url/src/index.ts"],
       "@sheldon/plugin-source-youtube": ["./packages/plugins/official/source.youtube/src/index.ts"],
-      "@sheldon/cli": ["./apps/cli/src/main.ts"]
+      "@sheldon/cli": ["./apps/cli/src/main.ts"],
+      "@sheldon/cli/web-api": ["./apps/cli/src/web-api.ts"]
     },
     "types": ["node", "vitest/globals"]
   },
-  "include": ["apps/**/*.ts", "packages/**/*.ts", "types/**/*.d.ts"]
+  "include": ["apps/**/*.ts", "apps/**/*.tsx", "packages/**/*.ts", "types/**/*.d.ts"]
 }

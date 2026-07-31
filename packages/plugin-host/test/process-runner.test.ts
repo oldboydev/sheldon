@@ -218,6 +218,22 @@ describe('PluginProcessRunner', () => {
     });
   });
 
+  it('rejects a description whose media permission differs from its manifest', async () => {
+    const runner = new PluginProcessRunner({ state: stateDatabase(), processLauncher });
+    const plugin = await pluginFor('success');
+    const mediaDeclared = {
+      ...plugin,
+      manifest: {
+        ...plugin.manifest,
+        permissions: { ...plugin.manifest.permissions, media: true },
+      },
+    };
+
+    await expect(runner.describe(mediaDeclared)).rejects.toMatchObject({
+      code: 'PLUGIN_DESCRIPTION_MISMATCH',
+    });
+  });
+
   it('does not persist request values echoed by a plugin error', async () => {
     const state = stateDatabase();
     const runner = new PluginProcessRunner({ state, processLauncher });

@@ -4,7 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./dist/main.js"
+    ".": "./dist/main.js",
+    "./web-api": "./dist/web-api.js"
   },
   "bin": {
     "sheldon": "./dist/sheldon.js"
@@ -21,6 +22,7 @@
     "@sheldon/review": "*",
     "@sheldon/search": "*",
     "@sheldon/vault": "*",
+    "@sheldon/web": "*",
     "commander": "^15.0.0",
     "yaml": "^2.9.0"
   }
