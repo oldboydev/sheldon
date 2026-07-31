@@ -197,9 +197,11 @@ function Invoke-WatchedProcess {
 
       if (-not $timedOut -and $watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
         $timedOut = $true
+        # Do not synchronously close a stream while its background writer is blocked on a full
+        # pipe. Killing the child releases the pipe; dropping the task keeps the watchdog bounded.
         if ($stdinOpen) {
-          try { $process.StandardInput.Close() } catch { }
           $stdinOpen = $false
+          $stdinWrite = $null
         }
         if (-not $process.WaitForExit(0)) {
           try {
