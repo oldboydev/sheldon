@@ -51,6 +51,38 @@ describe('OperationsDatabase', () => {
     });
   });
 
+  it('persists jobs and resumable event cursors outside knowledge files', () => {
+    const database = OperationsDatabase.open(':memory:');
+    databases.push(database);
+    database.createJob({
+      id: 'job-1',
+      type: 'ingest-url',
+      status: 'queued',
+      payload: { url: 'https://example.com' },
+      createdAt: '2026-07-30T12:00:00.000Z',
+    });
+    const first = database.appendJobEvent({
+      jobId: 'job-1',
+      at: '2026-07-30T12:00:01.000Z',
+      stage: 'queued',
+      message: 'Queued',
+      details: {},
+    });
+    database.updateJob('job-1', { status: 'running', startedAt: '2026-07-30T12:00:02.000Z' });
+    const second = database.appendJobEvent({
+      jobId: 'job-1',
+      at: '2026-07-30T12:00:03.000Z',
+      stage: 'running',
+      message: 'Running',
+      details: {},
+    });
+
+    expect(database.getJob('job-1')).toMatchObject({ id: 'job-1', status: 'running' });
+    expect(database.listJobEvents('job-1', first.id)).toEqual([
+      expect.objectContaining({ id: second.id, stage: 'running' }),
+    ]);
+  });
+
   it('audits vault changes without becoming the source of truth', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-persistence-'));
     temporaryDirectories.push(root);

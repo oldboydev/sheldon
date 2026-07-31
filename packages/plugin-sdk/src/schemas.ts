@@ -73,6 +73,17 @@ const permissionsSchema = {
   },
 } as const;
 
+const effectsSchema = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['ocr', 'stt', 'modelDownload'],
+  properties: {
+    ocr: { type: 'boolean' },
+    stt: { type: 'boolean' },
+    modelDownload: { type: 'boolean' },
+  },
+} as const;
+
 const manifestProperties = {
   id: identifierSchema,
   name: nonEmptyStringSchema,
@@ -83,6 +94,7 @@ const manifestProperties = {
   priority: { type: 'integer', minimum: -100, maximum: 200 },
   platforms: { type: 'array', items: { enum: platformNames } },
   permissions: permissionsSchema,
+  effects: effectsSchema,
   dependencies: { type: 'array', items: dependencySchema },
 } as const;
 

@@ -23,6 +23,7 @@ const description: PluginDescription = {
   priority: 100,
   platforms: ['win32', 'darwin', 'linux'],
   permissions: { network: false, cookies: false },
+  effects: { ocr: false, stt: false, modelDownload: false },
   dependencies: [
     {
       id: 'node',

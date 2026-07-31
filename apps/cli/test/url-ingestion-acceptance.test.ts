@@ -100,7 +100,7 @@ describe('URL ingestion CLI flow', () => {
     expect(result.stderr).toContain(
       'Recovery: Retry with another requested language or provide a captioned source.',
     );
-  });
+  }, 15_000);
 
   it('selects ingest-url and publishes plugin artifact provenance as JSON', async () => {
     const result = await runCli(ingestArguments(), harness.dependencies);

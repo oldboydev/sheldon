@@ -19,6 +19,7 @@ const targets = [
   ['packages/search/src', 'packages/search/dist'],
   ['packages/okf/src', 'packages/okf/dist'],
   ['packages/mcp/src', 'packages/mcp/dist'],
+  ['apps/web/src', 'apps/web/dist'],
   ['packages/plugins/official/source.file/src', 'packages/plugins/official/source.file/dist'],
   ['packages/plugins/official/source.image/src', 'packages/plugins/official/source.image/dist'],
   [
@@ -36,7 +37,7 @@ async function sourceFiles(directory) {
     entries.map(async (entry) => {
       const path = join(directory, entry.name);
       if (entry.isDirectory()) return sourceFiles(path);
-      return entry.isFile() && path.endsWith('.ts') ? [path] : [];
+      return entry.isFile() && path.endsWith('.ts') && !path.endsWith('.d.ts') ? [path] : [];
     }),
   );
   return nested.flat();
@@ -63,6 +64,12 @@ if (process.platform === 'win32') {
 }
 
 await Promise.all(targets.map(([source, output]) => compile(source, output)));
+await execFileAsync(process.execPath, [
+  join('node_modules', 'vite', 'bin', 'vite.js'),
+  'build',
+  '--config',
+  join('apps', 'web', 'vite.config.ts'),
+]);
 await rm(join('apps', 'cli', 'dist', 'plugins'), { recursive: true, force: true });
 await cp('release/official-catalog-public.pem', 'apps/cli/dist/official-catalog-public.pem');
 await cp('packages/skill', 'apps/cli/dist/skill', { recursive: true });

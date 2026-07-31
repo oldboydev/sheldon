@@ -196,7 +196,10 @@ export class PluginProcessRunner {
     );
   }
 
-  public healthcheck(plugin: RunnablePlugin): Promise<ProcessOperationResult<HealthcheckResult>> {
+  public healthcheck(
+    plugin: RunnablePlugin,
+    runOptions: PluginRunOptions = {},
+  ): Promise<ProcessOperationResult<HealthcheckResult>> {
     return this.run(
       plugin,
       'healthcheck',
@@ -207,7 +210,7 @@ export class PluginProcessRunner {
         payload: {},
       }),
       async (value) => handled(this.parseResult(plugin, value, parseHealthcheckResult)),
-      {},
+      runOptions,
       (value, stderrTail, durationMs) => ({ result: value, stderrTail, durationMs }),
     );
   }

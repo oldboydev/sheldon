@@ -43,6 +43,7 @@ const description: PluginDescription = {
   priority: 100,
   platforms: ['win32', 'darwin', 'linux'],
   permissions: { network: false, cookies: false },
+  effects: { ocr: true, stt: false, modelDownload: false },
   dependencies: [
     {
       id: 'tesseract',
