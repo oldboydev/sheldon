@@ -38,6 +38,10 @@ describe('official release builder', () => {
       'source.image-darwin-x64.zip',
       'source.image-linux-x64.zip',
       'source.image-win32-x64.zip',
+      'source.instagram-darwin-arm64.zip',
+      'source.instagram-darwin-x64.zip',
+      'source.instagram-linux-x64.zip',
+      'source.instagram-win32-x64.zip',
       'source.url-darwin-arm64.zip',
       'source.url-darwin-x64.zip',
       'source.url-linux-x64.zip',
@@ -164,7 +168,13 @@ async function archiveNames(directory: string): Promise<string[]> {
 }
 
 async function writeStage(root: string): Promise<void> {
-  for (const id of ['source.file', 'source.image', 'source.url', 'source.youtube']) {
+  for (const id of [
+    'source.file',
+    'source.image',
+    'source.url',
+    'source.youtube',
+    'source.instagram',
+  ]) {
     const plugin = join(root, id);
     await mkdir(join(plugin, 'dist'), { recursive: true });
     await writeFile(

@@ -88,7 +88,12 @@ Saída: o fluxo principal pode ser concluído sem conhecer comandos da CLI.
 
 **PRD:** 010
 
-Entrega: framework de plugins autenticados por cookies locais e primeiros conectores sociais.
+**Status:** concluído em 31 de julho de 2026.
+
+Entrega: framework de plugins autenticados por cookies locais efêmeros e o conector experimental
+`source.instagram` para Reels e posts de vídeo públicos. O conector mantém post, metadados,
+transcrição disponível e mídia autorizada em raws separados, aplica backoff limitado e fornece
+diagnósticos estáveis sem contornar conteúdo privado, DRM, captcha ou anti-bot.
 
 Saída: falhas de plataforma são diagnosticadas claramente e nunca comprometem o núcleo.
 

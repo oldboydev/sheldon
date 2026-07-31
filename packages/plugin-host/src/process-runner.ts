@@ -49,6 +49,10 @@ export interface IngestLease {
 
 export interface PluginRunOptions {
   readonly signal?: AbortSignal;
+  /** Ephemeral values are supplied only to the child environment, never to the protocol. */
+  readonly secretEnvironment?: Readonly<Record<string, string>>;
+  /** Exact secret values to redact before retaining stderr. */
+  readonly secretRedactions?: readonly string[];
 }
 
 export interface PluginProcessRunnerOptions {
@@ -131,6 +135,15 @@ const sourceDiagnosticCodes = new Set([
   'REPOSITORY_BLOB_SIZE_MISMATCH',
   'REPOSITORY_SECRET_DETECTED',
   'REPOSITORY_ARTIFACT_WRITE_FAILED',
+  'INSTAGRAM_INPUT_INVALID',
+  'INSTAGRAM_AUTH_REQUIRED',
+  'INSTAGRAM_PLATFORM_BLOCKED',
+  'INSTAGRAM_RATE_LIMITED',
+  'INSTAGRAM_RUNTIME_UNAVAILABLE',
+  'INSTAGRAM_RESPONSE_INVALID',
+  'INSTAGRAM_EXTRACTION_FAILED',
+  'INSTAGRAM_STT_UNAVAILABLE',
+  'INSTAGRAM_MEDIA_LIMIT_EXCEEDED',
 ]);
 const urlDiagnosticCodes = new Set(
   [...sourceDiagnosticCodes].filter(
@@ -269,7 +282,7 @@ export class PluginProcessRunner {
       temporaryDirectory = await mkdtemp(join(tmpdir(), `sheldon-plugin-${plugin.manifest.id}-`));
       const requestId = this.requestId();
       const request = makeRequest(requestId, temporaryDirectory);
-      const child = await this.startProcess(plugin, temporaryDirectory, stderr);
+      const child = await this.startProcess(plugin, temporaryDirectory, stderr, runOptions);
       const exit = waitForExit(child);
       const conversation = this.startConversation(child, requestId);
       conversation.completion.catch(() => undefined);
@@ -384,7 +397,7 @@ export class PluginProcessRunner {
       ...(exitCode === undefined ? {} : { exitCode }),
       artifactCount,
       artifactBytes,
-      stderrTail: stderr.text(),
+      stderrTail: redactSecrets(stderr.text(), runOptions.secretRedactions),
       ...(runError === undefined
         ? {}
         : { errorCode: runError.code, errorMessage: recordedErrorMessage }),
@@ -478,11 +491,25 @@ export class PluginProcessRunner {
     plugin: RunnablePlugin,
     temporaryDirectory: string,
     stderr: StderrTail,
+    runOptions: PluginRunOptions,
   ): Promise<ChildProcessWithoutNullStreams> {
+    if (
+      runOptions.secretEnvironment !== undefined &&
+      Object.keys(runOptions.secretEnvironment).length > 0 &&
+      !plugin.manifest.permissions.cookies
+    ) {
+      return Promise.reject(
+        this.error(
+          plugin,
+          'PLUGIN_SECRET_PERMISSION_DENIED',
+          'The plugin did not declare permission to receive local cookies.',
+        ),
+      );
+    }
     const child = startPluginProcess(
       plugin,
       temporaryDirectory,
-      sanitizedEnvironment(this.environment, temporaryDirectory),
+      sanitizedEnvironment(this.environment, temporaryDirectory, runOptions.secretEnvironment),
       this.processLauncher,
     );
     return child.then((started) => {
@@ -747,6 +774,13 @@ function forwardedSourceDiagnostic(
       recovery: 'Retry with another requested language or provide a captioned source.',
     };
   }
+  if (code.startsWith('INSTAGRAM_')) {
+    return {
+      message: `Instagram ingestion could not proceed (${code}).`,
+      recovery:
+        'Check that the post is public, update the experimental plugin, and retry later if the platform is rate-limiting requests.',
+    };
+  }
   return {
     message: urlDiagnosticCodes.has(code) ? safeUrlDiagnosticMessage(code, request) : message,
     recovery: defaultPluginRecovery,
@@ -784,6 +818,7 @@ function handled<T>(value: T): HandledResult<T> {
 function sanitizedEnvironment(
   source: NodeJS.ProcessEnv,
   temporaryDirectory: string,
+  secrets: Readonly<Record<string, string>> | undefined,
 ): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of forwardedEnvironmentKeys) {
@@ -797,7 +832,17 @@ function sanitizedEnvironment(
   }
   environment.TEMP = temporaryDirectory;
   environment.TMP = temporaryDirectory;
+  if (secrets !== undefined) {
+    for (const [key, value] of Object.entries(secrets)) environment[key] = value;
+  }
   return environment;
+}
+
+function redactSecrets(value: string, secrets: readonly string[] | undefined): string {
+  if (secrets === undefined) return value;
+  return [...new Set(secrets.filter((secret) => secret.length >= 4))]
+    .sort((left, right) => right.length - left.length)
+    .reduce((redacted, secret) => redacted.split(secret).join('[REDACTED]'), value);
 }
 
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<ProcessExit> {

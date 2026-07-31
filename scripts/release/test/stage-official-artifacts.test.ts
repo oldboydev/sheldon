@@ -89,7 +89,13 @@ describe('official release staging', () => {
     const source = join(root, 'plugins');
     const output = join(root, 'stage');
     const youtubeRuntime = join(root, 'youtube-runtime');
-    for (const id of ['source.file', 'source.image', 'source.url', 'source.youtube']) {
+    for (const id of [
+      'source.file',
+      'source.image',
+      'source.url',
+      'source.youtube',
+      'source.instagram',
+    ]) {
       const plugin = join(source, id);
       await mkdir(join(plugin, 'dist'), { recursive: true });
       await mkdir(join(plugin, 'src'), { recursive: true });

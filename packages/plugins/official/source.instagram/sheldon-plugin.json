@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "id": "source.instagram",
+  "name": "Experimental Instagram video ingestion",
+  "version": "0.1.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": { "executable": "node", "arguments": ["plugin.mjs"] },
+  "capabilities": ["ingest-url"],
+  "priority": 190,
+  "platforms": ["win32", "darwin", "linux"],
+  "permissions": { "network": true, "cookies": true, "media": true },
+  "dependencies": [
+    {
+      "id": "yt-dlp",
+      "kind": "executable",
+      "required": true,
+      "remediation": "Reinstall the experimental source.instagram plugin."
+    },
+    {
+      "id": "local-stt",
+      "kind": "runtime",
+      "required": false,
+      "remediation": "Install and configure a local STT runtime before using --stt."
+    }
+  ]
+}

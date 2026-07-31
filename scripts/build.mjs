@@ -27,6 +27,10 @@ const targets = [
   ],
   ['packages/plugins/official/source.url/src', 'packages/plugins/official/source.url/dist'],
   ['packages/plugins/official/source.youtube/src', 'packages/plugins/official/source.youtube/dist'],
+  [
+    'packages/plugins/official/source.instagram/src',
+    'packages/plugins/official/source.instagram/dist',
+  ],
   ['apps/cli/src', 'apps/cli/dist'],
 ];
 

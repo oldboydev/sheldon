@@ -150,7 +150,13 @@ async function signCatalog(catalog: string, signature: string, privateKey: strin
 async function createStage(root: string): Promise<void> {
   // Keep this fixture independent from test order while sharing the exact staged layout.
   const { mkdir } = await import('node:fs/promises');
-  for (const id of ['source.file', 'source.image', 'source.url', 'source.youtube']) {
+  for (const id of [
+    'source.file',
+    'source.image',
+    'source.url',
+    'source.youtube',
+    'source.instagram',
+  ]) {
     const plugin = join(root, id);
     await mkdir(join(plugin, 'dist'), { recursive: true });
     await writeFile(

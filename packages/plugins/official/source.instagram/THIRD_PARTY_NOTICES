@@ -1,0 +1,2 @@
+This experimental connector invokes only the yt-dlp runtime supplied by the user or official package.
+It does not bundle a speech-to-text model and never downloads one.

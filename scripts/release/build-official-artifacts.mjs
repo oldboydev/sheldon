@@ -5,7 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 import JSZip from 'jszip';
 
-export const OFFICIAL_PLUGIN_IDS = ['source.file', 'source.image', 'source.url', 'source.youtube'];
+export const OFFICIAL_PLUGIN_IDS = [
+  'source.file',
+  'source.image',
+  'source.url',
+  'source.youtube',
+  'source.instagram',
+];
 export const OFFICIAL_PLATFORMS = ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64'];
 export const OFFICIAL_RELEASE_TAG = 'official-catalog';
 export const OFFICIAL_RELEASE_PREFIX = `https://github.com/oldboydev/sheldon/releases/download/${OFFICIAL_RELEASE_TAG}/`;

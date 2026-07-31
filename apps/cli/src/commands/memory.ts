@@ -1,4 +1,4 @@
-import { lstat, open, realpath, stat } from 'node:fs/promises';
+import { lstat, open, readFile, realpath, stat } from 'node:fs/promises';
 import { basename, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -34,6 +34,10 @@ export interface FileIngestionOptions extends VaultOption {
 export interface UrlIngestionOptions extends VaultOption {
   readonly plugin?: string;
   readonly language?: string;
+  /** A local Netscape/JSON cookie file passed only through the child environment. */
+  readonly cookies?: string;
+  readonly media?: 'none' | 'thumbnail';
+  readonly stt?: boolean;
 }
 
 export interface CrawlIngestionOptions extends VaultOption {
@@ -97,8 +101,13 @@ export async function ingestUrl(
   const canonical = canonicalUrl(value);
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const input = { url: canonical.href };
-  const pluginOptions: Readonly<Record<string, string>> =
-    options.language === undefined ? {} : { language: options.language };
+  const pluginOptions: Readonly<Record<string, string | boolean>> = {
+    ...(options.language === undefined ? {} : { language: options.language }),
+    ...(options.media === undefined ? {} : { media: options.media }),
+    ...(options.stt === undefined ? {} : { stt: options.stt }),
+  };
+  const cookies =
+    options.cookies === undefined ? undefined : await localCookieFile(options.cookies);
   await withPluginServices(context, async ({ discovery, runner }) => {
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-url',
@@ -113,21 +122,32 @@ export async function ingestUrl(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
-    const result = await runner.ingest(selection.plugin, input, pluginOptions, (lease) => {
-      const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
-      if (originals.length !== 1) {
-        throw new Error('Plugin URL ingestion requires exactly one original artifact.');
-      }
-      return publishPluginSourceIngestion(
-        {
-          originalName: basename(originals[0].path),
-          rawDirectory: join(entity, 'raw'),
-          plugin: selection.plugin.manifest,
-          options: pluginOptions,
-        },
-        lease,
-      );
-    });
+    const result = await runner.ingest(
+      selection.plugin,
+      input,
+      pluginOptions,
+      (lease) => {
+        const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
+        if (originals.length !== 1) {
+          throw new Error('Plugin URL ingestion requires exactly one original artifact.');
+        }
+        return publishPluginSourceIngestion(
+          {
+            originalName: basename(originals[0].path),
+            rawDirectory: join(entity, 'raw'),
+            plugin: selection.plugin.manifest,
+            options: pluginOptions,
+          },
+          lease,
+        );
+      },
+      cookies === undefined
+        ? {}
+        : {
+            secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: cookies.path },
+            secretRedactions: cookies.redactions,
+          },
+    );
     context.write(JSON.stringify(result, null, 2));
   });
 }
@@ -390,6 +410,46 @@ function invalidUrlInput(): never {
     'The input must be an absolute HTTP(S) URL without credentials, a fragment, or a non-default port.',
     'URL input',
     'Choose one public HTTP(S) page URL and retry.',
+  );
+}
+
+async function localCookieFile(value: string): Promise<{
+  readonly path: string;
+  readonly redactions: readonly string[];
+}> {
+  const inputPath = resolve(value);
+  let metadata: Awaited<ReturnType<typeof lstat>>;
+  try {
+    metadata = await lstat(inputPath);
+  } catch {
+    throw cookieInputError();
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1_048_576) {
+    throw cookieInputError();
+  }
+  let path: string;
+  let content: string;
+  try {
+    path = await realpath(inputPath);
+    content = await readFile(path, 'utf8');
+  } catch {
+    throw cookieInputError();
+  }
+  // Keep only likely values (never paths or complete lines) for host stderr redaction.
+  const redactions = content
+    .split(/[\s;=,]+/u)
+    .map((part) => part.replaceAll(/^["']|["']$/gu, ''))
+    .filter((part) => part.length >= 8 && part.length <= 4_096)
+    .filter((part) => !part.startsWith('#'));
+  return { path, redactions };
+}
+
+function cookieInputError(): PluginHostError {
+  return new PluginHostError(
+    'SOCIAL_COOKIE_FILE_INVALID',
+    'The local cookie file must be a readable regular file no larger than 1 MiB.',
+    'local cookie file',
+    'Export a local cookie file and retry. Its path and contents are never stored in Sheldon.',
   );
 }
 

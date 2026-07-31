@@ -10,6 +10,14 @@ Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de en
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 
+O M8 acrescenta o plugin experimental `source.instagram` para Reels e posts de vídeo públicos.
+Ele nunca tenta contornar conteúdo privado, DRM, captcha ou anti-bot. Cookies locais são opcionais
+e enviados somente ao processo isolado (nunca ao vault, raw, manifesto ou log); use
+`ingest url ... --plugin source.instagram --cookies C:\cookies.txt` quando uma sessão local for
+necessária. A captura preserva texto, metadados, transcrição disponível e mídia explicitamente
+autorizada como raws separados. `--stt` só aceita uma runtime local já configurada: o plugin não
+baixa modelos nem inventa fala ausente.
+
 O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude. O M6 acrescenta bundles OKF v0.1: projeções locais, portáteis, determinísticas e reconstruíveis de conceitos aprovados.
 
 ## Decisões principais

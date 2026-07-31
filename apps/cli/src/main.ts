@@ -395,6 +395,9 @@ function addMemoryCommands(
     .option('--vault <path>', 'explicit vault path')
     .option('--plugin <id>', 'explicit URL ingestion plugin')
     .option('--language <tags>', 'preferred comma-separated language tags')
+    .option('--cookies <path>', 'optional local cookie file (never stored)')
+    .option('--media <mode>', 'social media capture: none or thumbnail')
+    .option('--stt', 'allow an already-installed local speech-to-text runtime')
     .action((kind: EntityKind, slug: string, url: string, options: UrlIngestionOptions) =>
       ingestUrl(kind, slug, url, options, context),
     );
