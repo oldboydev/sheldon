@@ -132,11 +132,22 @@ describe('official release builder', () => {
     const root = await temporaryRoot();
     const input = join(root, 'stage');
     await writeStage(input);
-    await rm(join(input, 'source.youtube', 'runtime', 'linux-x64'), { recursive: true });
+    await rm(join(input, 'source.instagram', 'runtime', 'linux-x64'), { recursive: true });
 
     await expect(
       buildOfficialArtifacts(input, join(root, 'out'), '2026-07-21T00:00:00.000Z'),
-    ).rejects.toThrow('OFFICIAL_RELEASE_YOUTUBE_RUNTIME_MISSING');
+    ).rejects.toThrow('OFFICIAL_RELEASE_YTDLP_RUNTIME_MISSING');
+  });
+
+  it('uses a shared yt-dlp diagnostic when an Instagram runtime notice is missing', async () => {
+    const root = await temporaryRoot();
+    const input = join(root, 'stage');
+    await writeStage(input);
+    await rm(join(input, 'source.instagram', 'runtime', 'linux-x64', 'THIRD_PARTY_NOTICES'));
+
+    await expect(
+      buildOfficialArtifacts(input, join(root, 'out'), '2026-07-21T00:00:00.000Z'),
+    ).rejects.toThrow('OFFICIAL_RELEASE_YTDLP_NOTICES_MISSING');
   });
 
   it('signs only with a supplied process environment value', async () => {

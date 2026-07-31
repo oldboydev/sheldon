@@ -419,7 +419,10 @@ function addMemoryCommands(
     .option('--language <tags>', 'preferred comma-separated language tags')
     .option('--cookies <path>', 'optional local cookie file (never stored)')
     .option('--media <mode>', 'social media capture: none or thumbnail', parseMediaMode)
-    .option('--stt', 'allow an already-installed local speech-to-text runtime')
+    .option(
+      '--stt',
+      'allow an already-installed local speech-to-text runtime (may download temporary audio up to 50 MiB, even with --media none)',
+    )
     .action((kind: EntityKind, slug: string, url: string, options: UrlIngestionOptions) =>
       ingestUrl(kind, slug, url, options, context),
     );

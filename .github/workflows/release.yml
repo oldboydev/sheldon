@@ -26,7 +26,7 @@ jobs:
       - run: npm run verify
       - run: >-
           node scripts/release/prepare-youtube-runtime.mjs
-          --output release/youtube-runtime
+          --output release/ytdlp-runtime
       - uses: actions/download-artifact@v5
         with:
           pattern: ocr-runtime-*
@@ -35,7 +35,7 @@ jobs:
           node scripts/release/stage-official-artifacts.mjs
           --source packages/plugins/official
           --runtime-artifacts release/runtime-artifacts
-          --youtube-runtime release/youtube-runtime
+          --ytdlp-runtime release/ytdlp-runtime
           --output release/stage
       - id: published-at
         run: echo "value=$(node --input-type=module --eval \"console.log(new Date().toISOString())\")" >> "$GITHUB_OUTPUT"

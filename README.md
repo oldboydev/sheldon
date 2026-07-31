@@ -25,6 +25,10 @@ autorizada como raws separados. `--stt` só aceita uma runtime local já configu
 baixa modelos nem inventa fala ausente. Configure `SHELDON_LOCAL_STT_EXECUTABLE` e, se preciso,
 `SHELDON_LOCAL_STT_ARGUMENTS` como um array JSON que contenha no máximo um placeholder `{input}`;
 o comando deve escrever a transcrição em stdout.
+Se o extrator declarar uma legenda que não materializou, a captura permanece válida como uma
+lacuna; caminhos fora do diretório temporário ou links simbólicos continuam bloqueados. As opções
+`--media` e `--stt` são aceitas por qualquer plugin que declare, respectivamente, permissão de
+mídia e efeito de STT local.
 
 O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude. O M6 acrescenta bundles OKF v0.1: projeções locais, portáteis, determinísticas e reconstruíveis de conceitos aprovados.
 

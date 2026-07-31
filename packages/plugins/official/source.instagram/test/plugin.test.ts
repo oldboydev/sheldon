@@ -58,6 +58,71 @@ describe('experimental source.instagram', () => {
     ).resolves.toBe('Olá, mundo\n');
   });
 
+  it('treats a declared-but-missing caption as a transcript gap', async () => {
+    const directory = await temporaryDirectory();
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: {
+        run: vi.fn().mockResolvedValue({
+          stdout: JSON.stringify({
+            title: 'Fixture',
+            requested_subtitles: { pt: { filepath: 'missing-caption.vtt' } },
+          }),
+          stderr: '',
+        }),
+      },
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+        options: {},
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+
+    expect(artifacts.map((artifact) => artifact.path)).not.toContain('assets/transcript.txt');
+    expect(artifacts.find((artifact) => artifact.path === 'content.md')?.metadata).toMatchObject({
+      extractionStatus: 'gap',
+    });
+  });
+
+  it('chooses the first available caption in the requested language order', async () => {
+    const directory = await temporaryDirectory();
+    const portuguese = join(directory, 'caption-pt.vtt');
+    const english = join(directory, 'caption-en.vtt');
+    await writeFile(portuguese, 'WEBVTT\n\n00:00.000 --> 00:01.000\nPortuguês\n');
+    await writeFile(english, 'WEBVTT\n\n00:00.000 --> 00:01.000\nEnglish\n');
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: {
+        run: vi.fn().mockResolvedValue({
+          stdout: JSON.stringify({
+            requested_subtitles: {
+              pt: { filepath: portuguese },
+              en: { filepath: english },
+            },
+          }),
+          stderr: '',
+        }),
+      },
+    });
+
+    await plugin.ingest(
+      {
+        input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+        options: { language: 'en,pt' },
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+
+    await expect(
+      import('node:fs/promises').then(({ readFile }) =>
+        readFile(join(directory, 'assets', 'transcript.txt'), 'utf8'),
+      ),
+    ).resolves.toBe('English\n');
+  });
+
   it('uses finite backoff and emits a stable rate-limit diagnostic', async () => {
     const directory = await temporaryDirectory();
     const run = vi
@@ -110,6 +175,32 @@ describe('experimental source.instagram', () => {
     ).rejects.toMatchObject({ code: 'INSTAGRAM_STT_UNAVAILABLE' });
     await expect(plugin.describe(context)).resolves.toMatchObject({
       permissions: { network: true, cookies: true, media: true },
+    });
+  });
+
+  it('reports invalid local STT configuration distinctly from an absent configuration', async () => {
+    const directory = await temporaryDirectory();
+    const plugin = createOfficialSourceInstagramPlugin({
+      environment: {
+        SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt',
+        SHELDON_LOCAL_STT_ARGUMENTS: '{not json}',
+      },
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: { stt: true },
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INSTAGRAM_STT_CONFIGURATION_INVALID' });
+    await expect(plugin.healthcheck(context)).resolves.toMatchObject({
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'local-stt', severity: 'error' }),
+      ]),
     });
   });
 

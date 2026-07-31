@@ -102,7 +102,7 @@ async function validatePluginStage(root, expectedId) {
   await requireRegularFile(join(root, 'THIRD_PARTY_NOTICES'), 'OFFICIAL_RELEASE_NOTICES_MISSING');
   if (expectedId === 'source.image') await validateImageStage(root);
   if (expectedId === 'source.youtube' || expectedId === 'source.instagram') {
-    await validateYoutubeStage(root);
+    await validateYtDlpStage(root);
   }
   return { root, id: expectedId, version: manifest.version, name: manifest.name };
 }
@@ -122,15 +122,15 @@ async function validateImageStage(root) {
   }
 }
 
-async function validateYoutubeStage(root) {
+async function validateYtDlpStage(root) {
   for (const platform of OFFICIAL_PLATFORMS) {
     await requireRegularFile(
       join(root, 'runtime', platform, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'),
-      'OFFICIAL_RELEASE_YOUTUBE_RUNTIME_MISSING',
+      'OFFICIAL_RELEASE_YTDLP_RUNTIME_MISSING',
     );
     await requireRegularFile(
       join(root, 'runtime', platform, 'THIRD_PARTY_NOTICES'),
-      'OFFICIAL_RELEASE_YOUTUBE_NOTICES_MISSING',
+      'OFFICIAL_RELEASE_YTDLP_NOTICES_MISSING',
     );
   }
 }

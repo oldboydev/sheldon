@@ -12,10 +12,11 @@ import {
   type ProbeResult,
   type SourceArtifact,
 } from '@sheldon/plugin-sdk';
+import type { OfficialPlatform } from '@sheldon/plugin-host';
 import { canonicalInstagramVideo } from './instagram-url.js';
 import { resolveYtDlpExecutable } from './runtime.js';
 
-const DEFAULT_PLATFORM = `${process.platform}-${process.arch}`;
+const DEFAULT_PLATFORM = `${process.platform}-${process.arch}` as OfficialPlatform;
 const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
 const MAX_STT_INPUT_BYTES = 50 * 1024 * 1024;
 
@@ -61,7 +62,7 @@ export interface InstagramRunner {
 }
 export interface InstagramDependencies {
   readonly pluginRoot?: string;
-  readonly platform?: string;
+  readonly platform?: OfficialPlatform;
   readonly executable?: string;
   readonly runner?: InstagramRunner;
   readonly version?: () => Promise<string>;
@@ -145,8 +146,16 @@ async function ingest(
   const video = validatedInput(request.input);
   const options = validatedOptions(request.options);
   const localStt = localSttConfiguration(dependencies.environment ?? process.env);
-  if (options.stt && dependencies.transcribe === undefined && localStt === undefined)
-    throw socialError('INSTAGRAM_STT_UNAVAILABLE', 'No local STT runtime is configured.');
+  if (options.stt && dependencies.transcribe === undefined) {
+    if (localStt.status === 'invalid') {
+      throw socialError(
+        'INSTAGRAM_STT_CONFIGURATION_INVALID',
+        'The local STT runtime configuration is invalid.',
+      );
+    }
+    if (localStt.status === 'unconfigured')
+      throw socialError('INSTAGRAM_STT_UNAVAILABLE', 'No local STT runtime is configured.');
+  }
   await mkdir(request.temporaryDirectory, { recursive: true });
   const cookieFile = process.env.SHELDON_SOCIAL_COOKIE_FILE;
   const args = [
@@ -176,11 +185,11 @@ async function ingest(
   );
   const info = parseInfo(output.stdout);
   const caption = stringValue(info.description);
-  let transcript = await transcriptText(info, request.temporaryDirectory);
+  let transcript = await transcriptText(info, request.temporaryDirectory, options.languages);
   if (transcript === undefined && options.stt) {
     if (dependencies.transcribe !== undefined) {
       transcript = await dependencies.transcribe({ directory: request.temporaryDirectory, signal });
-    } else if (localStt !== undefined) {
+    } else if (localStt.status === 'configured') {
       const input = await downloadSttInput(
         runner,
         executable,
@@ -191,7 +200,7 @@ async function ingest(
         dependencies.sleep ?? defaultSleep,
       );
       transcript = await transcribeLocalInput(
-        localStt,
+        localStt.configuration,
         input,
         request.temporaryDirectory,
         signal,
@@ -370,21 +379,22 @@ function parseInfo(stdout: string): Readonly<Record<string, unknown>> {
 async function transcriptText(
   info: Readonly<Record<string, unknown>>,
   directory: string,
+  languages: readonly string[],
 ): Promise<string | undefined> {
   const subtitles = info.requested_subtitles;
-  if (subtitles !== null && typeof subtitles === 'object' && !Array.isArray(subtitles))
-    for (const value of Object.values(subtitles))
-      if (
-        value !== null &&
-        typeof value === 'object' &&
-        'filepath' in value &&
-        typeof value.filepath === 'string'
-      ) {
+  if (subtitles !== null && typeof subtitles === 'object' && !Array.isArray(subtitles)) {
+    const entries = Object.entries(subtitles).filter(isCaptionEntry);
+    const ordered = languages.flatMap((language) =>
+      entries.filter(([declaredLanguage]) => declaredLanguage.toLowerCase() === language),
+    );
+    for (const [, value] of ordered)
+      if (value.filepath.length > 0) {
         let path: string;
         try {
           path = safeCaptionPath(directory, value.filepath);
           await assertRegularCaptionFile(directory, path);
         } catch (error) {
+          if (isMissingFile(error)) continue;
           throw socialError(
             'INSTAGRAM_EXTRACTION_FAILED',
             'yt-dlp returned an unsafe caption artifact.',
@@ -402,15 +412,31 @@ async function transcriptText(
           /* unavailable caption */
         }
       }
+  }
   return undefined;
+}
+function isCaptionEntry(
+  entry: [string, unknown],
+): entry is [string, { readonly filepath: string }] {
+  const [, value] = entry;
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'filepath' in value &&
+    typeof value.filepath === 'string'
+  );
 }
 interface LocalSttConfiguration {
   readonly executable: string;
   readonly arguments_: readonly string[];
 }
-function localSttConfiguration(environment: NodeJS.ProcessEnv): LocalSttConfiguration | undefined {
+type LocalSttConfigurationState =
+  | { readonly status: 'unconfigured' }
+  | { readonly status: 'invalid' }
+  | { readonly status: 'configured'; readonly configuration: LocalSttConfiguration };
+function localSttConfiguration(environment: NodeJS.ProcessEnv): LocalSttConfigurationState {
   const executable = environment.SHELDON_LOCAL_STT_EXECUTABLE?.trim();
-  if (executable === undefined || executable.length === 0) return undefined;
+  if (executable === undefined || executable.length === 0) return { status: 'unconfigured' };
   const configuredArguments = environment.SHELDON_LOCAL_STT_ARGUMENTS;
   let arguments_: string[] = [];
   if (configuredArguments !== undefined) {
@@ -420,32 +446,41 @@ function localSttConfiguration(environment: NodeJS.ProcessEnv): LocalSttConfigur
         !Array.isArray(parsed) ||
         parsed.some((argument) => typeof argument !== 'string' || argument.length > 4_096)
       ) {
-        return undefined;
+        return { status: 'invalid' };
       }
       arguments_ = [...parsed];
     } catch {
-      return undefined;
+      return { status: 'invalid' };
     }
   }
   const inputPlaceholders = arguments_.filter((argument) => argument === '{input}').length;
-  if (inputPlaceholders > 1) return undefined;
+  if (inputPlaceholders > 1) return { status: 'invalid' };
   if (inputPlaceholders === 0) arguments_.push('{input}');
-  return { executable, arguments_ };
+  return { status: 'configured', configuration: { executable, arguments_ } };
 }
 function localSttCheck(environment: NodeJS.ProcessEnv) {
-  return localSttConfiguration(environment) === undefined
-    ? {
-        id: 'local-stt',
-        severity: 'warning' as const,
-        message: 'Local STT is optional and no model is downloaded automatically.',
-        remediation:
-          'Configure SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS before passing --stt.',
-      }
-    : {
-        id: 'local-stt',
-        severity: 'info' as const,
-        message: 'A local STT runtime is configured; the plugin will not download a model.',
-      };
+  const configuration = localSttConfiguration(environment);
+  if (configuration.status === 'unconfigured')
+    return {
+      id: 'local-stt',
+      severity: 'warning' as const,
+      message: 'Local STT is optional and no model is downloaded automatically.',
+      remediation:
+        'Configure SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS before passing --stt.',
+    };
+  if (configuration.status === 'invalid')
+    return {
+      id: 'local-stt',
+      severity: 'error' as const,
+      message: 'The configured local STT runtime settings are invalid.',
+      remediation:
+        'Set SHELDON_LOCAL_STT_ARGUMENTS to a JSON string array with at most one {input} placeholder.',
+    };
+  return {
+    id: 'local-stt',
+    severity: 'info' as const,
+    message: 'A local STT runtime is configured; the plugin will not download a model.',
+  };
 }
 async function downloadSttInput(
   runner: InstagramRunner,
@@ -658,6 +693,14 @@ async function assertRegularCaptionFile(outputDirectory: string, path: string): 
     }
   }
 }
+function isMissingFile(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    (error as { readonly code?: unknown }).code === 'ENOENT'
+  );
+}
 async function ytDlpCheck(
   executable: string,
   runner: InstagramRunner,
@@ -730,6 +773,7 @@ type InstagramErrorCode =
   | 'INSTAGRAM_RESPONSE_INVALID'
   | 'INSTAGRAM_EXTRACTION_FAILED'
   | 'INSTAGRAM_STT_UNAVAILABLE'
+  | 'INSTAGRAM_STT_CONFIGURATION_INVALID'
   | 'INSTAGRAM_MEDIA_LIMIT_EXCEEDED';
 function socialError(code: InstagramErrorCode, message: string, cause?: unknown): Error {
   const error = Object.assign(new Error(`${code}: ${message}`), { code });

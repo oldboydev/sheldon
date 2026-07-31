@@ -154,6 +154,7 @@ const sourceDiagnosticCodes = new Set([
   'INSTAGRAM_RESPONSE_INVALID',
   'INSTAGRAM_EXTRACTION_FAILED',
   'INSTAGRAM_STT_UNAVAILABLE',
+  'INSTAGRAM_STT_CONFIGURATION_INVALID',
   'INSTAGRAM_MEDIA_LIMIT_EXCEEDED',
 ]);
 const urlDiagnosticCodes = new Set(
@@ -850,6 +851,11 @@ function instagramRecovery(
       message: 'No local speech-to-text runtime is configured for source.instagram.',
       recovery:
         'Remove --stt or configure a local STT runtime; no model will be downloaded automatically.',
+    },
+    INSTAGRAM_STT_CONFIGURATION_INVALID: {
+      message: 'The configured local speech-to-text runtime is invalid for source.instagram.',
+      recovery:
+        'Set SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS to a valid local command configuration.',
     },
   };
   return (

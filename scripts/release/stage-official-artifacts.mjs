@@ -7,10 +7,10 @@ import { prepareOcrRuntime } from './prepare-ocr-runtime.mjs';
 
 const PACKAGE_FILES = ['package.json', 'sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'];
 
-export async function stageOfficialArtifacts(source, output, runtimeArtifacts, youtubeRuntime) {
+export async function stageOfficialArtifacts(source, output, runtimeArtifacts, ytDlpRuntime) {
   await assertNoStageInputSymlinks(source);
   if (runtimeArtifacts) await assertNoStageInputSymlinks(runtimeArtifacts);
-  if (youtubeRuntime) await assertNoStageInputSymlinks(youtubeRuntime);
+  if (ytDlpRuntime) await assertNoStageInputSymlinks(ytDlpRuntime);
   await rm(output, { recursive: true, force: true });
   await mkdir(output, { recursive: true });
   for (const id of OFFICIAL_PLUGIN_IDS) {
@@ -30,8 +30,8 @@ export async function stageOfficialArtifacts(source, output, runtimeArtifacts, y
       await copyRequired(join(pluginSource, 'runtime'), join(pluginOutput, 'runtime'), true);
       if (runtimeArtifacts) await mergeOcrRuntimeArtifacts(runtimeArtifacts, pluginOutput);
     }
-    if ((id === 'source.youtube' || id === 'source.instagram') && youtubeRuntime) {
-      await copyRequired(join(youtubeRuntime, 'runtime'), join(pluginOutput, 'runtime'), true);
+    if ((id === 'source.youtube' || id === 'source.instagram') && ytDlpRuntime) {
+      await copyRequired(join(ytDlpRuntime, 'runtime'), join(pluginOutput, 'runtime'), true);
     }
   }
 }
@@ -132,6 +132,7 @@ export function parseStageOfficialArtifactArguments(argv) {
       (flag !== '--source' &&
         flag !== '--output' &&
         flag !== '--runtime-artifacts' &&
+        flag !== '--ytdlp-runtime' &&
         flag !== '--youtube-runtime') ||
       values.has(flag) ||
       typeof value !== 'string' ||
@@ -144,24 +145,26 @@ export function parseStageOfficialArtifactArguments(argv) {
   const source = values.get('--source');
   const output = values.get('--output');
   if (!source || !output) throw argumentsError();
+  const ytDlpRuntime = values.get('--ytdlp-runtime') ?? values.get('--youtube-runtime');
+  if (values.has('--ytdlp-runtime') && values.has('--youtube-runtime')) throw argumentsError();
   return {
     source,
     output,
     runtimeArtifacts: values.get('--runtime-artifacts'),
-    youtubeRuntime: values.get('--youtube-runtime'),
+    ytDlpRuntime,
   };
 }
 
 function argumentsError() {
   return releaseError(
     'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
-    'Use --source <plugins-directory> --output <stage-directory> [--runtime-artifacts <directory>] [--youtube-runtime <directory>].',
+    'Use --source <plugins-directory> --output <stage-directory> [--runtime-artifacts <directory>] [--ytdlp-runtime <directory>].',
   );
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const { source, output, runtimeArtifacts, youtubeRuntime } = parseStageOfficialArtifactArguments(
+  const { source, output, runtimeArtifacts, ytDlpRuntime } = parseStageOfficialArtifactArguments(
     process.argv.slice(2),
   );
-  await stageOfficialArtifacts(source, output, runtimeArtifacts, youtubeRuntime);
+  await stageOfficialArtifacts(source, output, runtimeArtifacts, ytDlpRuntime);
 }

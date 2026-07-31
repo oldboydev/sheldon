@@ -129,13 +129,22 @@ export async function ingestUrl(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
-    const socialPlugin = selection.plugin.manifest.id === 'source.instagram';
-    if (!socialPlugin && (options.media !== undefined || options.stt === true)) {
+    const supportsMedia = selection.plugin.manifest.permissions.media === true;
+    const supportsStt = selection.plugin.manifest.effects?.stt === true;
+    if (options.media !== undefined && !supportsMedia) {
       throw new PluginHostError(
         'PLUGIN_OPTION_UNSUPPORTED',
-        'The selected URL plugin does not support social media or local STT options.',
+        'The selected URL plugin does not support media capture.',
         selection.plugin.manifest.id,
-        'Remove --media/--stt or select source.instagram for a supported public Instagram video.',
+        'Remove --media or select a plugin that explicitly declares media permission.',
+      );
+    }
+    if (options.stt === true && !supportsStt) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support local speech-to-text.',
+        selection.plugin.manifest.id,
+        'Remove --stt or select a plugin that explicitly declares the local STT effect.',
       );
     }
     if (options.cookies !== undefined && !selection.plugin.manifest.permissions.cookies) {
@@ -148,8 +157,8 @@ export async function ingestUrl(
     }
     const pluginOptions: Readonly<Record<string, string | boolean>> = {
       ...(options.language === undefined ? {} : { language: options.language }),
-      ...(socialPlugin && options.media !== undefined ? { media: options.media } : {}),
-      ...(socialPlugin && options.stt === true ? { stt: true } : {}),
+      ...(supportsMedia && options.media !== undefined ? { media: options.media } : {}),
+      ...(supportsStt && options.stt === true ? { stt: true } : {}),
     };
     const cookies =
       options.cookies === undefined ? undefined : await localCookieFile(options.cookies);

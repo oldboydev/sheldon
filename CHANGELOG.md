@@ -14,6 +14,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- A captura Instagram agora trata legenda declarada mas ausente como lacuna, respeita a ordem de
+  idiomas solicitada e diagnostica configuração STT local inválida. As opções de mídia e STT da
+  CLI agora são habilitadas por capabilities declaradas, permitindo conectores futuros.
+- O pipeline de release passou a nomear o runtime compartilhado como `yt-dlp`, com diagnósticos e
+  notices de licença aplicáveis tanto a YouTube quanto a Instagram.
 - O watchdog do builder de runtime OCR para Windows agora encerra o Job Object e retorna o
   diagnóstico de timeout sem aguardar o cleanup de pipes redirecionados.
 - O conector experimental `source.instagram` agora inclui o runtime verificado de `yt-dlp` no
