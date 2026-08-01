@@ -7,6 +7,19 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createOfficialSourceInstagramPlugin } from '../src/plugin.js';
 
+const filesystemState = vi.hoisted(() => ({ unreadablePath: '' }));
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const original = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...original,
+    readFile: (...arguments_: Parameters<typeof original.readFile>) => {
+      if (arguments_[0] === filesystemState.unreadablePath)
+        throw Object.assign(new Error('permission denied'), { code: 'EACCES' });
+      return original.readFile(...arguments_);
+    },
+  };
+});
+
 const roots: string[] = [];
 const context: PluginExecutionContext = {
   signal: new AbortController().signal,
@@ -14,6 +27,7 @@ const context: PluginExecutionContext = {
 };
 
 afterEach(async () => {
+  filesystemState.unreadablePath = '';
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
@@ -84,6 +98,53 @@ describe('experimental source.instagram', () => {
     expect(artifacts.map((artifact) => artifact.path)).not.toContain('assets/transcript.txt');
     expect(artifacts.find((artifact) => artifact.path === 'content.md')?.metadata).toMatchObject({
       extractionStatus: 'gap',
+      warnings: [
+        'Skipped missing caption pt.',
+        'No speech transcript was available; no transcript was invented.',
+      ],
+    });
+  });
+
+  it('records missing, unreadable, and unusable captions while retaining a transcript gap', async () => {
+    const directory = await temporaryDirectory();
+    const unusable = join(directory, 'caption-en.vtt');
+    const unreadable = join(directory, 'caption-es.vtt');
+    await writeFile(unusable, 'WEBVTT\n\n00:00.000 --> 00:01.000\n');
+    await writeFile(unreadable, 'WEBVTT\n\n00:00.000 --> 00:01.000\nNo leer\n');
+    filesystemState.unreadablePath = unreadable;
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: {
+        run: vi.fn().mockResolvedValue({
+          stdout: JSON.stringify({
+            requested_subtitles: {
+              pt: { filepath: 'missing-caption.vtt' },
+              en: { filepath: unusable },
+              es: { filepath: unreadable },
+            },
+          }),
+          stderr: '',
+        }),
+      },
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+        options: { language: 'pt,en,es' },
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+
+    expect(artifacts.map((artifact) => artifact.path)).not.toContain('assets/transcript.txt');
+    expect(artifacts.find((artifact) => artifact.path === 'content.md')?.metadata).toMatchObject({
+      extractionStatus: 'gap',
+      warnings: [
+        'Skipped missing caption pt.',
+        'Skipped unusable caption en.',
+        'Skipped unreadable caption es.',
+        'No speech transcript was available; no transcript was invented.',
+      ],
     });
   });
 
@@ -244,6 +305,119 @@ describe('experimental source.instagram', () => {
       expect.arrayContaining(['--format', 'bestaudio/best', '--max-filesize', '50M']),
     );
     expect(run.mock.calls[1]?.[1]).not.toContain('--write-auto-subs');
+  });
+
+  it('uses yt-dlp multi-format STT output names and reports no bounded download as a media limit', async () => {
+    const directory = await temporaryDirectory();
+    const run = vi.fn(async (_file, args, options) => {
+      if (args.includes('--format'))
+        await writeFile(join(options.cwd, 'stt-input.f0.mp4'), 'audio');
+      return {
+        stdout: args.includes('--format') ? '' : JSON.stringify({ title: 'Fixture' }),
+        stderr: '',
+      };
+    });
+    const sttRunner = { run: vi.fn().mockResolvedValue({ stdout: 'fala local', stderr: '' }) };
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: { run },
+      sttRunner,
+      environment: { SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt' },
+    });
+
+    await plugin.ingest(
+      {
+        input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+        options: { stt: true },
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+    expect(sttRunner.run).toHaveBeenCalledWith(
+      'local-stt',
+      [join(directory, 'stt-input.f0.mp4')],
+      expect.objectContaining({ cwd: directory, shell: false }),
+    );
+
+    const noInputDirectory = await temporaryDirectory();
+    const noInput = createOfficialSourceInstagramPlugin({
+      runner: {
+        run: vi
+          .fn()
+          .mockResolvedValue({ stdout: JSON.stringify({ title: 'Fixture' }), stderr: '' }),
+      },
+      environment: { SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt' },
+    });
+    await expect(
+      noInput.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: { stt: true },
+          temporaryDirectory: noInputDirectory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'INSTAGRAM_MEDIA_LIMIT_EXCEEDED' });
+  });
+
+  it('rejects multiple STT media artifacts distinctly', async () => {
+    const directory = await temporaryDirectory();
+    const run = vi.fn(async (_file, args, options) => {
+      if (args.includes('--format')) {
+        await writeFile(join(options.cwd, 'stt-input.one.mp4'), 'audio');
+        await writeFile(join(options.cwd, 'stt-input.two.mp4'), 'audio');
+      }
+      return {
+        stdout: args.includes('--format') ? '' : JSON.stringify({ title: 'Fixture' }),
+        stderr: '',
+      };
+    });
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: { run },
+      environment: { SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt' },
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: { stt: true },
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: 'INSTAGRAM_EXTRACTION_FAILED',
+      message: expect.stringContaining('multiple STT media inputs'),
+    });
+  });
+
+  it('rejects an unexpected STT media filename distinctly', async () => {
+    const directory = await temporaryDirectory();
+    const run = vi.fn(async (_file, args, options) => {
+      if (args.includes('--format')) await writeFile(join(options.cwd, 'stt-input.bad!'), 'audio');
+      return {
+        stdout: args.includes('--format') ? '' : JSON.stringify({ title: 'Fixture' }),
+        stderr: '',
+      };
+    });
+    const plugin = createOfficialSourceInstagramPlugin({
+      runner: { run },
+      environment: { SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt' },
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.instagram.com/reel/C0ffee12345/' },
+          options: { stt: true },
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({
+      code: 'INSTAGRAM_EXTRACTION_FAILED',
+      message: expect.stringContaining('unexpected STT media filename'),
+    });
   });
 
   it('rejects a caption path outside the plugin temporary directory', async () => {

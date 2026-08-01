@@ -206,22 +206,26 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain(
       '$process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)',
     );
-    expect(builder).toContain('[System.Threading.Thread]::Sleep(50)');
-    expect(builder).not.toContain('[System.Threading.Tasks.Task]::WaitAny');
+    expect(builder).toContain('[System.Threading.Tasks.Task]::WaitAny($pending.ToArray(), 50)');
+    expect(builder).not.toContain('[System.Threading.Thread]::Sleep(50)');
     expect(builder).toContain('$stdout.Append($stdoutChunk)');
     expect(builder).toContain('$stderr.Append($stderrChunk)');
     expect(builder).toContain('[Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")');
     expect(builder).toContain('[Console]::Error.Write("OCR_RUNTIME_STDERR: $stderrChunk")');
-    expect(builder).toContain('$process.WaitForExit(0)');
-    expect(builder).toContain('$process.Kill($true)');
+    expect(builder).toContain('$timedOutProcess.WaitForExit(0)');
+    expect(builder).toContain('$timedOutProcess.Kill($true)');
     expect(builder).toContain('catch [System.InvalidOperationException]');
-    expect(builder).toContain('if (-not $process.HasExited) { throw }');
+    expect(builder).toContain('if (-not $timedOutProcess.HasExited) { throw }');
     expect(builder).toContain(
       'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
     );
     expect(builder).toContain('$process.WaitForExit()');
     expect(builder).toContain('$process = $null');
     expect(builder).toContain('if ($null -ne $process) { $process.Dispose() }');
+    expect(builder).toMatch(
+      /\$timedOutProcess = \$process\r?\n\s+\$process = \$null\r?\n\s+# Do not synchronously close[\s\S]*?\$timedOutProcess\.Kill\(\$true\)/u,
+    );
+    expect(builder).toContain('finalized with Dispose(false)');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
     expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');
     expect(builder).toContain('Write-Host "OCR_RUNTIME_STAGE: $Stage"');

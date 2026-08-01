@@ -185,7 +185,12 @@ async function ingest(
   );
   const info = parseInfo(output.stdout);
   const caption = stringValue(info.description);
-  let transcript = await transcriptText(info, request.temporaryDirectory, options.languages);
+  const selectedCaptions = await transcriptText(
+    info,
+    request.temporaryDirectory,
+    options.languages,
+  );
+  let transcript = selectedCaptions.text;
   if (transcript === undefined && options.stt) {
     if (dependencies.transcribe !== undefined) {
       transcript = await dependencies.transcribe({ directory: request.temporaryDirectory, signal });
@@ -208,10 +213,9 @@ async function ingest(
       );
     }
   }
-  const warnings =
-    transcript === undefined
-      ? ['No speech transcript was available; no transcript was invented.']
-      : [];
+  const warnings = [...selectedCaptions.warnings];
+  if (transcript === undefined)
+    warnings.push('No speech transcript was available; no transcript was invented.');
   const content = markdown(video.canonicalUri, info, caption, transcript);
   const original = JSON.stringify(sanitizedInfo(video.canonicalUri, info), null, 2) + '\n';
   const metadata = JSON.stringify(safeMetadata(video.canonicalUri, info), null, 2) + '\n';
@@ -380,40 +384,48 @@ async function transcriptText(
   info: Readonly<Record<string, unknown>>,
   directory: string,
   languages: readonly string[],
-): Promise<string | undefined> {
+): Promise<{ readonly text: string | undefined; readonly warnings: readonly string[] }> {
+  const warnings: string[] = [];
   const subtitles = info.requested_subtitles;
   if (subtitles !== null && typeof subtitles === 'object' && !Array.isArray(subtitles)) {
-    const entries = Object.entries(subtitles).filter(isCaptionEntry);
+    const entries = Object.entries(subtitles);
     const ordered = languages.flatMap((language) =>
       entries.filter(([declaredLanguage]) => declaredLanguage.toLowerCase() === language),
     );
-    for (const [, value] of ordered)
-      if (value.filepath.length > 0) {
-        let path: string;
-        try {
-          path = safeCaptionPath(directory, value.filepath);
-          await assertRegularCaptionFile(directory, path);
-        } catch (error) {
-          if (isMissingFile(error)) continue;
-          throw socialError(
-            'INSTAGRAM_EXTRACTION_FAILED',
-            'yt-dlp returned an unsafe caption artifact.',
-            error,
-          );
-        }
-        try {
-          const raw = await readFile(path, 'utf8');
-          const text = raw
-            .split(/\r?\n/u)
-            .filter((line) => line.trim() && !line.includes('-->') && line.trim() !== 'WEBVTT')
-            .join('\n');
-          if (text.trim()) return `${text.trim()}\n`;
-        } catch {
-          /* unavailable caption */
-        }
+    for (const [language, value] of ordered) {
+      if (!isCaptionEntry([language, value]) || value.filepath.length === 0) {
+        warnings.push(captionWarning(language, 'missing'));
+        continue;
       }
+      let path: string;
+      try {
+        path = safeCaptionPath(directory, value.filepath);
+        await assertRegularCaptionFile(directory, path);
+      } catch (error) {
+        if (isMissingFile(error)) {
+          warnings.push(captionWarning(language, 'missing'));
+          continue;
+        }
+        throw socialError(
+          'INSTAGRAM_EXTRACTION_FAILED',
+          'yt-dlp returned an unsafe caption artifact.',
+          error,
+        );
+      }
+      try {
+        const raw = await readFile(path, 'utf8');
+        const text = raw
+          .split(/\r?\n/u)
+          .filter((line) => line.trim() && !line.includes('-->') && line.trim() !== 'WEBVTT')
+          .join('\n');
+        if (text.trim()) return { text: `${text.trim()}\n`, warnings };
+        warnings.push(captionWarning(language, 'unusable'));
+      } catch {
+        warnings.push(captionWarning(language, 'unreadable'));
+      }
+    }
   }
-  return undefined;
+  return { text: undefined, warnings };
 }
 function isCaptionEntry(
   entry: [string, unknown],
@@ -425,6 +437,9 @@ function isCaptionEntry(
     'filepath' in value &&
     typeof value.filepath === 'string'
   );
+}
+function captionWarning(language: string, reason: 'missing' | 'unreadable' | 'unusable'): string {
+  return `Skipped ${reason} caption ${language}.`;
 }
 interface LocalSttConfiguration {
   readonly executable: string;
@@ -513,7 +528,13 @@ async function downloadSttInput(
   );
   const inputs: string[] = [];
   for (const entry of await readdir(directory)) {
-    if (!/^stt-input\.[a-z0-9]{1,8}$/iu.test(entry)) continue;
+    if (!entry.startsWith('stt-input.')) continue;
+    if (!/^stt-input(?:\.[a-z0-9]{1,8})+$/iu.test(entry)) {
+      throw socialError(
+        'INSTAGRAM_EXTRACTION_FAILED',
+        'yt-dlp returned an unexpected STT media filename.',
+      );
+    }
     const path = join(directory, entry);
     const status = await lstat(path);
     if (status.isSymbolicLink() || !status.isFile()) {
@@ -524,11 +545,13 @@ async function downloadSttInput(
     }
     inputs.push(path);
   }
-  if (inputs.length !== 1)
+  if (inputs.length === 0)
     throw socialError(
-      'INSTAGRAM_STT_UNAVAILABLE',
-      'No bounded local media input was available for STT.',
+      'INSTAGRAM_MEDIA_LIMIT_EXCEEDED',
+      'yt-dlp did not produce a local STT input within the 50 MiB limit.',
     );
+  if (inputs.length > 1)
+    throw socialError('INSTAGRAM_EXTRACTION_FAILED', 'yt-dlp returned multiple STT media inputs.');
   return inputs[0] as string;
 }
 async function transcribeLocalInput(

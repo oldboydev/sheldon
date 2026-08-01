@@ -30,6 +30,9 @@ Se o extrator declarar uma legenda que não materializou, a captura permanece v�
 lacuna; caminhos fora do diretório temporário ou links simbólicos continuam bloqueados. As opções
 `--media` e `--stt` são aceitas por qualquer plugin que declare, respectivamente, permissão de
 mídia e efeito de STT local.
+Quando STT local é necessário, a entrada temporária é limitada a 50 MiB; um download que não cabe
+nesse orçamento é diagnosticado como limite de mídia, e o raw registra por que uma legenda foi
+descartada sem inventar transcrição.
 
 O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude. O M6 acrescenta bundles OKF v0.1: projeções locais, portáteis, determinísticas e reconstruíveis de conceitos aprovados.
 
