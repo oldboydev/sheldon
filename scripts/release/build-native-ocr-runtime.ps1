@@ -157,6 +157,8 @@ function Invoke-WatchedProcess {
     $stdinOpen = $null -ne $stdinWrite
     $timedOut = $false
     while ($null -ne $stdinWrite -or $null -ne $stdoutRead -or $null -ne $stderrRead) {
+      # Wait for a pipe task or at most 50 ms. This overload returns when its timeout expires
+      # regardless of task state, so it reduces post-exit latency without extending the watchdog.
       $pending = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
       if ($null -ne $stdinWrite) { [void]$pending.Add($stdinWrite) }
       if ($null -ne $stdoutRead) { [void]$pending.Add($stdoutRead) }
@@ -197,19 +199,32 @@ function Invoke-WatchedProcess {
 
       if (-not $timedOut -and $watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
         $timedOut = $true
+        # Clear the outer reference before any termination call can throw. The finally block
+        # must not call Process.Dispose() on this path because it synchronously closes managed
+        # redirected streams while the stdin writer may still be blocked on a full pipe.
+        $timedOutProcess = $process
+        $process = $null
+        # Do not synchronously close a stream while its background writer is blocked on a full
+        # pipe. More importantly, do not wait for redirected readers to observe EOF after a
+        # timeout: that observation can itself block on Windows. Killing the job and throwing
+        # immediately keeps the watchdog's bound independent of pipe cleanup scheduling.
         if ($stdinOpen) {
-          try { $process.StandardInput.Close() } catch { }
           $stdinOpen = $false
+          $stdinWrite = $null
         }
-        if (-not $process.WaitForExit(0)) {
+        if (-not $timedOutProcess.WaitForExit(0)) {
           try {
-            $process.Kill($true)
+            $timedOutProcess.Kill($true)
           } catch [System.InvalidOperationException] {
-            if (-not $process.HasExited) { throw }
+            if (-not $timedOutProcess.HasExited) { throw }
           }
         }
         $job.Dispose()
         $job = $null
+        # The unreachable Process wrapper is finalized with Dispose(false), which releases its
+        # native handle without synchronously disposing managed redirected streams. The Job
+        # Object has already terminated the child tree, so finalization cannot revive it.
+        throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."
       }
     }
     $process.WaitForExit()
@@ -224,7 +239,7 @@ function Invoke-WatchedProcess {
     }
   } finally {
     if ($null -ne $job) { $job.Dispose() }
-    $process.Dispose()
+    if ($null -ne $process) { $process.Dispose() }
   }
 }
 

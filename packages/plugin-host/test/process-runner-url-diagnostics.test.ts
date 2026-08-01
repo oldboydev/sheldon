@@ -126,6 +126,25 @@ describe('PluginProcessRunner URL diagnostics', () => {
     });
   });
 
+  it('maps invalid local Instagram STT configuration to an actionable remediation', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+
+    await expect(
+      runner.probe(await pluginForFixture(), {
+        errorCode: 'INSTAGRAM_STT_CONFIGURATION_INVALID',
+        secret: 'https://www.instagram.com/reel/C0ffee12345/?credential=query-secret',
+      }),
+    ).rejects.toMatchObject({
+      code: 'INSTAGRAM_STT_CONFIGURATION_INVALID',
+      message: 'The configured local speech-to-text runtime is invalid for source.instagram.',
+      recovery:
+        'Set SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS to a valid local command configuration.',
+      target: 'fixture.node',
+    });
+    expect(JSON.stringify(state.listRuns().at(-1))).not.toContain('query-secret');
+  });
+
   it('preserves only a valid YouTube video ID in YouTube diagnostics', async () => {
     const state = stateDatabase();
     const runner = new PluginProcessRunner({ state, processLauncher });

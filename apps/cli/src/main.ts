@@ -417,6 +417,12 @@ function addMemoryCommands(
     .option('--vault <path>', 'explicit vault path')
     .option('--plugin <id>', 'explicit URL ingestion plugin')
     .option('--language <tags>', 'preferred comma-separated language tags')
+    .option('--cookies <path>', 'optional local cookie file (never stored)')
+    .option('--media <mode>', 'social media capture: none or thumbnail', parseMediaMode)
+    .option(
+      '--stt',
+      'allow an already-installed local speech-to-text runtime (may download temporary audio up to 50 MiB, even with --media none)',
+    )
     .action((kind: EntityKind, slug: string, url: string, options: UrlIngestionOptions) =>
       ingestUrl(kind, slug, url, options, context),
     );
@@ -556,6 +562,13 @@ function boundedInteger(name: string, minimum: number, maximum: number): (value:
     }
     return parsed;
   };
+}
+
+function parseMediaMode(value: string): 'none' | 'thumbnail' {
+  if (value !== 'none' && value !== 'thumbnail') {
+    throw new InvalidArgumentError('--media must be none or thumbnail.');
+  }
+  return value;
 }
 
 function addEntityCommands(program: Command, kind: EntityKind, context: CommandContext): void {

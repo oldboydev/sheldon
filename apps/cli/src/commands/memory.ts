@@ -35,6 +35,10 @@ export interface FileIngestionOptions extends VaultOption {
 export interface UrlIngestionOptions extends VaultOption {
   readonly plugin?: string;
   readonly language?: string;
+  /** A local Netscape/JSON cookie file passed only through the child environment. */
+  readonly cookies?: string;
+  readonly media?: 'none' | 'thumbnail';
+  readonly stt?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -110,8 +114,6 @@ export async function ingestUrl(
   const canonical = canonicalUrl(value);
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const input = { url: canonical.href };
-  const pluginOptions: Readonly<Record<string, string>> =
-    options.language === undefined ? {} : { language: options.language };
   await withPluginServices(context, async ({ discovery, runner }) => {
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-url',
@@ -127,6 +129,39 @@ export async function ingestUrl(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
+    const supportsMedia = selection.plugin.manifest.permissions.media === true;
+    const supportsStt = selection.plugin.manifest.effects?.stt === true;
+    if (options.media !== undefined && !supportsMedia) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support media capture.',
+        selection.plugin.manifest.id,
+        'Remove --media or select a plugin that explicitly declares media permission.',
+      );
+    }
+    if (options.stt === true && !supportsStt) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support local speech-to-text.',
+        selection.plugin.manifest.id,
+        'Remove --stt or select a plugin that explicitly declares the local STT effect.',
+      );
+    }
+    if (options.cookies !== undefined && !selection.plugin.manifest.permissions.cookies) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support local cookies.',
+        selection.plugin.manifest.id,
+        'Remove --cookies or select a plugin that explicitly declares local cookie access.',
+      );
+    }
+    const pluginOptions: Readonly<Record<string, string | boolean>> = {
+      ...(options.language === undefined ? {} : { language: options.language }),
+      ...(supportsMedia && options.media !== undefined ? { media: options.media } : {}),
+      ...(supportsStt && options.stt === true ? { stt: true } : {}),
+    };
+    const cookies =
+      options.cookies === undefined ? undefined : await localCookieFile(options.cookies);
     const result = await runner.ingest(
       selection.plugin,
       input,
@@ -148,7 +183,14 @@ export async function ingestUrl(
           { signal: options.signal },
         );
       },
-      { signal: options.signal },
+      {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(cookies === undefined
+          ? {}
+          : {
+              secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: cookies.path },
+            }),
+      },
     );
     context.write(JSON.stringify(result, null, 2));
   });
@@ -436,6 +478,38 @@ function invalidUrlInput(): never {
     'The input must be an absolute HTTP(S) URL without credentials, a fragment, or a non-default port.',
     'URL input',
     'Choose one public HTTP(S) page URL and retry.',
+  );
+}
+
+async function localCookieFile(value: string): Promise<{
+  readonly path: string;
+}> {
+  const inputPath = resolve(value);
+  let metadata: Awaited<ReturnType<typeof lstat>>;
+  try {
+    metadata = await lstat(inputPath);
+  } catch {
+    throw cookieInputError();
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1_048_576) {
+    throw cookieInputError();
+  }
+  let path: string;
+  try {
+    path = await realpath(inputPath);
+    if (!(await lstat(path)).isFile()) throw new Error('not a regular file');
+  } catch {
+    throw cookieInputError();
+  }
+  return { path };
+}
+
+function cookieInputError(): PluginHostError {
+  return new PluginHostError(
+    'SOCIAL_COOKIE_FILE_INVALID',
+    'The local cookie file must be a readable regular file no larger than 1 MiB.',
+    'local cookie file',
+    'Export a local cookie file and retry. Its path and contents are never stored in Sheldon.',
   );
 }
 

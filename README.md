@@ -8,7 +8,31 @@ O planejamento do produto está aprovado e a implementação do marco M0 começo
 
 Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins sem misturar o estado operacional ao conhecimento. No M3, `source.file`, URL pública única e crawl público limitado por `ingest crawl`, YouTube público de vídeo único com legendas e snapshots de commits Git locais já estão disponíveis. `source.image`, OCR e seu runtime nativo existem na implementação; estão pausados somente o trabalho de release e a manutenção do runtime nativo, fora do escopo atual de conectores. Git remoto/autenticado, playlists/canais e STT local continuam adiados.
 
+O builder Windows do runtime OCR executa ferramentas filhas em um Job Object com limite por
+etapa; quando expira, encerra a árvore e retorna o diagnóstico de timeout sem depender do cleanup
+dos pipes redirecionados. A limpeza também evita dispor stdin sincronicamente quando uma escrita
+de fundo está bloqueada em um pipe cheio.
+
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
+
+O M8 acrescenta o plugin experimental `source.instagram` para Reels e posts de vídeo públicos.
+Ele nunca tenta contornar conteúdo privado, DRM, captcha ou anti-bot. O pacote oficial contém seu
+próprio runtime verificado de `yt-dlp`; `plugin doctor` sinaliza uma instalação incompleta. Cookies
+locais são opcionais e enviados somente ao processo isolado (nunca ao vault, raw, manifesto ou
+log); use
+`ingest url ... --plugin source.instagram --cookies C:\cookies.txt` quando uma sessão local for
+necessária. A captura preserva texto, metadados, transcrição disponível e mídia explicitamente
+autorizada como raws separados. `--stt` só aceita uma runtime local já configurada: o plugin não
+baixa modelos nem inventa fala ausente. Configure `SHELDON_LOCAL_STT_EXECUTABLE` e, se preciso,
+`SHELDON_LOCAL_STT_ARGUMENTS` como um array JSON que contenha no máximo um placeholder `{input}`;
+o comando deve escrever a transcrição em stdout.
+Se o extrator declarar uma legenda que não materializou, a captura permanece válida como uma
+lacuna; caminhos fora do diretório temporário ou links simbólicos continuam bloqueados. As opções
+`--media` e `--stt` são aceitas por qualquer plugin que declare, respectivamente, permissão de
+mídia e efeito de STT local.
+Quando STT local é necessário, a entrada temporária é limitada a 50 MiB; um download que não cabe
+nesse orçamento é diagnosticado como limite de mídia, e o raw registra por que uma legenda foi
+descartada sem inventar transcrição.
 
 O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude. O M6 acrescenta bundles OKF v0.1: projeções locais, portáteis, determinísticas e reconstruíveis de conceitos aprovados.
 

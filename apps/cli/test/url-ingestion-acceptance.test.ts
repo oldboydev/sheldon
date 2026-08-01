@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -101,6 +101,94 @@ describe('URL ingestion CLI flow', () => {
       'Recovery: Retry with another requested language or provide a captioned source.',
     );
   }, 15_000);
+
+  it.each([
+    ['--media', ['--media', 'thumbnail']],
+    ['--stt', ['--stt']],
+  ])(
+    'rejects %s for a selected plugin without the declared capability',
+    async (_name, optionArguments) => {
+      const result = await runCli(ingestArguments().concat(optionArguments), harness.dependencies);
+
+      expect(result).toMatchObject({
+        exitCode: 1,
+        stderr: expect.stringContaining('PLUGIN_OPTION_UNSUPPORTED'),
+      });
+      await expect(harness.selectedUrlFixture.calls()).rejects.toThrow();
+    },
+  );
+
+  it('rejects local cookies for a plugin that does not declare cookie permission', async () => {
+    const cookie = join(harness.root, 'browser-cookies.txt');
+    const secret = 'sessionid=must-not-appear-in-diagnostics';
+    await writeFile(cookie, secret, 'utf8');
+
+    const result = await runCli([...ingestArguments(), '--cookies', cookie], harness.dependencies);
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      stderr: expect.stringContaining('PLUGIN_OPTION_UNSUPPORTED'),
+    });
+    expect(result.stderr).not.toContain(secret);
+    await expect(harness.selectedUrlFixture.calls()).rejects.toThrow();
+  });
+
+  it('rejects an oversized local cookie file without exposing its contents', async () => {
+    await installSocialPlugin(harness.root);
+    const cookie = join(harness.root, 'browser-cookies.txt');
+    const secret = 'sessionid=must-not-appear-in-diagnostics';
+    await writeFile(cookie, Buffer.alloc(1_048_577, secret));
+
+    const result = await runCli(
+      [...ingestArguments(), '--plugin', 'fixture.social-capable', '--cookies', cookie],
+      harness.dependencies,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      stderr: expect.stringContaining('SOCIAL_COOKIE_FILE_INVALID'),
+    });
+    expect(result.stderr).not.toContain(secret);
+  });
+
+  it('rejects a symbolic-link local cookie file without exposing its contents', async (context) => {
+    await installSocialPlugin(harness.root);
+    const cookie = join(harness.root, 'browser-cookies.txt');
+    const target = join(harness.root, 'cookie-target.txt');
+    const secret = 'sessionid=must-not-appear-in-diagnostics';
+    await writeFile(target, secret, 'utf8');
+    try {
+      await symlink(target, cookie, 'file');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'EPERM') {
+        context.skip('creating symbolic links requires elevated privileges on this Windows host');
+      }
+      throw error;
+    }
+
+    const result = await runCli(
+      [...ingestArguments(), '--plugin', 'fixture.social-capable', '--cookies', cookie],
+      harness.dependencies,
+    );
+
+    expect(result).toMatchObject({
+      exitCode: 1,
+      stderr: expect.stringContaining('SOCIAL_COOKIE_FILE_INVALID'),
+    });
+    expect(result.stderr).not.toContain(secret);
+  });
+
+  it('forwards media and STT to a plugin based on declared capabilities, not its ID', async () => {
+    const plugin = await installSocialPlugin(harness.root);
+
+    const result = await runCli(
+      [...ingestArguments(), '--plugin', 'fixture.social-capable', '--media', 'thumbnail', '--stt'],
+      harness.dependencies,
+    );
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    await expect(plugin.lastOptions()).resolves.toEqual({ media: 'thumbnail', stt: true });
+  });
 
   it('selects ingest-url and publishes plugin artifact provenance as JSON', async () => {
     const result = await runCli(ingestArguments(), harness.dependencies);
@@ -272,6 +360,9 @@ interface UrlPluginFixture {
   readonly id: string;
   readonly original: string;
   readonly errorCode?: string;
+  readonly cookies?: boolean;
+  readonly media?: boolean;
+  readonly stt?: boolean;
 }
 
 interface UrlPluginFixtureHandle {
@@ -300,7 +391,14 @@ async function installUrlPlugin(
     capabilities: ['ingest-url'],
     priority: 100,
     platforms: [process.platform],
-    permissions: { network: true, cookies: false },
+    permissions: {
+      network: true,
+      cookies: fixture.cookies ?? false,
+      ...(fixture.media === undefined ? {} : { media: fixture.media }),
+    },
+    ...(fixture.stt === undefined
+      ? {}
+      : { effects: { ocr: false, stt: fixture.stt, modelDownload: false } }),
     dependencies: [],
   };
   await writeFile(
@@ -327,6 +425,16 @@ async function installUrlPlugin(
     lastOptions: async () =>
       JSON.parse(await readFile(join(installed.root, 'last-options.json'), 'utf8')),
   };
+}
+
+async function installSocialPlugin(root: string): Promise<UrlPluginFixtureHandle> {
+  return installUrlPlugin(root, {
+    id: 'fixture.social-capable',
+    original: '<html><body>Social fixture response</body></html>',
+    cookies: true,
+    media: true,
+    stt: true,
+  });
 }
 
 async function installYoutubePlugin(

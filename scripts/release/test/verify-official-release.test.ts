@@ -150,7 +150,13 @@ async function signCatalog(catalog: string, signature: string, privateKey: strin
 async function createStage(root: string): Promise<void> {
   // Keep this fixture independent from test order while sharing the exact staged layout.
   const { mkdir } = await import('node:fs/promises');
-  for (const id of ['source.file', 'source.image', 'source.url', 'source.youtube']) {
+  for (const id of [
+    'source.file',
+    'source.image',
+    'source.url',
+    'source.youtube',
+    'source.instagram',
+  ]) {
     const plugin = join(root, id);
     await mkdir(join(plugin, 'dist'), { recursive: true });
     await writeFile(
@@ -194,11 +200,13 @@ async function createStage(root: string): Promise<void> {
       'fixture',
     );
   }
-  const youtube = join(root, 'source.youtube');
-  for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64']) {
-    const runtime = join(youtube, 'runtime', platform);
-    await mkdir(runtime, { recursive: true });
-    await writeFile(join(runtime, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'), 'fixture');
-    await writeFile(join(runtime, 'THIRD_PARTY_NOTICES'), 'yt-dlp notices\n');
+  for (const pluginId of ['source.youtube', 'source.instagram']) {
+    const plugin = join(root, pluginId);
+    for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64']) {
+      const runtime = join(plugin, 'runtime', platform);
+      await mkdir(runtime, { recursive: true });
+      await writeFile(join(runtime, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'), 'fixture');
+      await writeFile(join(runtime, 'THIRD_PARTY_NOTICES'), 'yt-dlp notices\n');
+    }
   }
 }

@@ -31,7 +31,12 @@ export interface PluginManifest {
   readonly capabilities: readonly string[];
   readonly priority: number;
   readonly platforms: readonly NodeJS.Platform[];
-  readonly permissions: { readonly network: boolean; readonly cookies: boolean };
+  readonly permissions: {
+    readonly network: boolean;
+    readonly cookies: boolean;
+    /** Whether the plugin may materialize user-authorized media assets. */
+    readonly media?: boolean;
+  };
   /** Additive execution disclosures. Missing values in legacy manifests are treated as false. */
   readonly effects?: {
     readonly ocr: boolean;

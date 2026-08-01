@@ -5,7 +5,13 @@ import { fileURLToPath } from 'node:url';
 
 import JSZip from 'jszip';
 
-export const OFFICIAL_PLUGIN_IDS = ['source.file', 'source.image', 'source.url', 'source.youtube'];
+export const OFFICIAL_PLUGIN_IDS = [
+  'source.file',
+  'source.image',
+  'source.url',
+  'source.youtube',
+  'source.instagram',
+];
 export const OFFICIAL_PLATFORMS = ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64'];
 export const OFFICIAL_RELEASE_TAG = 'official-catalog';
 export const OFFICIAL_RELEASE_PREFIX = `https://github.com/oldboydev/sheldon/releases/download/${OFFICIAL_RELEASE_TAG}/`;
@@ -95,7 +101,9 @@ async function validatePluginStage(root, expectedId) {
   }
   await requireRegularFile(join(root, 'THIRD_PARTY_NOTICES'), 'OFFICIAL_RELEASE_NOTICES_MISSING');
   if (expectedId === 'source.image') await validateImageStage(root);
-  if (expectedId === 'source.youtube') await validateYoutubeStage(root);
+  if (expectedId === 'source.youtube' || expectedId === 'source.instagram') {
+    await validateYtDlpStage(root);
+  }
   return { root, id: expectedId, version: manifest.version, name: manifest.name };
 }
 
@@ -114,15 +122,15 @@ async function validateImageStage(root) {
   }
 }
 
-async function validateYoutubeStage(root) {
+async function validateYtDlpStage(root) {
   for (const platform of OFFICIAL_PLATFORMS) {
     await requireRegularFile(
       join(root, 'runtime', platform, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'),
-      'OFFICIAL_RELEASE_YOUTUBE_RUNTIME_MISSING',
+      'OFFICIAL_RELEASE_YTDLP_RUNTIME_MISSING',
     );
     await requireRegularFile(
       join(root, 'runtime', platform, 'THIRD_PARTY_NOTICES'),
-      'OFFICIAL_RELEASE_YOUTUBE_NOTICES_MISSING',
+      'OFFICIAL_RELEASE_YTDLP_NOTICES_MISSING',
     );
   }
 }
@@ -147,7 +155,7 @@ async function createPluginArchive(plugin, platform, timestamp) {
 }
 
 function includeInPlatformArchive(id, path, platform) {
-  if (id === 'source.youtube') {
+  if (id === 'source.youtube' || id === 'source.instagram') {
     return !path.startsWith('runtime/') || path.startsWith(`runtime/${platform}/`);
   }
   if (id !== 'source.image') return true;
@@ -163,7 +171,8 @@ function archivePermissions(id, path, platform) {
   const unixRuntime =
     platform !== 'win32-x64' &&
     ((id === 'source.image' && path === `runtime/${platform}/tesseract`) ||
-      (id === 'source.youtube' && path === `runtime/${platform}/yt-dlp`));
+      ((id === 'source.youtube' || id === 'source.instagram') &&
+        path === `runtime/${platform}/yt-dlp`));
   return unixRuntime ? 0o100755 : 0o100644;
 }
 

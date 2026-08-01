@@ -38,6 +38,10 @@ describe('official release builder', () => {
       'source.image-darwin-x64.zip',
       'source.image-linux-x64.zip',
       'source.image-win32-x64.zip',
+      'source.instagram-darwin-arm64.zip',
+      'source.instagram-darwin-x64.zip',
+      'source.instagram-linux-x64.zip',
+      'source.instagram-win32-x64.zip',
       'source.url-darwin-arm64.zip',
       'source.url-darwin-x64.zip',
       'source.url-linux-x64.zip',
@@ -78,6 +82,13 @@ describe('official release builder', () => {
       0o100755,
     );
     expect(linuxYoutube.file('source.youtube/runtime/win32-x64/yt-dlp.exe')).toBeNull();
+    const linuxInstagram = await JSZip.loadAsync(
+      await readFile(join(first, 'source.instagram-linux-x64.zip')),
+    );
+    expect(linuxInstagram.file('source.instagram/runtime/linux-x64/yt-dlp')?.unixPermissions).toBe(
+      0o100755,
+    );
+    expect(linuxInstagram.file('source.instagram/runtime/win32-x64/yt-dlp.exe')).toBeNull();
   });
 
   it('publishes every additional staged image language for all supported platforms', async () => {
@@ -121,11 +132,22 @@ describe('official release builder', () => {
     const root = await temporaryRoot();
     const input = join(root, 'stage');
     await writeStage(input);
-    await rm(join(input, 'source.youtube', 'runtime', 'linux-x64'), { recursive: true });
+    await rm(join(input, 'source.instagram', 'runtime', 'linux-x64'), { recursive: true });
 
     await expect(
       buildOfficialArtifacts(input, join(root, 'out'), '2026-07-21T00:00:00.000Z'),
-    ).rejects.toThrow('OFFICIAL_RELEASE_YOUTUBE_RUNTIME_MISSING');
+    ).rejects.toThrow('OFFICIAL_RELEASE_YTDLP_RUNTIME_MISSING');
+  });
+
+  it('uses a shared yt-dlp diagnostic when an Instagram runtime notice is missing', async () => {
+    const root = await temporaryRoot();
+    const input = join(root, 'stage');
+    await writeStage(input);
+    await rm(join(input, 'source.instagram', 'runtime', 'linux-x64', 'THIRD_PARTY_NOTICES'));
+
+    await expect(
+      buildOfficialArtifacts(input, join(root, 'out'), '2026-07-21T00:00:00.000Z'),
+    ).rejects.toThrow('OFFICIAL_RELEASE_YTDLP_NOTICES_MISSING');
   });
 
   it('signs only with a supplied process environment value', async () => {
@@ -164,7 +186,13 @@ async function archiveNames(directory: string): Promise<string[]> {
 }
 
 async function writeStage(root: string): Promise<void> {
-  for (const id of ['source.file', 'source.image', 'source.url', 'source.youtube']) {
+  for (const id of [
+    'source.file',
+    'source.image',
+    'source.url',
+    'source.youtube',
+    'source.instagram',
+  ]) {
     const plugin = join(root, id);
     await mkdir(join(plugin, 'dist'), { recursive: true });
     await writeFile(
@@ -213,10 +241,13 @@ async function writeStage(root: string): Promise<void> {
   }
 
   const youtube = join(root, 'source.youtube');
+  const instagram = join(root, 'source.instagram');
   for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64']) {
-    const runtime = join(youtube, 'runtime', platform);
-    await mkdir(runtime, { recursive: true });
-    await writeFile(join(runtime, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'), 'fixture');
-    await writeFile(join(runtime, 'THIRD_PARTY_NOTICES'), 'yt-dlp notices\n');
+    for (const root of [youtube, instagram]) {
+      const runtime = join(root, 'runtime', platform);
+      await mkdir(runtime, { recursive: true });
+      await writeFile(join(runtime, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'), 'fixture');
+      await writeFile(join(runtime, 'THIRD_PARTY_NOTICES'), 'yt-dlp notices\n');
+    }
   }
 }

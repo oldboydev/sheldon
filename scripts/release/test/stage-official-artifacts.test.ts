@@ -26,15 +26,15 @@ describe('official release staging', () => {
         'packages/plugins/official',
         '--runtime-artifacts',
         'release/runtime-artifacts',
-        '--youtube-runtime',
-        'release/youtube-runtime',
+        '--ytdlp-runtime',
+        'release/ytdlp-runtime',
         '--output',
         'release/stage',
       ]),
     ).toEqual({
       source: 'packages/plugins/official',
       runtimeArtifacts: 'release/runtime-artifacts',
-      youtubeRuntime: 'release/youtube-runtime',
+      ytDlpRuntime: 'release/ytdlp-runtime',
       output: 'release/stage',
     });
     expect(() =>
@@ -46,6 +46,19 @@ describe('official release staging', () => {
         '--runtime-artifacts',
       ]),
     ).toThrow('OFFICIAL_RELEASE_ARGUMENTS_INVALID');
+  });
+
+  it('accepts the deprecated youtube-runtime flag as a backwards-compatible alias', () => {
+    expect(
+      parseStageOfficialArtifactArguments([
+        '--source',
+        'packages/plugins/official',
+        '--output',
+        'release/stage',
+        '--youtube-runtime',
+        'release/youtube-runtime',
+      ]),
+    ).toMatchObject({ ytDlpRuntime: 'release/youtube-runtime' });
   });
 
   it('rejects a symlink nested in a staging input before copying it', async () => {
@@ -88,8 +101,14 @@ describe('official release staging', () => {
     temporaryRoots.push(root);
     const source = join(root, 'plugins');
     const output = join(root, 'stage');
-    const youtubeRuntime = join(root, 'youtube-runtime');
-    for (const id of ['source.file', 'source.image', 'source.url', 'source.youtube']) {
+    const ytDlpRuntime = join(root, 'ytdlp-runtime');
+    for (const id of [
+      'source.file',
+      'source.image',
+      'source.url',
+      'source.youtube',
+      'source.instagram',
+    ]) {
       const plugin = join(source, id);
       await mkdir(join(plugin, 'dist'), { recursive: true });
       await mkdir(join(plugin, 'src'), { recursive: true });
@@ -108,10 +127,10 @@ describe('official release staging', () => {
     await mkdir(join(source, 'source.image', 'runtime', 'linux-x64'), { recursive: true });
     await writeFile(join(source, 'source.image', 'data', 'tessdata', 'eng.traineddata'), 'eng');
     await writeFile(join(source, 'source.image', 'runtime', 'linux-x64', 'tesseract'), 'runtime');
-    await mkdir(join(youtubeRuntime, 'runtime', 'linux-x64'), { recursive: true });
-    await writeFile(join(youtubeRuntime, 'runtime', 'linux-x64', 'yt-dlp'), 'runtime');
+    await mkdir(join(ytDlpRuntime, 'runtime', 'linux-x64'), { recursive: true });
+    await writeFile(join(ytDlpRuntime, 'runtime', 'linux-x64', 'yt-dlp'), 'runtime');
 
-    await stageOfficialArtifacts(source, output, undefined, youtubeRuntime);
+    await stageOfficialArtifacts(source, output, undefined, ytDlpRuntime);
 
     await expect(access(join(output, 'source.file', 'dist', 'index.js'))).resolves.toBeUndefined();
     await expect(
@@ -119,6 +138,9 @@ describe('official release staging', () => {
     ).resolves.toBeUndefined();
     await expect(
       access(join(output, 'source.youtube', 'runtime', 'linux-x64', 'yt-dlp')),
+    ).resolves.toBeUndefined();
+    await expect(
+      access(join(output, 'source.instagram', 'runtime', 'linux-x64', 'yt-dlp')),
     ).resolves.toBeUndefined();
     await expect(access(join(output, 'source.file', 'src', 'index.ts'))).rejects.toThrow();
   });

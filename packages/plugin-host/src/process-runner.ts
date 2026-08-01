@@ -49,6 +49,8 @@ export interface IngestLease {
 
 export interface PluginRunOptions {
   readonly signal?: AbortSignal;
+  /** Ephemeral values are supplied only to the child environment, never to the protocol. */
+  readonly secretEnvironment?: Readonly<Record<string, string>>;
 }
 
 export interface PluginProcessRunnerOptions {
@@ -86,7 +88,20 @@ interface Conversation {
   setCancelRequestId(requestId: string): void;
 }
 
-const forwardedEnvironmentKeys = ['PATH', 'PATHEXT', 'SystemRoot', 'WINDIR'] as const;
+const forwardedEnvironmentKeys = [
+  'PATH',
+  'PATHEXT',
+  'SystemRoot',
+  'WINDIR',
+  // These are explicit, non-secret configuration for an already-installed local STT adapter.
+  // Cookie material remains exclusively in the secretEnvironment allowlist below.
+  'SHELDON_LOCAL_STT_EXECUTABLE',
+  'SHELDON_LOCAL_STT_ARGUMENTS',
+] as const;
+// Secret environment variables are an intentionally narrow capability. They must not be able to
+// replace the host's execution environment (for example PATH) or become a general data channel.
+const allowedSecretEnvironmentKeys = new Set(['SHELDON_SOCIAL_COOKIE_FILE']);
+const secretBearingStderrTail = '[REDACTED: secret-bearing plugin run]';
 const recordedErrorMessage =
   'Plugin operation failed. Inspect the stable error code and retained stderr.';
 const defaultPluginRecovery =
@@ -131,6 +146,16 @@ const sourceDiagnosticCodes = new Set([
   'REPOSITORY_BLOB_SIZE_MISMATCH',
   'REPOSITORY_SECRET_DETECTED',
   'REPOSITORY_ARTIFACT_WRITE_FAILED',
+  'INSTAGRAM_INPUT_INVALID',
+  'INSTAGRAM_AUTH_REQUIRED',
+  'INSTAGRAM_PLATFORM_BLOCKED',
+  'INSTAGRAM_RATE_LIMITED',
+  'INSTAGRAM_RUNTIME_UNAVAILABLE',
+  'INSTAGRAM_RESPONSE_INVALID',
+  'INSTAGRAM_EXTRACTION_FAILED',
+  'INSTAGRAM_STT_UNAVAILABLE',
+  'INSTAGRAM_STT_CONFIGURATION_INVALID',
+  'INSTAGRAM_MEDIA_LIMIT_EXCEEDED',
 ]);
 const urlDiagnosticCodes = new Set(
   [...sourceDiagnosticCodes].filter(
@@ -272,7 +297,7 @@ export class PluginProcessRunner {
       temporaryDirectory = await mkdtemp(join(tmpdir(), `sheldon-plugin-${plugin.manifest.id}-`));
       const requestId = this.requestId();
       const request = makeRequest(requestId, temporaryDirectory);
-      const child = await this.startProcess(plugin, temporaryDirectory, stderr);
+      const child = await this.startProcess(plugin, temporaryDirectory, stderr, runOptions);
       const exit = waitForExit(child);
       const conversation = this.startConversation(child, requestId);
       conversation.completion.catch(() => undefined);
@@ -347,7 +372,11 @@ export class PluginProcessRunner {
       artifactCount = handledResult.artifactCount;
       artifactBytes = handledResult.artifactBytes;
       status = 'success';
-      result = present(handledResult.value, stderr.text(), duration(startedAt, this.now()));
+      result = present(
+        handledResult.value,
+        retainedStderr(stderr.text(), runOptions.secretEnvironment),
+        duration(startedAt, this.now()),
+      );
     } catch (error) {
       runError = this.normalizeError(plugin, error);
       if (runError.code === 'PLUGIN_CANCELLED') status = 'cancelled';
@@ -387,7 +416,7 @@ export class PluginProcessRunner {
       ...(exitCode === undefined ? {} : { exitCode }),
       artifactCount,
       artifactBytes,
-      stderrTail: stderr.text(),
+      stderrTail: retainedStderr(stderr.text(), runOptions.secretEnvironment),
       ...(runError === undefined
         ? {}
         : { errorCode: runError.code, errorMessage: recordedErrorMessage }),
@@ -481,11 +510,44 @@ export class PluginProcessRunner {
     plugin: RunnablePlugin,
     temporaryDirectory: string,
     stderr: StderrTail,
+    runOptions: PluginRunOptions,
   ): Promise<ChildProcessWithoutNullStreams> {
+    if (
+      runOptions.secretEnvironment !== undefined &&
+      Object.keys(runOptions.secretEnvironment).length > 0 &&
+      !plugin.manifest.permissions.cookies
+    ) {
+      return Promise.reject(
+        this.error(
+          plugin,
+          'PLUGIN_SECRET_PERMISSION_DENIED',
+          'The plugin did not declare permission to receive local cookies.',
+        ),
+      );
+    }
+    if (
+      runOptions.secretEnvironment !== undefined &&
+      Object.keys(runOptions.secretEnvironment).some(
+        (key) => !allowedSecretEnvironmentKeys.has(key),
+      )
+    ) {
+      return Promise.reject(
+        this.error(
+          plugin,
+          'PLUGIN_SECRET_ENVIRONMENT_INVALID',
+          'The plugin run requested an unsupported secret environment variable.',
+        ),
+      );
+    }
     const child = startPluginProcess(
       plugin,
       temporaryDirectory,
-      sanitizedEnvironment(this.environment, temporaryDirectory),
+      sanitizedEnvironment(
+        this.environment,
+        temporaryDirectory,
+        runOptions.secretEnvironment,
+        plugin.manifest.effects?.stt === true,
+      ),
       this.processLauncher,
     );
     return child.then((started) => {
@@ -645,6 +707,8 @@ export class PluginProcessRunner {
       description.license === manifest.license &&
       description.permissions.network === manifest.permissions.network &&
       description.permissions.cookies === manifest.permissions.cookies &&
+      (description.permissions.media ?? false) === (manifest.permissions.media ?? false) &&
+      sameEffects(description.effects, manifest.effects) &&
       equalStringCollections(description.capabilities, manifest.capabilities);
     if (!matches) {
       throw this.error(
@@ -750,10 +814,60 @@ function forwardedSourceDiagnostic(
       recovery: 'Retry with another requested language or provide a captioned source.',
     };
   }
+  const instagramDiagnostic = instagramRecovery(code);
+  if (instagramDiagnostic !== undefined) return instagramDiagnostic;
   return {
     message: urlDiagnosticCodes.has(code) ? safeUrlDiagnosticMessage(code, request) : message,
     recovery: defaultPluginRecovery,
   };
+}
+
+function instagramRecovery(
+  code: string,
+): { readonly message: string; readonly recovery: string } | undefined {
+  const recoveryByCode: Readonly<
+    Record<string, { readonly message: string; readonly recovery: string }>
+  > = {
+    INSTAGRAM_AUTH_REQUIRED: {
+      message: 'Instagram requires an authorized local session for this public URL.',
+      recovery:
+        'Export your own local cookie file and retry with --cookies <path>; do not use a private URL.',
+    },
+    INSTAGRAM_PLATFORM_BLOCKED: {
+      message:
+        'Instagram blocked this public extraction; the plugin will not bypass platform protections.',
+      recovery:
+        'Retry later or update the experimental plugin. Do not attempt captcha, anti-bot, DRM, or private-access bypasses.',
+    },
+    INSTAGRAM_RATE_LIMITED: {
+      message: 'Instagram rate-limited the extraction after bounded retries.',
+      recovery: 'Wait before retrying; the plugin will not loop indefinitely.',
+    },
+    INSTAGRAM_RUNTIME_UNAVAILABLE: {
+      message: 'The packaged yt-dlp runtime is unavailable for source.instagram.',
+      recovery: 'Reinstall the experimental source.instagram plugin for this platform.',
+    },
+    INSTAGRAM_STT_UNAVAILABLE: {
+      message: 'No local speech-to-text runtime is configured for source.instagram.',
+      recovery:
+        'Remove --stt or configure a local STT runtime; no model will be downloaded automatically.',
+    },
+    INSTAGRAM_STT_CONFIGURATION_INVALID: {
+      message: 'The configured local speech-to-text runtime is invalid for source.instagram.',
+      recovery:
+        'Set SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS to a valid local command configuration.',
+    },
+  };
+  return (
+    recoveryByCode[code] ??
+    (code.startsWith('INSTAGRAM_')
+      ? {
+          message: `Instagram ingestion could not proceed (${code}).`,
+          recovery:
+            'Check that the URL is public, update the experimental plugin, and retry when appropriate.',
+        }
+      : undefined)
+  );
 }
 
 function safeUrlDiagnosticMessage(code: string, request: PrimaryRequest): string {
@@ -787,9 +901,17 @@ function handled<T>(value: T): HandledResult<T> {
 function sanitizedEnvironment(
   source: NodeJS.ProcessEnv,
   temporaryDirectory: string,
+  secrets: Readonly<Record<string, string>> | undefined,
+  allowLocalSttConfiguration: boolean,
 ): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = {};
   for (const key of forwardedEnvironmentKeys) {
+    if (
+      !allowLocalSttConfiguration &&
+      (key === 'SHELDON_LOCAL_STT_EXECUTABLE' || key === 'SHELDON_LOCAL_STT_ARGUMENTS')
+    ) {
+      continue;
+    }
     const value = source[key];
     if (value !== undefined) environment[key] = value;
   }
@@ -800,7 +922,30 @@ function sanitizedEnvironment(
   }
   environment.TEMP = temporaryDirectory;
   environment.TMP = temporaryDirectory;
+  if (secrets !== undefined) {
+    for (const [key, value] of Object.entries(secrets)) environment[key] = value;
+  }
   return environment;
+}
+
+function retainedStderr(
+  stderrTail: string,
+  secretEnvironment: Readonly<Record<string, string>> | undefined,
+): string {
+  return secretEnvironment !== undefined && Object.keys(secretEnvironment).length > 0
+    ? secretBearingStderrTail
+    : stderrTail;
+}
+
+function sameEffects(
+  left: PluginDescription['effects'],
+  right: PluginDescription['effects'],
+): boolean {
+  return (
+    (left?.ocr ?? false) === (right?.ocr ?? false) &&
+    (left?.stt ?? false) === (right?.stt ?? false) &&
+    (left?.modelDownload ?? false) === (right?.modelDownload ?? false)
+  );
 }
 
 function waitForExit(child: ChildProcessWithoutNullStreams): Promise<ProcessExit> {
