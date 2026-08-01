@@ -14,6 +14,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- O cleanup após timeout do builder OCR Windows não mais dispõe sincronicamente um stdin cuja
+  escrita de fundo está bloqueada; o watchdog permanece limitado mesmo com pipe cheio.
 - A captura Instagram agora trata legenda declarada mas ausente como lacuna, respeita a ordem de
   idiomas solicitada e diagnostica configuração STT local inválida. As opções de mídia e STT da
   CLI agora são habilitadas por capabilities declaradas, permitindo conectores futuros.

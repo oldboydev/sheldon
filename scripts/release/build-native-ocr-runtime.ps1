@@ -157,11 +157,9 @@ function Invoke-WatchedProcess {
     $stdinOpen = $null -ne $stdinWrite
     $timedOut = $false
     while ($null -ne $stdinWrite -or $null -ne $stdoutRead -or $null -ne $stderrRead) {
-      $pending = [System.Collections.Generic.List[System.Threading.Tasks.Task]]::new()
-      if ($null -ne $stdinWrite) { [void]$pending.Add($stdinWrite) }
-      if ($null -ne $stdoutRead) { [void]$pending.Add($stdoutRead) }
-      if ($null -ne $stderrRead) { [void]$pending.Add($stderrRead) }
-      [void][System.Threading.Tasks.Task]::WaitAny($pending.ToArray(), 50)
+      # Poll task state after a bounded pause. Do not wait on the pipe tasks themselves:
+      # a blocked stdin writer must never participate in the watchdog's deadline.
+      [System.Threading.Thread]::Sleep(50)
 
       if ($null -ne $stdinWrite -and $stdinWrite.IsCompleted) {
         try {
@@ -214,6 +212,10 @@ function Invoke-WatchedProcess {
         }
         $job.Dispose()
         $job = $null
+        # Process.Dispose() synchronously disposes StandardInput. Its background writer can
+        # still be blocked on a full pipe, so leave this managed wrapper for finalization
+        # after the job has terminated the child rather than reintroducing that blocking here.
+        $process = $null
         throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."
       }
     }
@@ -229,7 +231,7 @@ function Invoke-WatchedProcess {
     }
   } finally {
     if ($null -ne $job) { $job.Dispose() }
-    $process.Dispose()
+    if ($null -ne $process) { $process.Dispose() }
   }
 }
 

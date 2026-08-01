@@ -206,6 +206,8 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain(
       '$process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)',
     );
+    expect(builder).toContain('[System.Threading.Thread]::Sleep(50)');
+    expect(builder).not.toContain('[System.Threading.Tasks.Task]::WaitAny');
     expect(builder).toContain('$stdout.Append($stdoutChunk)');
     expect(builder).toContain('$stderr.Append($stderrChunk)');
     expect(builder).toContain('[Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")');
@@ -218,7 +220,8 @@ describe('Native OCR runtime workflow', () => {
       'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
     );
     expect(builder).toContain('$process.WaitForExit()');
-    expect(builder).toContain('$process.Dispose()');
+    expect(builder).toContain('$process = $null');
+    expect(builder).toContain('if ($null -ne $process) { $process.Dispose() }');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
     expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');
     expect(builder).toContain('Write-Host "OCR_RUNTIME_STAGE: $Stage"');
