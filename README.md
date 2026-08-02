@@ -6,7 +6,7 @@ Segundo cérebro pessoal e local-first que transforma arquivos, sites, vídeos e
 
 O planejamento do produto está aprovado e a implementação do marco M0 começou pela fundação do workspace e do vault local.
 
-Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins sem misturar o estado operacional ao conhecimento. No M3, `source.file`, URL pública única e crawl público limitado por `ingest crawl`, YouTube público de vídeo único com legendas e snapshots de commits Git locais já estão disponíveis. `source.image`, OCR e seu runtime nativo existem na implementação; estão pausados somente o trabalho de release e a manutenção do runtime nativo, fora do escopo atual de conectores. Git remoto/autenticado, playlists/canais e STT local continuam adiados.
+Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de entidades, o vault e a CLI local; M1 entrega a plataforma de plugins. O `@sheldon/plugin-sdk` é o contrato público para autores e o `@sheldon/plugin-host` instala, descobre, executa e diagnostica plugins sem misturar o estado operacional ao conhecimento. No M3, `source.file`, `source.image` com OCR local, URL pública única e crawl público limitado por `ingest crawl`, YouTube público de vídeo único com legendas e snapshots de commits Git locais já estão disponíveis. A manutenção de novas versões do runtime OCR, Git remoto/autenticado, playlists/canais e STT local para as rotas centrais continuam adiados.
 
 O builder Windows do runtime OCR executa ferramentas filhas em um Job Object com limite por
 etapa; quando expira, encerra a árvore e retorna o diagnóstico de timeout sem depender do cleanup
@@ -33,6 +33,18 @@ mídia e efeito de STT local.
 Quando STT local é necessário, a entrada temporária é limitada a 50 MiB; um download que não cabe
 nesse orçamento é diagnosticado como limite de mídia, e o raw registra por que uma legenda foi
 descartada sem inventar transcrição.
+
+O M9 inicia o plugin experimental `source.linkedin` para um post individual público ou LinkedIn
+Article público. A primeira fatia captura HTML sanitizado, texto e metadados separados; ela não usa
+cookies, OAuth, automação de navegador, comentários, documentos ou vídeo. URLs de login, conteúdo
+privado e limites da plataforma recebem diagnósticos estáveis, sem tentativa de bypass. Quando o
+artefato oficial estiver disponível, instale-o explicitamente e use uma URL pública canônica:
+
+```powershell
+npm run sheldon -- plugin install source.linkedin
+npm run sheldon -- ingest url topic agentes-locais https://www.linkedin.com/pulse/exemplo/ `
+  --vault C:\knowledge\sheldon
+```
 
 O M4 entrega busca local e consultas citáveis: conceitos aprovados são projetados em SQLite/FTS5 para busca lexical e filtros de metadados; consultas por Codex ou Claude começam pelo índice, registram evidências e só promovem uma síntese como proposta pendente para revisão. O M5 entrega MCP local por `stdio`, escopos explícitos por projeto consumidor, auditoria de leitura de raw, feedback revisável e um skill Sheldon gerado de uma única fonte para Codex e Claude. O M6 acrescenta bundles OKF v0.1: projeções locais, portáteis, determinísticas e reconstruíveis de conceitos aprovados.
 

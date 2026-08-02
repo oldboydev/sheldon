@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "source.linkedin",
+  "name": "Experimental LinkedIn public post and article ingestion",
+  "version": "0.1.0",
+  "protocolVersion": "1",
+  "license": "MIT",
+  "command": { "executable": "node", "arguments": ["plugin.mjs"] },
+  "capabilities": ["ingest-url"],
+  "priority": 180,
+  "platforms": ["win32", "darwin", "linux"],
+  "permissions": { "network": true, "cookies": false },
+  "effects": { "ocr": false, "stt": false, "modelDownload": false },
+  "dependencies": []
+}

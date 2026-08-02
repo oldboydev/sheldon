@@ -1,0 +1,17 @@
+{
+  "name": "@sheldon/plugin-source-linkedin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@mixmark-io/domino": "^2.2.0",
+    "@sheldon/plugin-sdk": "*",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/turndown": "^5.0.6"
+  }
+}

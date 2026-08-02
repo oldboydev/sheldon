@@ -67,6 +67,8 @@ describe('PluginProcessRunner URL diagnostics', () => {
     'CRAWL_INPUT_INVALID',
     'CRAWL_RAW_BUDGET_EXCEEDED',
     'CRAWL_TOTAL_TIMEOUT',
+    'LINKEDIN_INPUT_INVALID',
+    'LINKEDIN_EXTRACTION_FAILED',
   ])('forwards %s from a plugin response', async (code) => {
     const state = stateDatabase();
     const runner = new PluginProcessRunner({ state, processLauncher });

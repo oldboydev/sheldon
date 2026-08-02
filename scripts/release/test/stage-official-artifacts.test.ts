@@ -108,6 +108,7 @@ describe('official release staging', () => {
       'source.url',
       'source.youtube',
       'source.instagram',
+      'source.linkedin',
     ]) {
       const plugin = join(source, id);
       await mkdir(join(plugin, 'dist'), { recursive: true });

@@ -156,10 +156,22 @@ const sourceDiagnosticCodes = new Set([
   'INSTAGRAM_STT_UNAVAILABLE',
   'INSTAGRAM_STT_CONFIGURATION_INVALID',
   'INSTAGRAM_MEDIA_LIMIT_EXCEEDED',
+  'LINKEDIN_INPUT_INVALID',
+  'LINKEDIN_ACCESS_RESTRICTED',
+  'LINKEDIN_RATE_LIMITED',
+  'LINKEDIN_CONTENT_UNAVAILABLE',
+  'LINKEDIN_PLATFORM_CHANGED',
+  'LINKEDIN_MEDIA_LIMIT_EXCEEDED',
+  'LINKEDIN_OCR_UNAVAILABLE',
+  'LINKEDIN_EXTRACTION_FAILED',
 ]);
 const urlDiagnosticCodes = new Set(
   [...sourceDiagnosticCodes].filter(
-    (code) => code.startsWith('URL_') || code.startsWith('YOUTUBE_') || code.startsWith('CRAWL_'),
+    (code) =>
+      code.startsWith('URL_') ||
+      code.startsWith('YOUTUBE_') ||
+      code.startsWith('CRAWL_') ||
+      code.startsWith('LINKEDIN_'),
   ),
 );
 
@@ -816,10 +828,39 @@ function forwardedSourceDiagnostic(
   }
   const instagramDiagnostic = instagramRecovery(code);
   if (instagramDiagnostic !== undefined) return instagramDiagnostic;
+  const linkedInDiagnostic = linkedInRecovery(code);
+  if (linkedInDiagnostic !== undefined) return linkedInDiagnostic;
   return {
     message: urlDiagnosticCodes.has(code) ? safeUrlDiagnosticMessage(code, request) : message,
     recovery: defaultPluginRecovery,
   };
+}
+
+function linkedInRecovery(
+  code: string,
+): { readonly message: string; readonly recovery: string } | undefined {
+  const recoveryByCode: Readonly<
+    Record<string, { readonly message: string; readonly recovery: string }>
+  > = {
+    LINKEDIN_ACCESS_RESTRICTED: {
+      message: 'LinkedIn requires access that the experimental public connector will not bypass.',
+      recovery:
+        'Use a public post or Article URL. Do not use cookies, browser automation, or access bypasses.',
+    },
+    LINKEDIN_RATE_LIMITED: {
+      message: 'LinkedIn rate-limited the request after bounded retries.',
+      recovery: 'Wait before retrying; the plugin will not loop indefinitely.',
+    },
+    LINKEDIN_CONTENT_UNAVAILABLE: {
+      message: 'The requested LinkedIn content is unavailable.',
+      recovery: 'Check that the post or Article is still public and retry with its canonical URL.',
+    },
+    LINKEDIN_PLATFORM_CHANGED: {
+      message: 'The public LinkedIn page no longer has a safely identifiable content region.',
+      recovery: 'Update the experimental plugin; do not bypass platform protections.',
+    },
+  };
+  return recoveryByCode[code];
 }
 
 function instagramRecovery(

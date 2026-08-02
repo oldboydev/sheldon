@@ -8,6 +8,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Conector experimental `source.linkedin` para um post individual público ou LinkedIn Article
+  público. Ele captura HTML sanitizado, texto e metadados em raws separados, não usa cookies ou
+  browser automatizado e devolve diagnósticos estáveis para acesso restrito, rate limit, conteúdo
+  indisponível e alteração de plataforma.
 - Conector experimental `source.instagram` para Reels e posts de vídeo públicos, com cookies
   locais opcionais efêmeros, raws separados, diagnósticos estáveis e backoff limitado. Nenhum
   cookie é serializado em vault, manifesto, protocolo ou logs do host.
