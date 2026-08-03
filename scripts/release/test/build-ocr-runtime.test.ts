@@ -216,10 +216,9 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$stderr.Append($stderrChunk)');
     expect(builder).toContain('[Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")');
     expect(builder).toContain('[Console]::Error.Write("OCR_RUNTIME_STDERR: $stderrChunk")');
-    expect(builder).toContain('$timedOutProcess.WaitForExit(0)');
-    expect(builder).toContain('$timedOutProcess.Kill($true)');
-    expect(builder).toContain('catch [System.InvalidOperationException]');
-    expect(builder).toContain('if (-not $timedOutProcess.HasExited) { throw }');
+    expect(builder).toContain('JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE');
+    expect(builder).toContain('$job.Dispose()');
+    expect(builder).not.toContain('$timedOutProcess');
     expect(builder).toContain(
       'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
     );
@@ -227,7 +226,7 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$process = $null');
     expect(builder).toContain('if ($null -ne $process) { $process.Dispose() }');
     expect(builder).toMatch(
-      /\$timedOutProcess = \$process\r?\n\s+\$process = \$null\r?\n\s+# Do not synchronously close[\s\S]*?\$timedOutProcess\.Kill\(\$true\)/u,
+      /\$process = \$null\r?\n\s+# Do not synchronously close[\s\S]*?\$job\.Dispose\(\)/u,
     );
     expect(builder).toContain('finalized with Dispose(false)');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');

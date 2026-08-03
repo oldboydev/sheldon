@@ -199,25 +199,18 @@ function Invoke-WatchedProcess {
 
       if (-not $timedOut -and $watch.Elapsed.TotalSeconds -ge $TimeoutSeconds) {
         $timedOut = $true
-        # Clear the outer reference before any termination call can throw. The finally block
+        # Clear the outer reference before closing the Job Object. The finally block
         # must not call Process.Dispose() on this path because it synchronously closes managed
         # redirected streams while the stdin writer may still be blocked on a full pipe.
-        $timedOutProcess = $process
         $process = $null
         # Do not synchronously close a stream while its background writer is blocked on a full
         # pipe. More importantly, do not wait for redirected readers to observe EOF after a
-        # timeout: that observation can itself block on Windows. Killing the job and throwing
-        # immediately keeps the watchdog's bound independent of pipe cleanup scheduling.
+        # timeout: that observation can itself block on Windows. Closing the assigned Job Object
+        # terminates the complete process tree through KILL_ON_JOB_CLOSE, without a second
+        # synchronous Process.Kill call that can exceed the watchdog deadline.
         if ($stdinOpen) {
           $stdinOpen = $false
           $stdinWrite = $null
-        }
-        if (-not $timedOutProcess.WaitForExit(0)) {
-          try {
-            $timedOutProcess.Kill($true)
-          } catch [System.InvalidOperationException] {
-            if (-not $timedOutProcess.HasExited) { throw }
-          }
         }
         $job.Dispose()
         $job = $null
