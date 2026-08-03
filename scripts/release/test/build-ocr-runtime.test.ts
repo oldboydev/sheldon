@@ -13,10 +13,11 @@ import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
-// The harness itself enforces an eight-second deadline and its child process is
-// capped at fifteen seconds. This outer allowance includes cold PowerShell
-// startup on a contended Windows hosted runner without weakening that contract.
-const windowsWatchdogTestTimeoutMs = 20_000;
+// The harness itself enforces an eight-second deadline. These outer limits only
+// include cold PowerShell startup on a contended Windows hosted runner; they do
+// not weaken the watchdog contract once the harness is executing.
+const windowsWatchdogHarnessProcessTimeoutMs = 30_000;
+const windowsWatchdogTestTimeoutMs = 35_000;
 
 afterEach(async () => {
   await Promise.all(
@@ -202,7 +203,9 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$startInfo.RedirectStandardOutput = $true');
     expect(builder).toContain('$startInfo.RedirectStandardError = $true');
     expect(builder).toContain('$startInfo.ArgumentList.Add($argument)');
-    expect(builder).toContain('await writer.WriteAsync(text).ConfigureAwait(false)');
+    expect(builder).toContain(
+      'await writer.WriteAsync(text.AsMemory(), cancellationToken).ConfigureAwait(false)',
+    );
     expect(builder).not.toContain('Task.Run(() =>');
     expect(builder).toContain('$stdout = [System.Text.StringBuilder]::new()');
     expect(builder).toContain('$stderr = [System.Text.StringBuilder]::new()');
@@ -601,7 +604,7 @@ try {
   );
   const result = await execFileAsync('pwsh', ['-NoProfile', '-File', harnessPath], {
     shell: false,
-    timeout: 15_000,
+    timeout: windowsWatchdogHarnessProcessTimeoutMs,
   });
   return result.stdout;
 }

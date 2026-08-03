@@ -15,6 +15,7 @@ using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
+using System.Threading;
 
 public sealed class OcrRuntimeJob : IDisposable
 {
@@ -88,9 +89,9 @@ public sealed class OcrRuntimeJob : IDisposable
         if (!AssignProcessToJobObject(handle, process)) throw new Win32Exception(Marshal.GetLastWin32Error());
     }
 
-    public static async Task WriteAndCloseAsync(StreamWriter writer, string text)
+    public static async Task WriteAndCloseAsync(StreamWriter writer, string text, CancellationToken cancellationToken)
     {
-        try { await writer.WriteAsync(text).ConfigureAwait(false); }
+        try { await writer.WriteAsync(text.AsMemory(), cancellationToken).ConfigureAwait(false); }
         finally { writer.Close(); }
     }
 
@@ -132,6 +133,7 @@ function Invoke-WatchedProcess {
   $process = [System.Diagnostics.Process]::new()
   $process.StartInfo = $startInfo
   $job = New-OcrRuntimeJob
+  $stdinCancellation = $null
   try {
     Write-Host "OCR_RUNTIME_STAGE: $Stage"
     if (-not $process.Start()) {
@@ -145,8 +147,9 @@ function Invoke-WatchedProcess {
     $stdoutRead = $process.StandardOutput.ReadAsync($stdoutBuffer, 0, $stdoutBuffer.Length)
     $stderrRead = $process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)
     $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $stdinCancellation = [System.Threading.CancellationTokenSource]::new()
     $stdinWrite = if ($PSBoundParameters.ContainsKey('StandardInput')) {
-      [OcrRuntimeJob]::WriteAndCloseAsync($process.StandardInput, $StandardInput)
+      [OcrRuntimeJob]::WriteAndCloseAsync($process.StandardInput, $StandardInput, $stdinCancellation.Token)
     } else {
       $process.StandardInput.Close()
       $null
@@ -207,6 +210,7 @@ function Invoke-WatchedProcess {
         # synchronous Process.Kill call that can exceed the watchdog deadline.
         if ($stdinOpen) {
           $stdinOpen = $false
+          $stdinCancellation.Cancel()
           $stdinWrite = $null
         }
         $job.Dispose()
@@ -228,6 +232,7 @@ function Invoke-WatchedProcess {
       StdErr = $stderr.ToString()
     }
   } finally {
+    if ($null -ne $stdinCancellation) { $stdinCancellation.Dispose() }
     if ($null -ne $job) { $job.Dispose() }
     if ($null -ne $process) { $process.Dispose() }
   }
