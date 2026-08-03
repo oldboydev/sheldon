@@ -418,7 +418,8 @@ function addMemoryCommands(
     .option('--plugin <id>', 'explicit URL ingestion plugin')
     .option('--language <tags>', 'preferred comma-separated language tags')
     .option('--cookies <path>', 'optional local cookie file (never stored)')
-    .option('--media <mode>', 'social media capture: none or thumbnail', parseMediaMode)
+    .option('--media <mode>', 'social media capture: none, thumbnail, or images', parseMediaMode)
+    .option('--ocr', 'derive local OCR from explicitly downloaded image assets')
     .option(
       '--stt',
       'allow an already-installed local speech-to-text runtime (may download temporary audio up to 50 MiB, even with --media none)',
@@ -564,9 +565,9 @@ function boundedInteger(name: string, minimum: number, maximum: number): (value:
   };
 }
 
-function parseMediaMode(value: string): 'none' | 'thumbnail' {
-  if (value !== 'none' && value !== 'thumbnail') {
-    throw new InvalidArgumentError('--media must be none or thumbnail.');
+function parseMediaMode(value: string): 'none' | 'thumbnail' | 'images' {
+  if (value !== 'none' && value !== 'thumbnail' && value !== 'images') {
+    throw new InvalidArgumentError('--media must be none, thumbnail, or images.');
   }
   return value;
 }

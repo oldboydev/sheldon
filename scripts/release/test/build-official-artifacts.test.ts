@@ -42,6 +42,10 @@ describe('official release builder', () => {
       'source.instagram-darwin-x64.zip',
       'source.instagram-linux-x64.zip',
       'source.instagram-win32-x64.zip',
+      'source.linkedin-darwin-arm64.zip',
+      'source.linkedin-darwin-x64.zip',
+      'source.linkedin-linux-x64.zip',
+      'source.linkedin-win32-x64.zip',
       'source.url-darwin-arm64.zip',
       'source.url-darwin-x64.zip',
       'source.url-linux-x64.zip',
@@ -192,6 +196,7 @@ async function writeStage(root: string): Promise<void> {
     'source.url',
     'source.youtube',
     'source.instagram',
+    'source.linkedin',
   ]) {
     const plugin = join(root, id);
     await mkdir(join(plugin, 'dist'), { recursive: true });

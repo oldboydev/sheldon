@@ -156,6 +156,7 @@ async function createStage(root: string): Promise<void> {
     'source.url',
     'source.youtube',
     'source.instagram',
+    'source.linkedin',
   ]) {
     const plugin = join(root, id);
     await mkdir(join(plugin, 'dist'), { recursive: true });

@@ -1,0 +1,12 @@
+This official release archive contains notices for the dependencies used by source.linkedin.
+
+@mixmark-io/domino 2.2.0
+Repository: https://github.com/mixmark-io/domino.git
+License: BSD-2-Clause
+
+Copyright (c) 2011 The Mozilla Foundation.
+All rights reserved.
+
+Turndown 7.2.4
+Repository: https://github.com/mixmark-io/turndown
+License: MIT

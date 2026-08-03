@@ -11,6 +11,7 @@ for (const pluginRoot of [
   resolve('packages', 'plugins', 'official', 'source.url'),
   resolve('packages', 'plugins', 'official', 'source.youtube'),
   resolve('packages', 'plugins', 'official', 'source.instagram'),
+  resolve('packages', 'plugins', 'official', 'source.linkedin'),
 ]) {
   const report = await runPluginContract(pluginRoot);
   assert.equal(report.passed, true, JSON.stringify(report, null, 2));

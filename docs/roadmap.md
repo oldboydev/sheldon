@@ -44,9 +44,9 @@ Este marco é um checkpoint vertical: utiliza primeiro o caminho de arquivo loca
 
 **PRD:** 003
 
-**Status:** em andamento; `source.file`, a captura de URL pública única e o crawl público limitado por `ingest crawl`, o YouTube público de vídeo único com legendas e snapshots estritos de commits de repositórios Git locais foram concluídos em julho de 2026. O snapshot aceita somente um checkout byte por byte idêntico a `HEAD`. `source.image` e seu runtime nativo de OCR estão pausados; Git remoto/autenticado e STT local continuam adiados. Playlists e canais do YouTube também permanecem fora do escopo atual do usuário.
+**Status:** em andamento; `source.file`, a captura de URL pública única e o crawl público limitado por `ingest crawl`, o YouTube público de vídeo único com legendas, `source.image` com seu runtime nativo de OCR e snapshots estritos de commits de repositórios Git locais foram concluídos em julho de 2026. O snapshot aceita somente um checkout byte por byte idêntico a `HEAD`. A manutenção de novas versões do runtime OCR, Git remoto/autenticado e STT local para as rotas centrais continuam adiados. Playlists e canais do YouTube também permanecem fora do escopo atual do usuário.
 
-Entrega: `source.file`, `source.url`, `source.youtube` e `source.repository` cobrem a fatia atual. A seleção automática direciona vídeos únicos ao `source.youtube`, páginas comuns e crawls limitados ao `source.url` e o comando `ingest repository` ao `source.repository`; este último recusa submódulos e checkouts sujeitos a conversão (`autocrlf`, `eol` ou filtros). O crawl exige limites explícitos de páginas e profundidade. OCR de imagens, Git remoto/autenticado, playlists/canais e STT local permanecem fora desta fatia.
+Entrega: `source.file`, `source.image`, `source.url`, `source.youtube` e `source.repository` cobrem a fatia atual. A seleção automática direciona imagens ao `source.image`, vídeos únicos ao `source.youtube`, páginas comuns e crawls limitados ao `source.url` e o comando `ingest repository` ao `source.repository`; este último recusa submódulos e checkouts sujeitos a conversão (`autocrlf`, `eol` ou filtros). O crawl exige limites explícitos de páginas e profundidade. Git remoto/autenticado, playlists/canais e STT local para as rotas centrais permanecem fora desta fatia.
 
 Saída: cada família possui fixtures, deduplicação e diagnóstico offline; nenhuma exige API paga.
 
@@ -96,6 +96,21 @@ transcrição disponível e mídia autorizada em raws separados, aplica backoff 
 diagnósticos estáveis sem contornar conteúdo privado, DRM, captcha ou anti-bot.
 
 Saída: falhas de plataforma são diagnosticadas claramente e nunca comprometem o núcleo.
+
+### M9 — LinkedIn público experimental
+
+**PRD:** 011
+
+**Status:** em revisão.
+
+Entrega: o plugin experimental `source.linkedin` ingere um post individual público ou um LinkedIn
+Article público, preservando HTML original, texto normalizado, metadados e imagens explicitamente
+autorizadas em raws separados. Uma derivação de OCR opt-in para imagens é orquestrada pelo host
+por uma fronteira reutilizável, nunca por chamada informal entre plugins.
+
+Saída: conteúdos públicos de texto e imagem são capturados com limites e diagnósticos estáveis; tela
+de login, rate limit, conteúdo privado, documentos e vídeo não produzem bypass nem comprometem o
+núcleo.
 
 ## Definição do MVP
 
