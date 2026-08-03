@@ -14,7 +14,7 @@ dos pipes redirecionados. A limpeza também evita dispor stdin sincronicamente q
 de fundo está bloqueada em um pipe cheio. Os testes desse contrato preservam o limite interno do
 watchdog e acomodam somente o custo de inicialização fria do PowerShell em runners hospedados. No
 timeout, o fechamento do próprio Job Object encerra a árvore, sem depender de `Process.Kill`
-recursivo.
+recursivo; a escrita de stdin usa I/O assíncrono para não prender o host em um pipe cheio.
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 

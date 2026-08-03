@@ -20,8 +20,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 ### Changed
 
 - Em timeout, o watchdog OCR Windows fecha diretamente o Job Object atribuído para encerrar a
-  árvore, sem um `Process.Kill` recursivo que possa ultrapassar seu próprio limite. Os testes
-  preservam esse prazo interno e toleram apenas a inicialização fria do PowerShell em runners.
+  árvore, sem um `Process.Kill` recursivo que possa ultrapassar seu próprio limite. A escrita em
+  stdin também passou a usar I/O assíncrono nativo, sem prender uma thread do host em um pipe
+  cheio. Os testes preservam esse prazo interno e toleram apenas a inicialização fria do PowerShell.
 - O conector LinkedIn agora segue até três redirecionamentos canônicos, aplica backoff exponencial
   cancelável, limita streaming de HTML e imagens, nomeia imagens pelo SHA-256 e sanitiza metadados
   antes de publicá-los. OCR é declarado somente pelo derivador `source.image`; URLs de imagem com

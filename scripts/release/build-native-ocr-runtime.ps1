@@ -88,13 +88,10 @@ public sealed class OcrRuntimeJob : IDisposable
         if (!AssignProcessToJobObject(handle, process)) throw new Win32Exception(Marshal.GetLastWin32Error());
     }
 
-    public static Task WriteAndCloseAsync(StreamWriter writer, string text)
+    public static async Task WriteAndCloseAsync(StreamWriter writer, string text)
     {
-        return Task.Run(() =>
-        {
-            try { writer.Write(text); }
-            finally { writer.Close(); }
-        });
+        try { await writer.WriteAsync(text).ConfigureAwait(false); }
+        finally { writer.Close(); }
     }
 
     public void Dispose()
