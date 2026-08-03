@@ -13,10 +13,11 @@ import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
-// The harness itself enforces an eight-second deadline and its child process is
-// capped at fifteen seconds. This outer allowance includes cold PowerShell
-// startup on a contended Windows hosted runner without weakening that contract.
-const windowsWatchdogTestTimeoutMs = 20_000;
+// The harness itself enforces an eight-second deadline. These outer limits only
+// include cold PowerShell startup on a contended Windows hosted runner; they do
+// not weaken the watchdog contract once the harness is executing.
+const windowsWatchdogHarnessProcessTimeoutMs = 30_000;
+const windowsWatchdogTestTimeoutMs = 35_000;
 
 afterEach(async () => {
   await Promise.all(
@@ -601,7 +602,7 @@ try {
   );
   const result = await execFileAsync('pwsh', ['-NoProfile', '-File', harnessPath], {
     shell: false,
-    timeout: 15_000,
+    timeout: windowsWatchdogHarnessProcessTimeoutMs,
   });
   return result.stdout;
 }
