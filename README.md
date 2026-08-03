@@ -11,7 +11,8 @@ Os marcos M0 e M1 estão implementados. M0 entrega o workspace, o domínio de en
 O builder Windows do runtime OCR executa ferramentas filhas em um Job Object com limite por
 etapa; quando expira, encerra a árvore e retorna o diagnóstico de timeout sem depender do cleanup
 dos pipes redirecionados. A limpeza também evita dispor stdin sincronicamente quando uma escrita
-de fundo está bloqueada em um pipe cheio.
+de fundo está bloqueada em um pipe cheio. Os testes desse contrato preservam o limite interno do
+watchdog e acomodam somente o custo de inicialização fria do PowerShell em runners hospedados.
 
 O M2 adiciona o primeiro fluxo vertical de memória: um arquivo local é preservado como raw, Codex CLI ou Claude Code gera uma proposta estruturada, e somente arquivos da wiki escolhidos explicitamente na revisão são promovidos.
 

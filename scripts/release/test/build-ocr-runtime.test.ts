@@ -13,6 +13,10 @@ import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
+// The harness itself enforces an eight-second deadline and its child process is
+// capped at fifteen seconds. This outer allowance includes cold PowerShell
+// startup on a contended Windows hosted runner without weakening that contract.
+const windowsWatchdogTestTimeoutMs = 20_000;
 
 afterEach(async () => {
   await Promise.all(
@@ -291,7 +295,7 @@ describe('Native OCR runtime workflow', () => {
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
-    10_000,
+    windowsWatchdogTestTimeoutMs,
   );
 
   it.skipIf(process.platform !== 'win32')(
@@ -315,6 +319,7 @@ $childInfo.UseShellExecute = $false
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
+    windowsWatchdogTestTimeoutMs,
   );
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {

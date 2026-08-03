@@ -19,6 +19,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- Os testes Windows do watchdog OCR preservam o limite interno de encerramento e toleram a
+  inicialização fria do PowerShell em runners hospedados, evitando falhas espúrias de CI.
 - O conector LinkedIn agora segue até três redirecionamentos canônicos, aplica backoff exponencial
   cancelável, limita streaming de HTML e imagens, nomeia imagens pelo SHA-256 e sanitiza metadados
   antes de publicá-los. OCR é declarado somente pelo derivador `source.image`; URLs de imagem com
