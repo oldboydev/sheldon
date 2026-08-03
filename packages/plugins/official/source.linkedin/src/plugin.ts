@@ -15,6 +15,8 @@ import { extractLinkedInContent } from './extract.js';
 import { canonicalLinkedInContentUrl, isKnownLinkedInUrl } from './linkedin-url.js';
 
 const MAXIMUM_PAGE_BYTES = 5 * 1024 * 1024;
+const MAXIMUM_IMAGE_BYTES = 10 * 1024 * 1024;
+const MAXIMUM_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024;
 const MAXIMUM_ATTEMPTS = 3;
 const description: PluginDescription = {
   id: 'source.linkedin',
@@ -25,8 +27,8 @@ const description: PluginDescription = {
   capabilities: ['ingest-url'],
   priority: 180,
   platforms: ['win32', 'darwin', 'linux'],
-  permissions: { network: true, cookies: false },
-  effects: { ocr: false, stt: false, modelDownload: false },
+  permissions: { network: true, cookies: false, media: true },
+  effects: { ocr: true, stt: false, modelDownload: false },
   dependencies: [],
 };
 
@@ -34,12 +36,21 @@ export interface LinkedInPageResult {
   readonly status: number;
   readonly html: string;
 }
+export interface LinkedInImageResult {
+  readonly status: number;
+  readonly mediaType: string;
+  readonly bytes: Uint8Array;
+}
 
 export interface LinkedInDependencies {
   readonly fetchPage?: (input: {
     readonly url: string;
     readonly signal: AbortSignal;
   }) => Promise<string | LinkedInPageResult>;
+  readonly fetchImage?: (input: {
+    readonly url: string;
+    readonly signal: AbortSignal;
+  }) => Promise<LinkedInImageResult>;
   readonly sleep?: (milliseconds: number, signal: AbortSignal) => Promise<void>;
 }
 
@@ -104,7 +115,7 @@ async function ingestLinkedIn(
   dependencies: LinkedInDependencies,
 ): Promise<readonly SourceArtifact[]> {
   const content = validatedInput(request.input);
-  validatedOptions(request.options);
+  const options = validatedOptions(request.options);
   const html = await fetchBoundedPage(content.canonicalUri, signal, dependencies);
   const extracted = extractLinkedInContent(html, content.kind, content.canonicalUri);
   await mkdir(join(request.temporaryDirectory, 'assets'), { recursive: true });
@@ -122,7 +133,7 @@ async function ingestLinkedIn(
     null,
     2,
   )}\n`;
-  return [
+  const artifacts: SourceArtifact[] = [
     await artifact(
       request.temporaryDirectory,
       'original.page.html',
@@ -153,6 +164,16 @@ async function ingestLinkedIn(
       'asset',
     ),
   ];
+  if (options.media === 'images') {
+    const images = await downloadImages(
+      extracted.imageUrls,
+      request.temporaryDirectory,
+      signal,
+      dependencies,
+    );
+    artifacts.push(...images);
+  }
+  return artifacts;
 }
 
 function validatedInput(input: Readonly<Record<string, unknown>>) {
@@ -169,13 +190,90 @@ function validatedInput(input: Readonly<Record<string, unknown>>) {
   }
 }
 
-function validatedOptions(options: Readonly<Record<string, unknown>>): void {
-  if (Object.keys(options).length !== 0) {
+function validatedOptions(options: Readonly<Record<string, unknown>>): {
+  readonly media: 'none' | 'images';
+} {
+  if (Object.keys(options).length === 0) return { media: 'none' };
+  if (
+    Object.keys(options).some((key) => key !== 'media' && key !== 'ocr') ||
+    (options.media !== 'none' && options.media !== 'images') ||
+    (options.ocr !== undefined && options.ocr !== true)
+  ) {
     throw linkedInError(
       'LINKEDIN_INPUT_INVALID',
-      'This text-only connector does not accept options.',
+      'source.linkedin accepts media: none or images and optional ocr: true.',
     );
   }
+  return { media: options.media };
+}
+
+async function downloadImages(
+  urls: readonly string[],
+  directory: string,
+  signal: AbortSignal,
+  dependencies: LinkedInDependencies,
+): Promise<readonly SourceArtifact[]> {
+  const artifacts: SourceArtifact[] = [];
+  let total = 0;
+  for (const [index, url] of urls.entries()) {
+    signal.throwIfAborted();
+    const image = await (dependencies.fetchImage ?? systemFetchImage)({ url, signal });
+    if (
+      image.status < 200 ||
+      image.status >= 300 ||
+      !imageMediaType(image.mediaType) ||
+      image.bytes.byteLength === 0 ||
+      !matchesImageMagic(image.bytes, image.mediaType)
+    ) {
+      throw linkedInError(
+        'LINKEDIN_EXTRACTION_FAILED',
+        'LinkedIn returned an invalid public image asset.',
+      );
+    }
+    total += image.bytes.byteLength;
+    if (image.bytes.byteLength > MAXIMUM_IMAGE_BYTES || total > MAXIMUM_IMAGE_TOTAL_BYTES) {
+      throw linkedInError(
+        'LINKEDIN_MEDIA_LIMIT_EXCEEDED',
+        'Requested public LinkedIn images exceeded the bounded media limit.',
+      );
+    }
+    const extension = imageExtension(image.mediaType);
+    const path = `assets/images/${String(index + 1).padStart(2, '0')}.${extension}`;
+    artifacts.push(await binaryArtifact(directory, path, image.bytes, image.mediaType));
+  }
+  return artifacts;
+}
+
+function imageMediaType(
+  value: string,
+): value is 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' {
+  return new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']).has(value.toLowerCase());
+}
+
+function imageExtension(value: string): string {
+  return value.toLowerCase() === 'image/jpeg' ? 'jpg' : value.toLowerCase().slice('image/'.length);
+}
+
+function matchesImageMagic(bytes: Uint8Array, mediaType: string): boolean {
+  if (mediaType === 'image/jpeg')
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  if (mediaType === 'image/png')
+    return (
+      bytes.length >= 8 &&
+      [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every(
+        (value, index) => bytes[index] === value,
+      )
+    );
+  if (mediaType === 'image/gif')
+    return (
+      bytes.length >= 6 &&
+      new TextDecoder().decode(bytes.slice(0, 6)) in { GIF87a: true, GIF89a: true }
+    );
+  return (
+    bytes.length >= 12 &&
+    new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' &&
+    new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP'
+  );
 }
 
 async function fetchBoundedPage(
@@ -274,6 +372,24 @@ async function systemFetchPage(input: {
   return { status: response.status, html: await response.text() };
 }
 
+async function systemFetchImage(input: {
+  readonly url: string;
+  readonly signal: AbortSignal;
+}): Promise<LinkedInImageResult> {
+  const timeout = AbortSignal.timeout(15_000);
+  const response = await fetch(input.url, {
+    headers: { accept: 'image/avif,image/webp,image/png,image/jpeg,image/gif' },
+    redirect: 'error',
+    signal: AbortSignal.any([input.signal, timeout]),
+  });
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  return {
+    status: response.status,
+    mediaType: response.headers.get('content-type')?.split(';', 1)[0] ?? '',
+    bytes,
+  };
+}
+
 function hasLinkedInCode(error: unknown): error is Error & { readonly code: string } {
   return (
     error !== null &&
@@ -342,12 +458,36 @@ async function artifact(
   };
 }
 
+async function binaryArtifact(
+  directory: string,
+  path: string,
+  content: Uint8Array,
+  mediaType: string,
+): Promise<SourceArtifact> {
+  const destination = join(directory, path);
+  await mkdir(join(directory, 'assets', 'images'), { recursive: true });
+  await writeFile(destination, content);
+  const bytes = new Uint8Array(await readFile(destination));
+  return {
+    id: `asset.${path
+      .replaceAll(/[^a-z0-9]+/giu, '-')
+      .replaceAll(/^-|-$/gu, '')
+      .toLowerCase()}`,
+    role: 'asset',
+    path,
+    mediaType,
+    bytes: bytes.byteLength,
+    sha256: createHash('sha256').update(bytes).digest('hex'),
+  };
+}
+
 function linkedInError(
   code:
     | 'LINKEDIN_INPUT_INVALID'
     | 'LINKEDIN_ACCESS_RESTRICTED'
     | 'LINKEDIN_RATE_LIMITED'
     | 'LINKEDIN_CONTENT_UNAVAILABLE'
+    | 'LINKEDIN_MEDIA_LIMIT_EXCEEDED'
     | 'LINKEDIN_EXTRACTION_FAILED',
   message: string,
   cause?: unknown,

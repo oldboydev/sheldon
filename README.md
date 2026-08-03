@@ -35,14 +35,17 @@ nesse orçamento é diagnosticado como limite de mídia, e o raw registra por qu
 descartada sem inventar transcrição.
 
 O M9 inicia o plugin experimental `source.linkedin` para um post individual público ou LinkedIn
-Article público. A primeira fatia captura HTML sanitizado, texto e metadados separados; ela não usa
-cookies, OAuth, automação de navegador, comentários, documentos ou vídeo. URLs de login, conteúdo
-privado e limites da plataforma recebem diagnósticos estáveis, sem tentativa de bypass. Quando o
-artefato oficial estiver disponível, instale-o explicitamente e use uma URL pública canônica:
+Article público. Ele captura HTML sanitizado, texto e metadados separados; `--media images` baixa
+somente imagens públicas dentro de orçamento e `--ocr` exige o `source.image` local saudável para
+derivá-las em processos isolados. Ele não usa cookies, OAuth, automação de navegador, comentários,
+documentos ou vídeo. URLs de login, conteúdo privado e limites da plataforma recebem diagnósticos
+estáveis, sem tentativa de bypass. Quando o artefato oficial estiver disponível, instale-o
+explicitamente e use uma URL pública canônica:
 
 ```powershell
 npm run sheldon -- plugin install source.linkedin
 npm run sheldon -- ingest url topic agentes-locais https://www.linkedin.com/pulse/exemplo/ `
+  --media images --ocr `
   --vault C:\knowledge\sheldon
 ```
 

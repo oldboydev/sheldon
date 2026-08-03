@@ -38,8 +38,8 @@ cookies, OAuth, automação de navegador ou bypass.
    escopo, de uma entrada desconhecida.
 2. O plugin busca somente a página pública solicitada. Redirecionamentos precisam terminar em host
    LinkedIn permitido e não podem mudar a entrada para perfil, feed ou login.
-3. O manifesto declara `network: true`, `cookies: false`; a primeira fatia não declara mídia nem
-   OCR até que a fronteira de derivação esteja disponível.
+3. O manifesto declara `network: true`, `cookies: false`, mídia e OCR; o OCR é executado somente
+   pela fronteira de derivação do host, nunca pelo processo social.
 4. A captura de texto não executa JavaScript nem lê estado de navegador. Texto ausente nunca é
    inventado e conteúdo de comentários não é incorporado.
 5. O raw contém exatamente um original `original.page.html`, um `content.md`, texto específico do

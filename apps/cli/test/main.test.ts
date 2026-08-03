@@ -45,7 +45,7 @@ it.each(['full', 'video', ''])(
     );
 
     expect(result.exitCode).not.toBe(0);
-    expect(result.stderr).toContain('--media must be none or thumbnail.');
+    expect(result.stderr).toContain('--media must be none, thumbnail, or images.');
     await expectPluginMarkersAbsent(dependencies);
   },
 );

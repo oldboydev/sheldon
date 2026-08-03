@@ -35,6 +35,7 @@ const postHtml = `<!doctype html><html><head>
   <script>window.sessionToken = 'never-publish';</script>
 </head><body><main><article>
   <div data-test-id="main-feed-activity-card__commentary">A post about local-first knowledge.</div>
+  <img src="https://media.licdn.com/example.jpg">
   <div class="comments">Do not ingest this comment.</div>
 </article></main></body></html>`;
 
@@ -54,8 +55,58 @@ describe('experimental source.linkedin', () => {
       id: 'source.linkedin',
       priority: 180,
       permissions: { network: true, cookies: false },
-      effects: { ocr: false, stt: false },
+      effects: { ocr: true, stt: false },
     });
+  });
+
+  it('downloads a public image only when explicitly requested', async () => {
+    const directory = await outputDirectory();
+    const fetchImage = vi.fn(async () => ({
+      status: 200,
+      mediaType: 'image/jpeg',
+      bytes: Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]),
+    }));
+    const plugin = createOfficialSourceLinkedinPlugin({
+      fetchPage: async () => postHtml,
+      fetchImage,
+    });
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+        options: { media: 'images' },
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+    expect(fetchImage).toHaveBeenCalledWith(
+      expect.objectContaining({ url: 'https://media.licdn.com/example.jpg' }),
+    );
+    expect(artifacts.at(-1)).toMatchObject({
+      path: 'assets/images/01.jpg',
+      mediaType: 'image/jpeg',
+    });
+  });
+
+  it('rejects an image whose bytes do not match its declared media type', async () => {
+    const directory = await outputDirectory();
+    const plugin = createOfficialSourceLinkedinPlugin({
+      fetchPage: async () => postHtml,
+      fetchImage: async () => ({
+        status: 200,
+        mediaType: 'image/png',
+        bytes: Uint8Array.from([1, 2, 3]),
+      }),
+    });
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: { media: 'images' },
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toThrow('LINKEDIN_EXTRACTION_FAILED');
   });
 
   it('claims only individual posts and Articles, preserving a known unsupported LinkedIn URL', async () => {
@@ -188,7 +239,7 @@ describe('experimental source.linkedin', () => {
       plugin.ingest(
         {
           input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
-          options: { media: 'images' },
+          options: { media: 'thumbnail' },
           temporaryDirectory: directory,
         },
         context,

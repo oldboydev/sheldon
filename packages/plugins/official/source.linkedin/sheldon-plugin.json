@@ -9,7 +9,7 @@
   "capabilities": ["ingest-url"],
   "priority": 180,
   "platforms": ["win32", "darwin", "linux"],
-  "permissions": { "network": true, "cookies": false },
-  "effects": { "ocr": false, "stt": false, "modelDownload": false },
+  "permissions": { "network": true, "cookies": false, "media": true },
+  "effects": { "ocr": true, "stt": false, "modelDownload": false },
   "dependencies": []
 }

@@ -101,8 +101,7 @@ Saída: falhas de plataforma são diagnosticadas claramente e nunca comprometem 
 
 **PRD:** 011
 
-**Status:** em andamento; a fatia textual de post e Article está em implementação. Captura de imagens
-e a derivação OCR opt-in só serão habilitadas após a fronteira de anexos isolada estar validada.
+**Status:** concluído em 2 de agosto de 2026.
 
 Entrega: o plugin experimental `source.linkedin` ingere um post individual público ou um LinkedIn
 Article público, preservando HTML original, texto normalizado, metadados e imagens explicitamente
