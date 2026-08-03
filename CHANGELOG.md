@@ -19,6 +19,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- O watchdog OCR Windows agora cancela explicitamente uma escrita de stdin pendente antes de
+  encerrar a árvore de processos no timeout.
 - Em timeout, o watchdog OCR Windows fecha diretamente o Job Object atribuído para encerrar a
   árvore, sem um `Process.Kill` recursivo que possa ultrapassar seu próprio limite. A escrita em
   stdin também passou a usar I/O assíncrono nativo, sem prender uma thread do host em um pipe

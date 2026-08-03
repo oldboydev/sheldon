@@ -203,7 +203,9 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$startInfo.RedirectStandardOutput = $true');
     expect(builder).toContain('$startInfo.RedirectStandardError = $true');
     expect(builder).toContain('$startInfo.ArgumentList.Add($argument)');
-    expect(builder).toContain('await writer.WriteAsync(text).ConfigureAwait(false)');
+    expect(builder).toContain(
+      'await writer.WriteAsync(text.AsMemory(), cancellationToken).ConfigureAwait(false)',
+    );
     expect(builder).not.toContain('Task.Run(() =>');
     expect(builder).toContain('$stdout = [System.Text.StringBuilder]::new()');
     expect(builder).toContain('$stderr = [System.Text.StringBuilder]::new()');
