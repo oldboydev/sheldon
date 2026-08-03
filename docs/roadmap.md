@@ -34,6 +34,8 @@ Evidência: o SDK Node e o fixture PowerShell passam pelo mesmo contrato pós-bu
 
 **PRDs:** 003, 004 e 005
 
+**Status:** concluído em 20 de julho de 2026.
+
 Entrega: arquivo local vira raw; Codex ou Claude gera proposta; usuário aprova; conceito entra na wiki.
 
 Saída: fluxo completo repetível pelos dois agentes, com fontes e diff de revisão.
@@ -44,7 +46,7 @@ Este marco é um checkpoint vertical: utiliza primeiro o caminho de arquivo loca
 
 **PRD:** 003
 
-**Status:** em andamento; `source.file`, a captura de URL pública única e o crawl público limitado por `ingest crawl`, o YouTube público de vídeo único com legendas, `source.image` com seu runtime nativo de OCR e snapshots estritos de commits de repositórios Git locais foram concluídos em julho de 2026. O snapshot aceita somente um checkout byte por byte idêntico a `HEAD`. A manutenção de novas versões do runtime OCR, Git remoto/autenticado e STT local para as rotas centrais continuam adiados. Playlists e canais do YouTube também permanecem fora do escopo atual do usuário.
+**Status:** concluído em 30 de julho de 2026.
 
 Entrega: `source.file`, `source.image`, `source.url`, `source.youtube` e `source.repository` cobrem a fatia atual. A seleção automática direciona imagens ao `source.image`, vídeos únicos ao `source.youtube`, páginas comuns e crawls limitados ao `source.url` e o comando `ingest repository` ao `source.repository`; este último recusa submódulos e checkouts sujeitos a conversão (`autocrlf`, `eol` ou filtros). O crawl exige limites explícitos de páginas e profundidade. Git remoto/autenticado, playlists/canais e STT local para as rotas centrais permanecem fora desta fatia.
 
@@ -53,6 +55,8 @@ Saída: cada família possui fixtures, deduplicação e diagnóstico offline; ne
 ### M4 — Conhecimento cumulativo
 
 **PRD:** 006
+
+**Status:** concluído em 29 de julho de 2026.
 
 Entrega: busca local, consulta citada, arquivamento de respostas e promoção para nova proposta.
 
@@ -72,6 +76,8 @@ Saída: Codex e Claude, dentro de outro repositório, localizam e citam conhecim
 
 **PRD:** 008
 
+**Status:** concluído em 30 de julho de 2026.
+
 Entrega: definição de seleção, compilador, índice, log, manifesto e validador OKF v0.1.
 
 Saída: bundle reconstruível, conformante e utilizável sem Sheldon.
@@ -79,6 +85,8 @@ Saída: bundle reconstruível, conformante e utilizável sem Sheldon.
 ### M7 — MVP utilizável
 
 **PRD:** 009
+
+**Status:** concluído em 31 de julho de 2026.
 
 Entrega: interface web local para fontes, trabalhos, revisão, wiki, consulta, plugins e bundles.
 
@@ -101,7 +109,7 @@ Saída: falhas de plataforma são diagnosticadas claramente e nunca comprometem 
 
 **PRD:** 011
 
-**Status:** em revisão.
+**Status:** concluído em 3 de agosto de 2026.
 
 Entrega: o plugin experimental `source.linkedin` ingere um post individual público ou um LinkedIn
 Article público, preservando HTML original, texto normalizado, metadados e imagens explicitamente
@@ -141,6 +149,8 @@ Uma entrega só conclui um marco quando:
 ## Depois do MVP
 
 - Linux e macOS.
+- Extensão da ingestão M3: Git remoto/autenticado, playlists e canais do YouTube, STT local para
+  as rotas centrais e manutenção versionada dos runtimes OCR.
 - Plugins de redes sociais adicionais.
 - Busca vetorial local opcional.
 - Visualização do grafo.

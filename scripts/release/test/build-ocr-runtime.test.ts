@@ -13,6 +13,10 @@ import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
+// The harness itself enforces an eight-second deadline and its child process is
+// capped at fifteen seconds. This outer allowance includes cold PowerShell
+// startup on a contended Windows hosted runner without weakening that contract.
+const windowsWatchdogTestTimeoutMs = 20_000;
 
 afterEach(async () => {
   await Promise.all(
@@ -198,6 +202,8 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$startInfo.RedirectStandardOutput = $true');
     expect(builder).toContain('$startInfo.RedirectStandardError = $true');
     expect(builder).toContain('$startInfo.ArgumentList.Add($argument)');
+    expect(builder).toContain('await writer.WriteAsync(text).ConfigureAwait(false)');
+    expect(builder).not.toContain('Task.Run(() =>');
     expect(builder).toContain('$stdout = [System.Text.StringBuilder]::new()');
     expect(builder).toContain('$stderr = [System.Text.StringBuilder]::new()');
     expect(builder).toContain(
@@ -212,10 +218,9 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$stderr.Append($stderrChunk)');
     expect(builder).toContain('[Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")');
     expect(builder).toContain('[Console]::Error.Write("OCR_RUNTIME_STDERR: $stderrChunk")');
-    expect(builder).toContain('$timedOutProcess.WaitForExit(0)');
-    expect(builder).toContain('$timedOutProcess.Kill($true)');
-    expect(builder).toContain('catch [System.InvalidOperationException]');
-    expect(builder).toContain('if (-not $timedOutProcess.HasExited) { throw }');
+    expect(builder).toContain('JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE');
+    expect(builder).toContain('$job.Dispose()');
+    expect(builder).not.toContain('$timedOutProcess');
     expect(builder).toContain(
       'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
     );
@@ -223,7 +228,7 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$process = $null');
     expect(builder).toContain('if ($null -ne $process) { $process.Dispose() }');
     expect(builder).toMatch(
-      /\$timedOutProcess = \$process\r?\n\s+\$process = \$null\r?\n\s+# Do not synchronously close[\s\S]*?\$timedOutProcess\.Kill\(\$true\)/u,
+      /\$process = \$null\r?\n\s+# Do not synchronously close[\s\S]*?\$job\.Dispose\(\)/u,
     );
     expect(builder).toContain('finalized with Dispose(false)');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
@@ -291,7 +296,7 @@ describe('Native OCR runtime workflow', () => {
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
-    10_000,
+    windowsWatchdogTestTimeoutMs,
   );
 
   it.skipIf(process.platform !== 'win32')(
@@ -315,6 +320,7 @@ $childInfo.UseShellExecute = $false
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
+    windowsWatchdogTestTimeoutMs,
   );
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
