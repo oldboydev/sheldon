@@ -36,10 +36,11 @@ descartada sem inventar transcrição.
 
 O M9 inicia o plugin experimental `source.linkedin` para um post individual público ou LinkedIn
 Article público. Ele captura HTML sanitizado, texto e metadados separados; `--media images` baixa
-somente imagens públicas dentro de orçamento e `--ocr` exige o `source.image` local saudável para
-derivá-las em processos isolados. Ele não usa cookies, OAuth, automação de navegador, comentários,
-documentos ou vídeo. URLs de login, conteúdo privado e limites da plataforma recebem diagnósticos
-estáveis, sem tentativa de bypass. Quando o artefato oficial estiver disponível, instale-o
+somente imagens públicas dentro de orçamento (URLs com query são descartadas e registradas como aviso)
+e `--ocr` exige o `source.image` local saudável para derivá-las em processos isolados. Ele não usa
+cookies, OAuth, automação de navegador, comentários, documentos ou vídeo. URLs de login, conteúdo
+privado e limites da plataforma recebem diagnósticos estáveis, sem tentativa de bypass. Quando o
+artefato oficial estiver disponível, instale-o
 explicitamente e use uma URL pública canônica:
 
 ```powershell

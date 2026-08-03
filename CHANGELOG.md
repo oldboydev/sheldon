@@ -19,6 +19,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- O conector LinkedIn agora segue até três redirecionamentos canônicos, aplica backoff exponencial
+  cancelável, limita streaming de HTML e imagens, nomeia imagens pelo SHA-256 e sanitiza metadados
+  antes de publicá-los. OCR é declarado somente pelo derivador `source.image`; URLs de imagem com
+  query são descartadas sem persistência e registradas como aviso estável quando a mídia é solicitada.
 - Após timeout, o builder OCR Windows encerra o Job Object e retorna o diagnóstico sem aguardar
   pipes redirecionados nem dispor sincronicamente um stdin cuja escrita de fundo está bloqueada;
   o watchdog permanece limitado mesmo com pipe cheio.

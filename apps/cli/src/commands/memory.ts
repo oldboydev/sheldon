@@ -139,7 +139,6 @@ export async function ingestUrl(
     }
     const supportsMedia = selection.plugin.manifest.permissions.media === true;
     const supportsStt = selection.plugin.manifest.effects?.stt === true;
-    const supportsOcr = selection.plugin.manifest.effects?.ocr === true;
     if (options.media !== undefined && !supportsMedia) {
       throw new PluginHostError(
         'PLUGIN_OPTION_UNSUPPORTED',
@@ -154,14 +153,6 @@ export async function ingestUrl(
         'The selected URL plugin does not support local speech-to-text.',
         selection.plugin.manifest.id,
         'Remove --stt or select a plugin that explicitly declares the local STT effect.',
-      );
-    }
-    if (options.ocr === true && !supportsOcr) {
-      throw new PluginHostError(
-        'PLUGIN_OPTION_UNSUPPORTED',
-        'The selected URL plugin does not support local OCR derivation.',
-        selection.plugin.manifest.id,
-        'Remove --ocr or select a plugin that explicitly declares the local OCR effect.',
       );
     }
     if (options.ocr === true && options.media !== 'images') {
@@ -186,7 +177,6 @@ export async function ingestUrl(
       ...(options.language === undefined ? {} : { language: options.language }),
       ...(supportsMedia && options.media !== undefined ? { media: options.media } : {}),
       ...(supportsStt && options.stt === true ? { stt: true } : {}),
-      ...(supportsOcr && options.ocr === true ? { ocr: true } : {}),
     };
     const cookies =
       options.cookies === undefined ? undefined : await localCookieFile(options.cookies);

@@ -101,11 +101,11 @@ Saída: falhas de plataforma são diagnosticadas claramente e nunca comprometem 
 
 **PRD:** 011
 
-**Status:** concluído em 2 de agosto de 2026.
+**Status:** em revisão.
 
 Entrega: o plugin experimental `source.linkedin` ingere um post individual público ou um LinkedIn
 Article público, preservando HTML original, texto normalizado, metadados e imagens explicitamente
-autorizadas em raws separados. Uma derivação de OCR opt-in para imagens será orquestrada pelo host
+autorizadas em raws separados. Uma derivação de OCR opt-in para imagens é orquestrada pelo host
 por uma fronteira reutilizável, nunca por chamada informal entre plugins.
 
 Saída: conteúdos públicos de texto e imagem são capturados com limites e diagnósticos estáveis; tela

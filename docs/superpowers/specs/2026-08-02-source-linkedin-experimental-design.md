@@ -18,13 +18,14 @@ essas rotas. A seleção de `source.url` continua sendo a alternativa para pági
 ## Captura limitada
 
 O cliente de rede recebe uma única URL canônica e usa um timeout por tentativa, orçamento de HTML e
-allowlist de hosts. Ele segue somente poucos redirecionamentos que terminem em rota LinkedIn ainda
-aceita. A resposta não executa JavaScript, não usa perfil de browser, cookie, token, OAuth ou header
-de autorização.
+allowlist de hosts. Ele segue no máximo três redirecionamentos, somente quando cada destino ainda é
+uma rota canônica LinkedIn aceita; login, perfil, feed e qualquer destino externo são recusados. A
+resposta não executa JavaScript, não usa perfil de browser, cookie, token, OAuth ou header de
+autorização.
 
 Há no máximo uma tentativa inicial e duas novas tentativas para resposta transitória ou falha de
-rede. Os atrasos exponenciais são limitados, observam cancelamento e não são usados para acesso
-restrito, login, URL inválida ou página removida.
+rede. Os atrasos exponenciais de 1 e 2 segundos são limitados, observam cancelamento e não são usados
+para acesso restrito, login, URL inválida ou página removida.
 
 ## Extração de texto
 
@@ -57,13 +58,15 @@ metadados ou Markdown. Cabeçalhos de resposta nunca são preservados.
 A primeira entrega textual não baixa mídia. A extensão `--media images` altera o manifesto para
 declarar `media: true` e baixa, apenas quando requisitada, até cinco imagens públicas regulares dentro
 do orçamento de 10 MiB por arquivo e 20 MiB agregado. Cada arquivo passa por allowlist de host,
-redirecionamento, limite durante streaming, tipo por magic bytes e verificação de arquivo regular
-antes de virar `assets/images/<digest>.<ext>`.
+recusa de redirecionamento, limite durante streaming, tipo por magic bytes e verificação de arquivo
+regular antes de virar `assets/images/<sha256>.<ext>`. URLs de imagem com query são descartadas antes
+de qualquer persistência e produzem aviso estável em `content.md` quando `--media images` foi pedido.
 
 `--ocr` não será implementado como uma chamada de `source.linkedin` para `source.image`. O host terá
 um protocolo de derivação de anexos: recebe assets já materializados, seleciona explicitamente um
 derivador instalado, cria diretório temporário e processo isolados e publica `assets/ocr/<digest>.txt`
-somente após validar o resultado. A derivação declara seu efeito OCR e saúde independentemente. Assim,
+somente após validar o resultado. O derivador (`source.image`) declara seu efeito OCR e saúde
+independentemente; o plugin social declara apenas sua permissão de mídia. Assim,
 uma falha de OCR é aviso por imagem, e nunca falha do processo social nem acesso implícito ao runtime
 privado de outro plugin.
 

@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createOfficialSourceLinkedinPlugin } from '@sheldon/plugin-source-linkedin';
 
+import { extractLinkedInContent } from '../src/extract.js';
+
 const temporaryDirectories: string[] = [];
 const context: PluginExecutionContext = {
   signal: new AbortController().signal,
@@ -15,6 +17,7 @@ const context: PluginExecutionContext = {
 };
 
 afterEach(async () => {
+  vi.unstubAllGlobals();
   await Promise.all(
     temporaryDirectories
       .splice(0)
@@ -48,14 +51,14 @@ const articleHtml = `<!doctype html><html><head>
 </article></body></html>`;
 
 describe('experimental source.linkedin', () => {
-  it('declares a cookie-free, text-only public connector', async () => {
+  it('declares a cookie-free public connector without claiming host-side OCR', async () => {
     const plugin = createOfficialSourceLinkedinPlugin({ fetchPage: async () => postHtml });
 
     await expect(plugin.describe(context)).resolves.toMatchObject({
       id: 'source.linkedin',
       priority: 180,
       permissions: { network: true, cookies: false },
-      effects: { ocr: true, stt: false },
+      effects: { ocr: false, stt: false },
     });
   });
 
@@ -81,10 +84,72 @@ describe('experimental source.linkedin', () => {
     expect(fetchImage).toHaveBeenCalledWith(
       expect.objectContaining({ url: 'https://media.licdn.com/example.jpg' }),
     );
+    const digest = createHash('sha256')
+      .update(Uint8Array.from([0xff, 0xd8, 0xff, 0xd9]))
+      .digest('hex');
     expect(artifacts.at(-1)).toMatchObject({
-      path: 'assets/images/01.jpg',
+      path: `assets/images/${digest}.jpg`,
       mediaType: 'image/jpeg',
     });
+  });
+
+  it('caps public image capture at five and names each asset by its content digest', async () => {
+    const directory = await outputDirectory();
+    const html = postHtml.replace(
+      '<img src="https://media.licdn.com/example.jpg">',
+      Array.from(
+        { length: 6 },
+        (_, index) => `<img src="https://media.licdn.com/example-${index}.jpg">`,
+      ).join(''),
+    );
+    const fetchImage = vi.fn(async ({ url }: { readonly url: string }) => ({
+      status: 200,
+      mediaType: 'image/jpeg',
+      bytes: Uint8Array.from([0xff, 0xd8, 0xff, Number(url.match(/-(\d+)\.jpg$/u)?.[1] ?? 0)]),
+    }));
+    const plugin = createOfficialSourceLinkedinPlugin({ fetchPage: async () => html, fetchImage });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+        options: { media: 'images' },
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+
+    expect(fetchImage).toHaveBeenCalledTimes(5);
+    expect(artifacts.filter((artifact) => artifact.path.startsWith('assets/images/'))).toHaveLength(
+      5,
+    );
+    expect(artifacts.filter((artifact) => artifact.path.startsWith('assets/images/'))).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: expect.stringMatching(/^assets\/images\/[a-f0-9]{64}\.jpg$/u),
+        }),
+      ]),
+    );
+  });
+
+  it('rejects an image that exceeds its bounded media budget', async () => {
+    const directory = await outputDirectory();
+    const bytes = Buffer.alloc(10 * 1024 * 1024 + 1);
+    bytes.set([0xff, 0xd8, 0xff]);
+    const plugin = createOfficialSourceLinkedinPlugin({
+      fetchPage: async () => postHtml,
+      fetchImage: async () => ({ status: 200, mediaType: 'image/jpeg', bytes }),
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: { media: 'images' },
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toThrow('LINKEDIN_MEDIA_LIMIT_EXCEEDED');
   });
 
   it('rejects an image whose bytes do not match its declared media type', async () => {
@@ -176,6 +241,55 @@ describe('experimental source.linkedin', () => {
     );
   });
 
+  it('records a stable warning when signed public image URLs are not captured', async () => {
+    const directory = await outputDirectory();
+    const html = postHtml.replace(
+      'https://media.licdn.com/example.jpg',
+      'https://media.licdn.com/example.jpg?e=secret-signature',
+    );
+    const plugin = createOfficialSourceLinkedinPlugin({ fetchPage: async () => html });
+
+    await plugin.ingest(
+      {
+        input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+        options: { media: 'images' },
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+
+    await expect(readFile(join(directory, 'content.md'), 'utf8')).resolves.toContain(
+      '1 public image was ignored because its URL contained query parameters.',
+    );
+    await expect(readFile(join(directory, 'original.page.html'), 'utf8')).resolves.not.toContain(
+      'secret-signature',
+    );
+  });
+
+  it('sanitizes URL-valued metadata and escapes post text that could restructure Markdown', async () => {
+    const directory = await outputDirectory();
+    const html = postHtml
+      .replace('Ada Lovelace on local-first knowledge', 'https://example.test/title?secret=value')
+      .replace('A post about local-first knowledge.', '# heading | ---');
+    const plugin = createOfficialSourceLinkedinPlugin({ fetchPage: async () => html });
+
+    await plugin.ingest(
+      {
+        input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+        options: {},
+        temporaryDirectory: directory,
+      },
+      context,
+    );
+
+    await expect(
+      readFile(join(directory, 'assets', 'metadata.json'), 'utf8'),
+    ).resolves.not.toContain('secret=value');
+    await expect(readFile(join(directory, 'content.md'), 'utf8')).resolves.toContain(
+      '\\# heading \\| ---',
+    );
+  });
+
   it('publishes a LinkedIn Article body without sidebar content', async () => {
     const directory = await outputDirectory();
     const plugin = createOfficialSourceLinkedinPlugin({ fetchPage: async () => articleHtml });
@@ -218,6 +332,134 @@ describe('experimental source.linkedin', () => {
       ),
     ).rejects.toThrow(code);
     expect(fetchPage).toHaveBeenCalledTimes(status === 429 ? 3 : 1);
+  });
+
+  it('uses bounded exponential backoff and stops immediately when retry sleep is cancelled', async () => {
+    const delays: number[] = [];
+    const rateLimited = createOfficialSourceLinkedinPlugin({
+      fetchPage: async () => ({ status: 429, html: '' }),
+      sleep: async (milliseconds) => {
+        delays.push(milliseconds);
+      },
+    });
+    const directory = await outputDirectory();
+    await expect(
+      rateLimited.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toThrow('LINKEDIN_RATE_LIMITED');
+    expect(delays).toEqual([1_000, 2_000]);
+
+    const controller = new AbortController();
+    const fetchPage = vi.fn(async () => {
+      throw new Error('network unavailable');
+    });
+    const cancelled = createOfficialSourceLinkedinPlugin({
+      fetchPage,
+      sleep: async (_milliseconds, signal) => {
+        controller.abort(new Error('cancelled during retry'));
+        signal.throwIfAborted();
+      },
+    });
+    await expect(
+      cancelled.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        { ...context, signal: controller.signal },
+      ),
+    ).rejects.toThrow('cancelled during retry');
+    expect(fetchPage).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows a bounded canonical redirect and rejects a redirect to login', async () => {
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('', {
+          status: 301,
+          headers: {
+            location: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/',
+          },
+        }),
+      )
+      .mockResolvedValueOnce(new Response(postHtml, { status: 200 }));
+    vi.stubGlobal('fetch', fetch);
+    const directory = await outputDirectory();
+    const plugin = createOfficialSourceLinkedinPlugin();
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).resolves.toHaveLength(4);
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 302, headers: { location: '/login' } })),
+    );
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toThrow('LINKEDIN_ACCESS_RESTRICTED');
+  });
+
+  it('diagnoses an oversized page and an unrecognizable public structure', async () => {
+    const directory = await outputDirectory();
+    const oversized = createOfficialSourceLinkedinPlugin({
+      fetchPage: async () => `${postHtml}${'x'.repeat(5 * 1024 * 1024 + 1)}`,
+    });
+    await expect(
+      oversized.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toThrow('LINKEDIN_EXTRACTION_FAILED');
+
+    const changed = createOfficialSourceLinkedinPlugin({
+      fetchPage: async () => '<html><body><main>no known LinkedIn post region</main></body></html>',
+    });
+    await expect(
+      changed.ingest(
+        {
+          input: { url: 'https://www.linkedin.com/posts/example-activity-1234567890123456789/' },
+          options: {},
+          temporaryDirectory: directory,
+        },
+        context,
+      ),
+    ).rejects.toThrow('LINKEDIN_PLATFORM_CHANGED');
+  });
+
+  it('keeps realistic nested post markup while excluding comments', () => {
+    const extracted = extractLinkedInContent(
+      `<html><body><div class="feed-shared-update-v2"><div class="feed-shared-update-v2__description"><span>Nested public post</span></div><section class="comments">comment</section></div></body></html>`,
+      'post',
+      'https://www.linkedin.com/posts/example-activity-1234567890123456789/',
+    );
+    expect(extracted.text).toBe('Nested public post');
   });
 
   it('does not fetch invalid input or unsupported options', async () => {

@@ -18,6 +18,9 @@ const MAXIMUM_PAGE_BYTES = 5 * 1024 * 1024;
 const MAXIMUM_IMAGE_BYTES = 10 * 1024 * 1024;
 const MAXIMUM_IMAGE_TOTAL_BYTES = 20 * 1024 * 1024;
 const MAXIMUM_ATTEMPTS = 3;
+const MAXIMUM_REDIRECTS = 3;
+const supportedImageMediaTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+const gifHeaders = new Set(['GIF87a', 'GIF89a']);
 const description: PluginDescription = {
   id: 'source.linkedin',
   name: 'Experimental LinkedIn public post and article ingestion',
@@ -28,7 +31,7 @@ const description: PluginDescription = {
   priority: 180,
   platforms: ['win32', 'darwin', 'linux'],
   permissions: { network: true, cookies: false, media: true },
-  effects: { ocr: true, stt: false, modelDownload: false },
+  effects: { ocr: false, stt: false, modelDownload: false },
   dependencies: [],
 };
 
@@ -121,7 +124,8 @@ async function ingestLinkedIn(
   await mkdir(join(request.temporaryDirectory, 'assets'), { recursive: true });
   const textPath = extracted.kind === 'post' ? 'assets/post.txt' : 'assets/article.md';
   const text = `${extracted.text}\n`;
-  const contentMarkdown = markdown(content.canonicalUri, extracted);
+  const warnings = imageWarnings(options, extracted);
+  const contentMarkdown = markdown(content.canonicalUri, extracted, warnings);
   const metadata = `${JSON.stringify(
     {
       canonicalUri: content.canonicalUri,
@@ -129,6 +133,7 @@ async function ingestLinkedIn(
       title: extracted.title,
       ...(extracted.author === undefined ? {} : { author: extracted.author }),
       ...(extracted.publishedAt === undefined ? {} : { publishedAt: extracted.publishedAt }),
+      warnings,
     },
     null,
     2,
@@ -152,7 +157,7 @@ async function ingestLinkedIn(
         extractor: 'source-linkedin',
         format: `linkedin-${extracted.kind}`,
         extractionStatus: 'complete',
-        warnings: [],
+        warnings,
       },
     ),
     await artifact(request.temporaryDirectory, textPath, text, 'text/plain', 'asset'),
@@ -195,14 +200,10 @@ function validatedOptions(options: Readonly<Record<string, unknown>>): {
 } {
   if (Object.keys(options).length === 0) return { media: 'none' };
   if (
-    Object.keys(options).some((key) => key !== 'media' && key !== 'ocr') ||
-    (options.media !== 'none' && options.media !== 'images') ||
-    (options.ocr !== undefined && options.ocr !== true)
+    Object.keys(options).some((key) => key !== 'media') ||
+    (options.media !== 'none' && options.media !== 'images')
   ) {
-    throw linkedInError(
-      'LINKEDIN_INPUT_INVALID',
-      'source.linkedin accepts media: none or images and optional ocr: true.',
-    );
+    throw linkedInError('LINKEDIN_INPUT_INVALID', 'source.linkedin accepts media: none or images.');
   }
   return { media: options.media };
 }
@@ -215,7 +216,8 @@ async function downloadImages(
 ): Promise<readonly SourceArtifact[]> {
   const artifacts: SourceArtifact[] = [];
   let total = 0;
-  for (const [index, url] of urls.entries()) {
+  const publishedDigests = new Set<string>();
+  for (const url of urls) {
     signal.throwIfAborted();
     const image = await (dependencies.fetchImage ?? systemFetchImage)({ url, signal });
     if (
@@ -237,9 +239,12 @@ async function downloadImages(
         'Requested public LinkedIn images exceeded the bounded media limit.',
       );
     }
+    const digest = sha256(image.bytes);
+    if (publishedDigests.has(digest)) continue;
+    publishedDigests.add(digest);
     const extension = imageExtension(image.mediaType);
-    const path = `assets/images/${String(index + 1).padStart(2, '0')}.${extension}`;
-    artifacts.push(await binaryArtifact(directory, path, image.bytes, image.mediaType));
+    const path = `assets/images/${digest}.${extension}`;
+    artifacts.push(await binaryArtifact(directory, path, image.bytes, image.mediaType, digest));
   }
   return artifacts;
 }
@@ -247,7 +252,7 @@ async function downloadImages(
 function imageMediaType(
   value: string,
 ): value is 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif' {
-  return new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']).has(value.toLowerCase());
+  return supportedImageMediaTypes.has(value.toLowerCase());
 }
 
 function imageExtension(value: string): string {
@@ -255,25 +260,27 @@ function imageExtension(value: string): string {
 }
 
 function matchesImageMagic(bytes: Uint8Array, mediaType: string): boolean {
-  if (mediaType === 'image/jpeg')
+  const normalized = mediaType.toLowerCase();
+  if (normalized === 'image/jpeg')
     return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
-  if (mediaType === 'image/png')
+  if (normalized === 'image/png')
     return (
       bytes.length >= 8 &&
       [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a].every(
         (value, index) => bytes[index] === value,
       )
     );
-  if (mediaType === 'image/gif')
-    return (
-      bytes.length >= 6 &&
-      new TextDecoder().decode(bytes.slice(0, 6)) in { GIF87a: true, GIF89a: true }
-    );
+  if (normalized === 'image/gif')
+    return bytes.length >= 6 && gifHeaders.has(ascii(bytes.slice(0, 6)));
   return (
     bytes.length >= 12 &&
-    new TextDecoder().decode(bytes.slice(0, 4)) === 'RIFF' &&
-    new TextDecoder().decode(bytes.slice(8, 12)) === 'WEBP'
+    ascii(bytes.slice(0, 4)) === 'RIFF' &&
+    ascii(bytes.slice(8, 12)) === 'WEBP'
   );
+}
+
+function ascii(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes);
 }
 
 async function fetchBoundedPage(
@@ -291,7 +298,7 @@ async function fetchBoundedPage(
       if (signal.aborted) signal.throwIfAborted();
       if (hasLinkedInCode(error)) throw error;
       if (attempt < MAXIMUM_ATTEMPTS) {
-        await (dependencies.sleep ?? sleep)(attempt * 1_000, signal);
+        await (dependencies.sleep ?? sleep)(retryDelay(attempt), signal);
         continue;
       }
       throw linkedInError(
@@ -314,7 +321,7 @@ async function fetchBoundedPage(
     }
     if (page.status === 429) {
       if (attempt < MAXIMUM_ATTEMPTS) {
-        await (dependencies.sleep ?? sleep)(attempt * 1_000, signal);
+        await (dependencies.sleep ?? sleep)(retryDelay(attempt), signal);
         continue;
       }
       throw linkedInError(
@@ -323,7 +330,7 @@ async function fetchBoundedPage(
       );
     }
     if (page.status >= 500 && attempt < MAXIMUM_ATTEMPTS) {
-      await (dependencies.sleep ?? sleep)(attempt * 1_000, signal);
+      await (dependencies.sleep ?? sleep)(retryDelay(attempt), signal);
       continue;
     }
     if (page.status < 200 || page.status >= 300) {
@@ -350,26 +357,40 @@ async function systemFetchPage(input: {
   readonly url: string;
   readonly signal: AbortSignal;
 }): Promise<LinkedInPageResult> {
-  const timeout = AbortSignal.timeout(15_000);
-  const response = await fetch(input.url, {
-    headers: { accept: 'text/html,application/xhtml+xml' },
-    redirect: 'manual',
-    signal: AbortSignal.any([input.signal, timeout]),
-  });
-  if (response.status >= 300 && response.status < 400) {
-    throw linkedInError(
-      'LINKEDIN_ACCESS_RESTRICTED',
-      'LinkedIn redirected the public request outside the supported content scope.',
+  let current = input.url;
+  for (let redirects = 0; redirects <= MAXIMUM_REDIRECTS; redirects += 1) {
+    const timeout = AbortSignal.timeout(15_000);
+    const response = await fetch(current, {
+      headers: { accept: 'text/html,application/xhtml+xml' },
+      redirect: 'manual',
+      signal: AbortSignal.any([input.signal, timeout]),
+    });
+    if (response.status >= 300 && response.status < 400) {
+      const location = response.headers.get('location');
+      if (location === null || redirects === MAXIMUM_REDIRECTS) throw redirectRejected();
+      try {
+        current = canonicalLinkedInContentUrl(new URL(location, current).href).canonicalUri;
+      } catch {
+        throw redirectRejected();
+      }
+      continue;
+    }
+    const contentLength = response.headers.get('content-length');
+    if (contentLength !== null && Number(contentLength) > MAXIMUM_PAGE_BYTES) {
+      throw linkedInError(
+        'LINKEDIN_EXTRACTION_FAILED',
+        'The public LinkedIn page exceeded the bounded HTML limit.',
+      );
+    }
+    const bytes = await boundedResponseBytes(
+      response,
+      MAXIMUM_PAGE_BYTES,
+      input.signal,
+      pageLimitExceeded,
     );
+    return { status: response.status, html: new TextDecoder().decode(bytes) };
   }
-  const contentLength = response.headers.get('content-length');
-  if (contentLength !== null && Number(contentLength) > MAXIMUM_PAGE_BYTES) {
-    throw linkedInError(
-      'LINKEDIN_EXTRACTION_FAILED',
-      'The public LinkedIn page exceeded the bounded HTML limit.',
-    );
-  }
-  return { status: response.status, html: await response.text() };
+  throw redirectRejected();
 }
 
 async function systemFetchImage(input: {
@@ -382,7 +403,12 @@ async function systemFetchImage(input: {
     redirect: 'error',
     signal: AbortSignal.any([input.signal, timeout]),
   });
-  const bytes = new Uint8Array(await response.arrayBuffer());
+  const bytes = await boundedResponseBytes(
+    response,
+    MAXIMUM_IMAGE_BYTES,
+    input.signal,
+    mediaLimitExceeded,
+  );
   return {
     status: response.status,
     mediaType: response.headers.get('content-type')?.split(';', 1)[0] ?? '',
@@ -401,17 +427,27 @@ function hasLinkedInCode(error: unknown): error is Error & { readonly code: stri
 }
 
 function sleep(milliseconds: number, signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.reject(signal.reason);
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(resolve, milliseconds);
+    const cleanup = (): void => signal.removeEventListener('abort', abort);
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, milliseconds);
     const abort = (): void => {
       clearTimeout(timer);
+      cleanup();
       reject(signal.reason);
     };
     signal.addEventListener('abort', abort, { once: true });
   });
 }
 
-function markdown(uri: string, extracted: ReturnType<typeof extractLinkedInContent>): string {
+function markdown(
+  uri: string,
+  extracted: ReturnType<typeof extractLinkedInContent>,
+  warnings: readonly string[],
+): string {
   const label = extracted.kind === 'post' ? 'Post text' : 'Article';
   return [
     `# ${escapeMarkdown(extracted.title)}`,
@@ -424,13 +460,19 @@ function markdown(uri: string, extracted: ReturnType<typeof extractLinkedInConte
     '',
     `## ${label}`,
     '',
-    extracted.text,
+    extracted.kind === 'post' ? escapeMarkdown(extracted.text) : extracted.text,
+    ...(warnings.length === 0
+      ? []
+      : ['', '## Capture warnings', '', ...warnings.map((warning) => `- ${warning}`)]),
     '',
   ].join('\n');
 }
 
 function escapeMarkdown(value: string): string {
-  return value.replace(/^#{1,6}(?=\s)/gmu, '\\#');
+  return value
+    .replace(/^#{1,6}(?=\s)/gmu, '\\#')
+    .replace(/^---+$/gmu, '\\---')
+    .replaceAll('|', '\\|');
 }
 
 async function artifact(
@@ -463,6 +505,7 @@ async function binaryArtifact(
   path: string,
   content: Uint8Array,
   mediaType: string,
+  digest: string,
 ): Promise<SourceArtifact> {
   const destination = join(directory, path);
   await mkdir(join(directory, 'assets', 'images'), { recursive: true });
@@ -477,8 +520,84 @@ async function binaryArtifact(
     path,
     mediaType,
     bytes: bytes.byteLength,
-    sha256: createHash('sha256').update(bytes).digest('hex'),
+    sha256: digest,
   };
+}
+
+function imageWarnings(
+  options: { readonly media: 'none' | 'images' },
+  extracted: ReturnType<typeof extractLinkedInContent>,
+): readonly string[] {
+  if (options.media !== 'images' || extracted.ignoredSignedImageCount === 0) return [];
+  const count = extracted.ignoredSignedImageCount;
+  return [
+    `${count} public image${count === 1 ? '' : 's'} ${count === 1 ? 'was' : 'were'} ignored because ${count === 1 ? 'its URL contained' : 'their URLs contained'} query parameters.`,
+  ];
+}
+
+function retryDelay(attempt: number): number {
+  return 1_000 * 2 ** (attempt - 1);
+}
+
+function redirectRejected(): Error & { readonly code: string } {
+  return linkedInError(
+    'LINKEDIN_ACCESS_RESTRICTED',
+    'LinkedIn redirected the public request outside the supported content scope.',
+  );
+}
+
+function pageLimitExceeded(): Error & { readonly code: string } {
+  return linkedInError(
+    'LINKEDIN_EXTRACTION_FAILED',
+    'The public LinkedIn page exceeded the bounded HTML limit.',
+  );
+}
+
+function mediaLimitExceeded(): Error & { readonly code: string } {
+  return linkedInError(
+    'LINKEDIN_MEDIA_LIMIT_EXCEEDED',
+    'Requested public LinkedIn images exceeded the bounded media limit.',
+  );
+}
+
+async function boundedResponseBytes(
+  response: Response,
+  maximumBytes: number,
+  signal: AbortSignal,
+  limitExceeded: () => Error & { readonly code: string },
+): Promise<Uint8Array> {
+  const length = response.headers.get('content-length');
+  if (length !== null && Number(length) > maximumBytes) throw limitExceeded();
+  const reader = response.body?.getReader();
+  if (reader === undefined) {
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maximumBytes) throw limitExceeded();
+    return bytes;
+  }
+  const chunks: Uint8Array[] = [];
+  let bytes = 0;
+  while (true) {
+    signal.throwIfAborted();
+    const next = await reader.read();
+    if (next.done) break;
+    bytes += next.value.byteLength;
+    if (bytes > maximumBytes) {
+      await reader.cancel();
+      throw limitExceeded();
+    }
+    chunks.push(next.value);
+  }
+  const result = new Uint8Array(bytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    result.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return result;
+}
+
+function sha256(value: Uint8Array): string {
+  return createHash('sha256').update(value).digest('hex');
 }
 
 function linkedInError(

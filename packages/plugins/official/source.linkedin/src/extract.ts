@@ -10,6 +10,7 @@ export interface ExtractedLinkedInContent {
   readonly author?: string;
   readonly publishedAt?: string;
   readonly imageUrls: readonly string[];
+  readonly ignoredSignedImageCount: number;
   readonly sanitizedHtml: string;
 }
 
@@ -29,16 +30,16 @@ export function extractLinkedInContent(
   const window = createWindow(html, canonicalUri);
   const document = window.document;
   removeUnsafeElements(document);
+  const body = kind === 'post' ? postBody(document) : articleBody(document);
+  if (body === undefined) throw platformChanged();
+  const images = publicImageUrls(body, canonicalUri);
+  sanitizeUrls(document, canonicalUri);
   const title =
-    meta(document, 'property', 'og:title') ??
-    text(document.querySelector('h1')) ??
+    meta(document, 'property', 'og:title') ||
+    text(document.querySelector('h1')) ||
     'LinkedIn content';
   const author = meta(document, 'name', 'author');
   const publishedAt = meta(document, 'property', 'article:published_time');
-  const body = kind === 'post' ? postBody(document) : articleBody(document);
-  if (body === undefined) throw platformChanged();
-  const imageUrls = publicImageUrls(body, canonicalUri);
-  sanitizeUrls(document, canonicalUri);
 
   const normalizedText =
     kind === 'post'
@@ -51,14 +52,19 @@ export function extractLinkedInContent(
     text: normalizedText,
     ...(author === undefined ? {} : { author: normalizeText(author) }),
     ...(publishedAt === undefined ? {} : { publishedAt: normalizeText(publishedAt) }),
-    imageUrls,
+    imageUrls: images.urls,
+    ignoredSignedImageCount: images.ignoredSignedImageCount,
     sanitizedHtml: `<!doctype html>\n${document.documentElement.outerHTML}\n`,
   };
 }
 
-function publicImageUrls(body: Element, canonicalUri: string): readonly string[] {
+function publicImageUrls(
+  body: Element,
+  canonicalUri: string,
+): { readonly urls: readonly string[]; readonly ignoredSignedImageCount: number } {
   const root = body.closest('article') ?? body.parentElement ?? body;
   const unique = new Set<string>();
+  let ignoredSignedImageCount = 0;
   for (const image of Array.from(root.querySelectorAll('img[src]'))) {
     const value = image.getAttribute('src');
     if (value === null) continue;
@@ -66,16 +72,19 @@ function publicImageUrls(body: Element, canonicalUri: string): readonly string[]
       const url = new URL(value, canonicalUri);
       if (
         url.protocol === 'https:' &&
-        (url.hostname.endsWith('.linkedin.com') || url.hostname.endsWith('.licdn.com')) &&
-        url.search === ''
+        (url.hostname.endsWith('.linkedin.com') || url.hostname.endsWith('.licdn.com'))
       ) {
-        unique.add(url.href);
+        if (url.search !== '') {
+          ignoredSignedImageCount += 1;
+        } else {
+          unique.add(url.href);
+        }
       }
     } catch {
       // An invalid image URL is not knowledge and is never persisted.
     }
   }
-  return [...unique].slice(0, 5);
+  return { urls: [...unique].slice(0, 5), ignoredSignedImageCount };
 }
 
 function postBody(document: Document): Element | undefined {
