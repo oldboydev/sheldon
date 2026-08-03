@@ -21,6 +21,7 @@
 9. [Interface web local](prds/009-local-web-interface.md)
 10. [Plugins de redes sociais](prds/010-social-media-plugins.md)
 11. [Posts e artigos públicos do LinkedIn](prds/011-linkedin-public-posts-and-articles.md)
+12. [Suporte efetivo a Linux e macOS](prds/012-cross-platform-support.md)
 
 ## Planos de implementação
 

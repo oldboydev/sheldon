@@ -120,6 +120,17 @@ Saída: conteúdos públicos de texto e imagem são capturados com limites e dia
 de login, rate limit, conteúdo privado, documentos e vídeo não produzem bypass nem comprometem o
 núcleo.
 
+### M10 — Suporte efetivo a Linux e macOS
+
+**PRD:** 012
+
+Entrega: Sheldon passa a suportar Windows x64, Linux x64 e macOS Intel/Apple Silicon com diretórios
+operacionais conformes à plataforma, isolamento de árvore de processos equivalente, artefatos
+verificados e CI nativa para cada sistema.
+
+Saída: criar vault, ingerir fonte, consultar, gerar bundle, instalar plugins oficiais e iniciar a
+interface local têm o mesmo contrato operacional e de diagnóstico na matriz publicada.
+
 ## Definição do MVP
 
 No Windows, o usuário consegue:
@@ -148,7 +159,6 @@ Uma entrega só conclui um marco quando:
 
 ## Depois do MVP
 
-- Linux e macOS.
 - Extensão da ingestão M3: Git remoto/autenticado, playlists e canais do YouTube, STT local para
   as rotas centrais e manutenção versionada dos runtimes OCR.
 - Plugins de redes sociais adicionais.
