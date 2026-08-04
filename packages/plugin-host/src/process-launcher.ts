@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 import { PluginHostError } from './errors.js';
 import type { RunnablePlugin } from './process-runner.js';
+import { rememberPosixProcessGroup } from './process-tree.js';
 
 export interface PluginLaunchDescriptor {
   readonly executable: string;
@@ -49,11 +50,15 @@ export async function startPluginProcess(
   };
 
   if ((options.platform ?? process.platform) !== 'win32') {
-    return spawnProcess(
+    const child = spawnProcess(
       plugin.manifest.command.executable,
       [...plugin.manifest.command.arguments],
-      spawnOptions,
+      { ...spawnOptions, detached: true },
     );
+    // A detached POSIX child leads its own session/process group.  Only retain that group after
+    // spawn supplied a valid child PID; untracked children are never addressed as a group.
+    rememberPosixProcessGroup(child);
+    return child;
   }
 
   const descriptor: PluginLaunchDescriptor = {

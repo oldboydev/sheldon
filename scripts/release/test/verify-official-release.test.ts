@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildOfficialArtifacts } from '../build-official-artifacts.mjs';
 import { signOfficialCatalog } from '../sign-official-catalog.mjs';
+import { smokeOfficialArtifacts } from '../smoke-official-artifacts.mjs';
+import { verifyMacosArtifactSignatures } from '../verify-macos-artifact-signatures.mjs';
 import { verifyOfficialRelease } from '../verify-official-release.mjs';
 
 const temporaryRoots: string[] = [];
@@ -18,6 +20,33 @@ afterEach(async () => {
 });
 
 describe('official release verifier', () => {
+  it('refuses an artifact smoke without an archive for the requested native target', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-smoke-empty-'));
+    temporaryRoots.push(root);
+
+    await expect(smokeOfficialArtifacts(root, 'win32-x64')).rejects.toMatchObject({
+      code: 'OFFICIAL_RELEASE_ARTIFACT_MISSING',
+    });
+  });
+
+  it('blocks macOS promotion when signing and notarization credentials are unavailable', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-macos-empty-'));
+    temporaryRoots.push(root);
+    const signingIdentity = process.env.SHELDON_MACOS_SIGNING_IDENTITY;
+    const notaryProfile = process.env.SHELDON_MACOS_NOTARY_PROFILE;
+    delete process.env.SHELDON_MACOS_SIGNING_IDENTITY;
+    delete process.env.SHELDON_MACOS_NOTARY_PROFILE;
+    try {
+      await expect(verifyMacosArtifactSignatures(root, 'darwin-arm64')).rejects.toMatchObject({
+        code: 'OFFICIAL_RELEASE_MACOS_NOTARIZATION_UNAVAILABLE',
+      });
+    } finally {
+      if (signingIdentity !== undefined)
+        process.env.SHELDON_MACOS_SIGNING_IDENTITY = signingIdentity;
+      if (notaryProfile !== undefined) process.env.SHELDON_MACOS_NOTARY_PROFILE = notaryProfile;
+    }
+  });
+
   it('verifies a signed release and exercises every packaged image runtime through injection', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-release-verify-'));
     temporaryRoots.push(root);

@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { homedir } from 'node:os';
+import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 import type { EntityKind } from '@sheldon/core';
@@ -9,7 +10,7 @@ import { entityDirectory, VaultError } from '@sheldon/vault';
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 
 import { executeDoctor } from './commands/doctor.js';
-import { resolveVaultPath } from './config.js';
+import { applicationPaths, migrateLegacyStateFrom, resolveVaultPath } from './config.js';
 import { doctorAgents, type AgentHealthProbe, type AgentName } from './commands/agents.js';
 import {
   archiveEntity,
@@ -185,6 +186,18 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .action((options: VaultOption) => executeDoctor(options, context));
 
   program
+    .command('migrate-state')
+    .description(
+      'Copy legacy plugin state to this platform state directory after hash verification.',
+    )
+    .requiredOption('--from <directory>', 'legacy Sheldon application-state directory')
+    .action(async (options: { from: string }) => {
+      const target = applicationPaths(context).stateRoot;
+      await migrateLegacyStateFrom(resolve(options.from), target);
+      context.write(`Plugin state migrated to: ${target}`);
+    });
+
+  program
     .command('web')
     .description('Start the local Sheldon web interface on loopback only.')
     .option('--vault <path>', 'explicit vault path')
@@ -330,9 +343,7 @@ function agentKind(value: string): AgentName {
 }
 
 function catalogTemporaryRoot(environment: NodeJS.ProcessEnv, homeDirectory: string): string {
-  return environment.APPDATA
-    ? `${environment.APPDATA}\\Sheldon\\temporary`
-    : `${homeDirectory}\\.config\\sheldon\\temporary`;
+  return applicationPaths({ environment, homeDirectory }).temporaryRoot;
 }
 
 function addBundleCommands(program: Command, context: CommandContext): void {

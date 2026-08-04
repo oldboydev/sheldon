@@ -8,6 +8,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Suporte operacional para Windows x64, Ubuntu x64 e macOS Intel/Apple Silicon, com diretórios
+  XDG separados para configuração e estado, encerramento de árvore POSIX e gates nativos por
+  plataforma.
 - Conector experimental `source.linkedin` para um post individual público ou LinkedIn Article
   público. Ele captura HTML sanitizado, texto e metadados em raws separados; imagens públicas são
   opt-in e OCR local é derivado pelo host em processos isolados. Não usa cookies ou browser

@@ -124,6 +124,8 @@ núcleo.
 
 **PRD:** 012
 
+**Status:** em validação multiplataforma.
+
 Entrega: Sheldon passa a suportar Windows x64, Linux x64 e macOS Intel/Apple Silicon com diretórios
 operacionais conformes à plataforma, isolamento de árvore de processos equivalente, artefatos
 verificados e CI nativa para cada sistema.

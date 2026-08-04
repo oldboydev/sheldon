@@ -1,17 +1,153 @@
-import { join } from 'node:path';
+import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { join, posix, resolve, win32 } from 'node:path';
 
 export interface PluginAppPaths {
   readonly root: string;
+  readonly configRoot: string;
+  readonly stateRoot: string;
   readonly plugins: string;
   readonly registry: string;
   readonly stateDatabase: string;
 }
 
+export interface PluginAppPathOptions {
+  readonly platform?: NodeJS.Platform;
+  readonly environment?: NodeJS.ProcessEnv;
+  readonly homeDirectory?: string;
+}
+
+/**
+ * Resolves Sheldon directories without consulting ambient process state.  Keeping the inputs
+ * injectable makes the platform contract testable and prevents POSIX from accidentally inheriting
+ * the Windows APPDATA layout.
+ */
+export function resolvePluginAppPaths(options: PluginAppPathOptions = {}): PluginAppPaths {
+  const platform = options.platform ?? process.platform;
+  const environment = options.environment ?? process.env;
+  const homeDirectory = options.homeDirectory ?? environment.HOME;
+
+  if (platform === 'win32') {
+    const appData =
+      environment.APPDATA ??
+      (homeDirectory === undefined ? undefined : win32.join(homeDirectory, 'AppData', 'Roaming'));
+    if (appData === undefined || appData.length === 0) {
+      throw new Error(
+        'APPDATA is required to resolve the Sheldon application directory on Windows.',
+      );
+    }
+    return pathsForRoots(win32.join(appData, 'Sheldon'), win32.join(appData, 'Sheldon'), win32);
+  }
+
+  if (
+    homeDirectory === undefined ||
+    homeDirectory.length === 0 ||
+    !posix.isAbsolute(homeDirectory)
+  ) {
+    throw new Error(
+      'An absolute home directory is required to resolve Sheldon directories on POSIX.',
+    );
+  }
+  const configBase = xdgBase(
+    environment.XDG_CONFIG_HOME,
+    posix.join(homeDirectory, '.config'),
+    'XDG_CONFIG_HOME',
+  );
+  const stateBase = xdgBase(
+    environment.XDG_STATE_HOME,
+    posix.join(homeDirectory, '.local', 'state'),
+    'XDG_STATE_HOME',
+  );
+  return pathsForRoots(posix.join(configBase, 'sheldon'), posix.join(stateBase, 'sheldon'), posix);
+}
+
 export function pluginAppPaths(appRoot: string): PluginAppPaths {
+  return pathsForRoots(appRoot, appRoot, { join });
+}
+
+/**
+ * Copies mutable plugin state without deleting the previous location.  The copy is deliberately
+ * explicit so a vault is never moved as a side effect of an OS upgrade.  A second invocation is
+ * safe: existing files must match byte-for-byte or the migration fails.
+ */
+export async function migratePluginAppState(sourceRoot: string, targetRoot: string): Promise<void> {
+  const source = resolve(sourceRoot);
+  const target = resolve(targetRoot);
+  if (source === target) return;
+  await mkdir(target, { recursive: true });
+  await copyAndVerify(source, target);
+  await writeFile(join(target, '.migration-complete'), `${await directoryHash(source)}\n`, 'utf8');
+}
+
+function pathsForRoots(
+  configRoot: string,
+  stateRoot: string,
+  pathApi: Pick<typeof posix, 'join'>,
+): PluginAppPaths {
   return {
-    root: appRoot,
-    plugins: join(appRoot, 'plugins'),
-    registry: join(appRoot, 'plugin-registry.yaml'),
-    stateDatabase: join(appRoot, 'plugin-state.db'),
+    root: stateRoot,
+    configRoot,
+    stateRoot,
+    plugins: pathApi.join(stateRoot, 'plugins'),
+    registry: pathApi.join(stateRoot, 'plugin-registry.yaml'),
+    stateDatabase: pathApi.join(stateRoot, 'plugin-state.db'),
   };
+}
+
+function xdgBase(value: string | undefined, fallback: string, variable: string): string {
+  if (value === undefined || value.length === 0) return fallback;
+  if (!posix.isAbsolute(value)) throw new Error(`${variable} must be an absolute path.`);
+  return value;
+}
+
+async function copyAndVerify(source: string, target: string): Promise<void> {
+  const entries = await readdir(source, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.name === '.migration-complete') continue;
+    const sourcePath = join(source, entry.name);
+    const targetPath = join(target, entry.name);
+    if (entry.isDirectory()) {
+      await mkdir(targetPath, { recursive: true });
+      await copyAndVerify(sourcePath, targetPath);
+      continue;
+    }
+    if (!entry.isFile()) throw new Error(`Cannot migrate non-regular state entry: ${sourcePath}`);
+    try {
+      const targetStats = await stat(targetPath);
+      if (!targetStats.isFile() || (await fileHash(sourcePath)) !== (await fileHash(targetPath))) {
+        throw new Error(`Existing migrated state does not match: ${targetPath}`);
+      }
+    } catch (error) {
+      if (isMissing(error)) await cp(sourcePath, targetPath, { force: false });
+      else throw error;
+    }
+    if ((await fileHash(sourcePath)) !== (await fileHash(targetPath))) {
+      throw new Error(`Migrated state hash does not match: ${targetPath}`);
+    }
+  }
+}
+
+async function directoryHash(root: string): Promise<string> {
+  const hash = createHash('sha256');
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries
+    .filter((candidate) => candidate.name !== '.migration-complete')
+    .sort((a, b) => a.name.localeCompare(b.name))) {
+    const item = join(root, entry.name);
+    hash.update(entry.name);
+    if (entry.isDirectory()) hash.update(await directoryHash(item));
+    else if (entry.isFile()) hash.update(await fileHash(item));
+    else throw new Error(`Cannot hash non-regular state entry: ${item}`);
+  }
+  return hash.digest('hex');
+}
+
+async function fileHash(path: string): Promise<string> {
+  return createHash('sha256')
+    .update(await readFile(path))
+    .digest('hex');
+}
+
+function isMissing(error: unknown): boolean {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }

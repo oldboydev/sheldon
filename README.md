@@ -103,7 +103,34 @@ Os workspaces ficam em `apps/*` e `packages/*`. O comando `npm run verify` agreg
 
 O workspace `@sheldon/search` oferece `SearchIndex.rebuild(vaultRoot)`, que valida `wiki/` antes de substituir transacionalmente `system/search-index.db`. Esse banco é cache reconstruível, não é a fonte de verdade e pode ser removido quando necessário; `SearchIndex.open(vaultRoot)` falha com diagnóstico explícito se ele ainda não foi construído.
 
-Pull requests e commits para `main` executam `npm run verify` na CI Windows (`windows-2022`), a plataforma suportada pelo MVP e pelos testes de isolamento de processo. O mesmo gate local cobre formatação, lint, typecheck, testes, cobertura, build, contratos de plugin, validações de domínio/repositório e o check de diff.
+Pull requests e commits para `main` executam `npm run verify` independentemente em Windows x64
+(`windows-2022`), Ubuntu 22.04 x64 e macOS Apple Silicon (`macos-14`). A verificação de release
+também executa smoke nativo dos artefatos macOS Intel e Apple Silicon antes de promoção. O mesmo
+gate local cobre formatação, lint, typecheck, testes, cobertura, build, contratos de plugin,
+validações de domínio/repositório e o check de diff.
+
+## Plataformas e dados locais
+
+Sheldon suporta Windows x64, Ubuntu 22.04+ x64, macOS 14+ Intel x64 e Apple Silicon arm64, com
+Node.js 24 LTS. No Windows, configuração e estado de plugins ficam em
+`%APPDATA%\Sheldon`. No Linux e macOS, a configuração usa
+`${XDG_CONFIG_HOME:-~/.config}/sheldon` e o estado mutável de plugins usa
+`${XDG_STATE_HOME:-~/.local/state}/sheldon`; `XDG_CONFIG_HOME` e `XDG_STATE_HOME` devem ser
+caminhos absolutos. Temporários pertencem a cada operação e nunca entram no vault, cujo padrão é
+`~/Documents/Sheldon` em todos os sistemas.
+
+Para remover Sheldon, apague o diretório de configuração/estado correspondente e o vault somente
+se ele não for mais necessário. A configuração pode ser recriada com `sheldon init`; um vault é
+um diretório local independente e pode ser recuperado de backup sem reinstalar o aplicativo. A
+migração de estado anterior é explícita e faz cópia verificada, nunca move vaults automaticamente:
+
+```sh
+sheldon migrate-state --from /caminho/do/estado-anterior
+```
+
+Linux arm64, Windows arm64, BSD, WSL como plataforma distinta e macOS anterior ao 14 não fazem
+parte da matriz publicada. Runtimes macOS oficiais são assinados/notarizados; nenhuma instalação
+requer desativar proteções globais do sistema.
 
 A reconstrução dessa projeção é uma operação de processo único: não execute comandos com `--rebuild` concorrentemente sobre o mesmo vault. Se houver contenção, aguarde o outro comando terminar e tente novamente; Sheldon não substitui um erro de lock por uma reconstrução automática.
 

@@ -13,6 +13,18 @@ describe('official release workflow', () => {
           needs?: unknown;
           steps?: Array<{ uses?: string; with?: Record<string, unknown> }>;
         };
+        'smoke-official-artifacts'?: {
+          needs?: unknown;
+          strategy?: { matrix?: { include?: unknown[] } };
+        };
+        'promote-official-catalog'?: {
+          needs?: unknown;
+          steps?: Array<{ uses?: string; if?: string }>;
+        };
+        'verify-macos-notarization'?: {
+          needs?: unknown;
+          strategy?: { matrix?: { include?: unknown[] } };
+        };
       };
     };
     const releaseSteps = workflow.jobs?.['official-catalog']?.steps ?? [];
@@ -32,14 +44,18 @@ describe('official release workflow', () => {
         }),
       }),
     );
-    const releaseActions = releaseSteps.filter((step) =>
+    expect(workflow.jobs?.['smoke-official-artifacts']?.needs).toBe('official-catalog');
+    expect(workflow.jobs?.['smoke-official-artifacts']?.strategy?.matrix?.include).toHaveLength(4);
+    expect(workflow.jobs?.['verify-macos-notarization']?.needs).toBe('smoke-official-artifacts');
+    expect(workflow.jobs?.['verify-macos-notarization']?.strategy?.matrix?.include).toHaveLength(2);
+    expect(workflow.jobs?.['promote-official-catalog']?.needs).toBe('verify-macos-notarization');
+    const releaseActions = workflow.jobs?.['promote-official-catalog']?.steps?.filter((step) =>
       step.uses?.startsWith('softprops/action-gh-release@'),
     );
 
     expect(releaseActions).toEqual([
       expect.objectContaining({
         uses: 'softprops/action-gh-release@v2',
-        if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
       }),
     ]);
   });
