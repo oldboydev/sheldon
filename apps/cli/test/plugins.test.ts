@@ -88,7 +88,7 @@ describe('plugin commands', () => {
     const manifestPath = join(incompatible, 'sheldon-plugin.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
     manifest.id = 'fixture.incompatible';
-    manifest.platforms = ['darwin'];
+    manifest.platforms = [process.platform === 'darwin' ? 'linux' : 'darwin'];
     await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
     await installFixture(root, incompatible);
 
