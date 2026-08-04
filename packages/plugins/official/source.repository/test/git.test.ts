@@ -4,6 +4,7 @@ import fsPromises, {
   access,
   mkdtemp,
   mkdir,
+  realpath,
   rename,
   symlink,
   unlink,
@@ -58,7 +59,10 @@ function commandName(command: GitCommand): string | undefined {
 }
 
 async function repositoryDirectory(): Promise<string> {
-  const parent = await mkdtemp(join(tmpdir(), 'sheldon-repository-git-'));
+  // macOS exposes its temporary directory through /var, a symlink to /private/var.
+  // These fixtures exercise the repository symlink boundary, so create them beneath
+  // the physical temporary path instead of making every fixture look symlinked.
+  const parent = await mkdtemp(join(await realpath(tmpdir()), 'sheldon-repository-git-'));
   const repository = join(parent, 'repository');
   await mkdir(repository);
   return repository;
