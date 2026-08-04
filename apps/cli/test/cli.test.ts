@@ -7,7 +7,7 @@ import { parse } from 'yaml';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
-import { testApplicationEnvironment } from './app-state.js';
+import { testApplicationEnvironment, testConfigurationRoot } from './app-state.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -115,7 +115,7 @@ describe('runCli', () => {
 
     await runCli(['init', vaultPath], dependencies);
 
-    const config = await readFile(join(root, '.config', 'sheldon', 'config.yaml'), 'utf8');
+    const config = await readFile(join(testConfigurationRoot(root), 'config.yaml'), 'utf8');
     expect(parse(config)).toEqual({ vault: vaultPath });
   });
 

@@ -7,6 +7,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { applicationPaths, configPath } from '../src/config.js';
 import { runCli } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot, testPlatform } from './app-state.js';
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -95,13 +97,13 @@ it('offers explicit verified migration of plugin state', async () => {
   await writeFile(join(source, 'plugin-registry.yaml'), 'version: 1\nrecords: []\n');
 
   const result = await runCli(['migrate-state', '--from', source], {
-    environment: { XDG_STATE_HOME: join(root, 'state') },
+    environment: testApplicationEnvironment(root),
     homeDirectory: root,
-    platform: 'linux-x64',
+    platform: testPlatform(),
   });
 
   expect(result).toMatchObject({ exitCode: 0, stderr: '' });
   await expect(
-    readFile(join(root, 'state', 'sheldon', 'plugin-registry.yaml'), 'utf8'),
+    readFile(join(testApplicationRoot(root), 'plugin-registry.yaml'), 'utf8'),
   ).resolves.toBe('version: 1\nrecords: []\n');
 });
