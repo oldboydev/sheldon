@@ -7,6 +7,8 @@ import { PluginRegistry, type InstalledPlugin } from '@sheldon/plugin-host';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot } from './app-state.js';
+
 const temporaryDirectories: string[] = [];
 const rawFixture = join(process.cwd(), 'packages', 'plugin-sdk', 'test', 'fixtures', 'raw');
 
@@ -26,7 +28,7 @@ async function environment(
   return {
     root,
     dependencies: {
-      environment: { XDG_STATE_HOME: join(root, 'state'), PATH: process.env.PATH },
+      environment: testApplicationEnvironment(root, true),
       homeDirectory: root,
       confirm: async () => true,
       commandAvailable: async () => true,
@@ -49,7 +51,7 @@ async function fixture(root: string, name = 'fixture'): Promise<string> {
 }
 
 async function installFixture(root: string, source: string): Promise<InstalledPlugin> {
-  const registry = await PluginRegistry.open(join(root, 'state', 'sheldon'));
+  const registry = await PluginRegistry.open(testApplicationRoot(root));
   return registry.install(source, new Set());
 }
 

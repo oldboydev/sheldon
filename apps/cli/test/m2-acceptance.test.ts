@@ -9,6 +9,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot } from './app-state.js';
+
 const temporaryDirectories: string[] = [];
 const pluginSdkEntrypoint = fileURLToPath(
   new URL('../../../packages/plugin-sdk/dist/index.js', import.meta.url),
@@ -54,13 +56,13 @@ describe('M2 vertical flow', () => {
     const input = join(root, 'evidence.md');
     await writeFile(input, '# Evidence\nA durable fact.\n');
     const dependencies: CliDependencies = {
-      environment: { XDG_STATE_HOME: join(root, 'state') },
+      environment: testApplicationEnvironment(root),
       homeDirectory: root,
       confirm: async () => true,
       commandAvailable: async () => false,
       agentExecutor: fakeExecutor(),
     };
-    const registry = await PluginRegistry.open(join(root, 'state', 'sheldon'));
+    const registry = await PluginRegistry.open(testApplicationRoot(root));
     await registry.install(await writeFilePlugin(root), new Set());
 
     await runCli(['init', vault], dependencies);

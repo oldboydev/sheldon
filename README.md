@@ -117,7 +117,9 @@ Node.js 24 LTS. No Windows, configuração e estado de plugins ficam em
 `${XDG_CONFIG_HOME:-~/.config}/sheldon` e o estado mutável de plugins usa
 `${XDG_STATE_HOME:-~/.local/state}/sheldon`; `XDG_CONFIG_HOME` e `XDG_STATE_HOME` devem ser
 caminhos absolutos. Temporários pertencem a cada operação e nunca entram no vault, cujo padrão é
-`~/Documents/Sheldon` em todos os sistemas.
+`~/Documents/Sheldon` em todos os sistemas. No macOS, os aliases de sistema `/var` e `/tmp` são
+normalizados para seus caminhos físicos antes da validação de repositórios; symlinks fornecidos
+pelo usuário continuam recusados.
 
 Para remover Sheldon, apague o diretório de configuração/estado correspondente e o vault somente
 se ele não for mais necessário. A configuração pode ser recriada com `sheldon init`; um vault é

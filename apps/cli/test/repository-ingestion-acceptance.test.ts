@@ -10,6 +10,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot } from './app-state.js';
+
 const execFile = promisify(execFileCallback);
 const officialRepositoryEntrypoint = fileURLToPath(
   new URL('../../../packages/plugins/official/source.repository/dist/index.js', import.meta.url),
@@ -38,7 +40,7 @@ beforeEach(async () => {
     'src/index.ts': 'export const answer = 42;\n',
   });
   const dependencies: CliDependencies = {
-    environment: { XDG_STATE_HOME: join(root, 'state'), PATH: process.env.PATH },
+    environment: testApplicationEnvironment(root, true),
     homeDirectory: root,
     confirm: async () => true,
     commandAvailable: async () => false,
@@ -46,7 +48,7 @@ beforeEach(async () => {
   await runCli(['init', vault], dependencies);
   await runCli(['topic', 'create', 'Repository', '--vault', vault], dependencies);
 
-  const registry = await PluginRegistry.open(join(root, 'state', 'sheldon'));
+  const registry = await PluginRegistry.open(testApplicationRoot(root));
   await registry.install(await writeOfficialPluginFixture(root), new Set(['git']));
   const incompatible = await registry.install(
     await writeFixturePlugin(root, {
@@ -189,7 +191,7 @@ describe('repository ingestion CLI flow', { timeout: 15_000 }, () => {
   });
 
   it('honors an explicit compatible plugin override and passes fixed empty options', async () => {
-    const registry = await PluginRegistry.open(join(harness.root, 'state', 'sheldon'));
+    const registry = await PluginRegistry.open(testApplicationRoot(harness.root));
     const alternate = await registry.install(
       await writeFixturePlugin(harness.root, {
         id: 'fixture.repository-alternate',

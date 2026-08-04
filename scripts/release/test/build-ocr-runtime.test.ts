@@ -495,7 +495,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
       expect(stderr).toContain('Unable to compare Homebrew library');
       expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
       expect(builder).toContain(
-        'find "$cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
+        'find "$canonical_cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
       );
       expect(builder).toContain('if cmp -s "$library_source" "$canonical_candidate"; then');
       expect(builder).toContain('canonical_path "$cellar_candidate"');

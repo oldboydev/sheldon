@@ -7,6 +7,8 @@ import { parse } from 'yaml';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
+import { testApplicationEnvironment } from './app-state.js';
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -23,7 +25,7 @@ async function makeEnvironment(
   return {
     root,
     dependencies: {
-      environment: { XDG_STATE_HOME: join(root, 'state') },
+      environment: testApplicationEnvironment(root),
       homeDirectory: root,
       confirm: async () => true,
       commandAvailable: async () => true,

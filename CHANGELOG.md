@@ -22,6 +22,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- A validação de repositórios no macOS aceita somente os aliases de sistema `/var` e `/tmp`,
+  normalizando-os antes da inspeção; symlinks fornecidos pelo usuário permanecem recusados. O
+  resolvedor de bibliotecas OCR também compara candidatos contra o Cellar canônico.
 - O watchdog OCR Windows agora cancela explicitamente uma escrita de stdin pendente antes de
   encerrar a árvore de processos no timeout.
 - Em timeout, o watchdog OCR Windows fecha diretamente o Job Object atribuído para encerrar a

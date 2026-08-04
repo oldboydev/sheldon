@@ -254,6 +254,13 @@ function sameCanonicalPath(first: string, second: string): boolean {
   return normalize(first) === normalize(second);
 }
 
+function normalizeMacosSystemAlias(path: string): string {
+  if (process.platform !== 'darwin') return path;
+  if (path === '/var' || path.startsWith('/var/')) return `/private${path}`;
+  if (path === '/tmp' || path.startsWith('/tmp/')) return `/private${path}`;
+  return path;
+}
+
 async function assertNoSymbolicLinkComponents(path: string): Promise<void> {
   const root = parse(path).root;
   let componentPath = root;
@@ -272,7 +279,10 @@ async function assertNoSymbolicLinkComponents(path: string): Promise<void> {
 
 async function validateWorktreePath(inputPath: string): Promise<string> {
   if (!inputPath || inputPath.includes('\0')) return fail('REPOSITORY_INPUT_INVALID');
-  const requestedPath = resolve(inputPath);
+  // macOS presents /var and /tmp as system aliases for /private/var and /private/tmp.
+  // Normalize only those fixed aliases before inspecting components: arbitrary user
+  // symlinks must remain forbidden.
+  const requestedPath = normalizeMacosSystemAlias(resolve(inputPath));
 
   let requestedStats;
   try {

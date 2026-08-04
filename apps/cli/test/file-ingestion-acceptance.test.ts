@@ -8,6 +8,8 @@ import { PluginRegistry } from '@sheldon/plugin-host';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot } from './app-state.js';
+
 const pluginSdkEntrypoint = fileURLToPath(
   new URL('../../../packages/plugin-sdk/dist/index.js', import.meta.url),
 );
@@ -28,7 +30,7 @@ beforeEach(async () => {
   const vault = join(root, 'vault');
   const input = join(root, 'evidence.md');
   const dependencies: CliDependencies = {
-    environment: { XDG_STATE_HOME: join(root, 'state') },
+    environment: testApplicationEnvironment(root),
     homeDirectory: root,
     confirm: async () => true,
     commandAvailable: async () => false,
@@ -111,7 +113,7 @@ describe('file ingestion CLI flow', () => {
       const message = `Diagnostic message for ${code}.`;
       const pluginId = `diagnostic.${code.toLowerCase().replaceAll('_', '-')}`;
 
-      const registry = await PluginRegistry.open(join(harness.root, 'state', 'sheldon'));
+      const registry = await PluginRegistry.open(testApplicationRoot(harness.root));
       await registry.install(pluginRoot, new Set());
       const result = await runCli(
         [...ingestArguments(), '--plugin', pluginId],
