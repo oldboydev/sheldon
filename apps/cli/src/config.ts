@@ -50,7 +50,8 @@ export function appDataRoot(context: PathContext): string {
 }
 
 export function configPath(context: PathContext): string {
-  return join(applicationPaths(context).configRoot, 'config.yaml');
+  const pathApi = nodePlatform(context.platform) === 'win32' ? win32 : posix;
+  return pathApi.join(applicationPaths(context).configRoot, 'config.yaml');
 }
 
 export function defaultVaultPath(context: Pick<CommandContext, 'homeDirectory'>): string {

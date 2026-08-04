@@ -58,7 +58,7 @@ beforeEach(async () => {
   temporaryDirectories.push(root);
   const vault = join(root, 'vault');
   const dependencies: CliDependencies = {
-    environment: { APPDATA: join(root, 'appdata') },
+    environment: { XDG_STATE_HOME: join(root, 'state') },
     homeDirectory: root,
     confirm: async () => true,
     commandAvailable: async () => false,
@@ -260,7 +260,7 @@ async function installCrawlPlugin(root: string, id: string): Promise<CrawlPlugin
   );
   await writeFile(join(directory, 'plugin.mjs'), crawlPluginSource(description), 'utf8');
 
-  const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+  const registry = await PluginRegistry.open(join(root, 'state', 'sheldon'));
   const installed = await registry.install(directory, new Set());
   return {
     id,

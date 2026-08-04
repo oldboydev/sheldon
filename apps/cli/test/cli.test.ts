@@ -23,7 +23,7 @@ async function makeEnvironment(
   return {
     root,
     dependencies: {
-      environment: { APPDATA: join(root, 'appdata') },
+      environment: { XDG_STATE_HOME: join(root, 'state') },
       homeDirectory: root,
       confirm: async () => true,
       commandAvailable: async () => true,
@@ -113,7 +113,7 @@ describe('runCli', () => {
 
     await runCli(['init', vaultPath], dependencies);
 
-    const config = await readFile(join(root, 'appdata', 'Sheldon', 'config.yaml'), 'utf8');
+    const config = await readFile(join(root, '.config', 'sheldon', 'config.yaml'), 'utf8');
     expect(parse(config)).toEqual({ vault: vaultPath });
   });
 

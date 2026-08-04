@@ -1,7 +1,7 @@
 import type { ChildProcess, ChildProcessWithoutNullStreams } from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { once } from 'node:events';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -98,7 +98,14 @@ describe('terminateProcessTree', () => {
         await new Promise((resolve) => setTimeout(resolve, 100));
         await terminateProcessTree(child, { gracePeriodMilliseconds: 100 });
         await expect(closed).resolves.toBeDefined();
-        expect(() => process.kill(descendantPid, 0)).toThrow();
+        await expect
+          .poll(
+            () => {
+              return isLiveProcess(descendantPid);
+            },
+            { timeout: 2_000 },
+          )
+          .toBe(false);
       } finally {
         if (child !== undefined) {
           await terminateProcessTree(child, { gracePeriodMilliseconds: 0 }).catch(() => undefined);
@@ -132,4 +139,15 @@ async function readPid(stdout: NodeJS.ReadableStream): Promise<number> {
     stdout.once('data', onData);
     stdout.once('error', onError);
   });
+}
+
+async function isLiveProcess(pid: number): Promise<boolean> {
+  try {
+    // Docker's PID 1 can retain a reaped descendant as a zombie briefly. It
+    // cannot execute, so distinguish that state from a surviving process.
+    const stat = await readFile(`/proc/${pid}/stat`, 'utf8');
+    return stat.split(' ')[2] !== 'Z';
+  } catch {
+    return false;
+  }
 }

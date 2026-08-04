@@ -44,11 +44,11 @@ export async function terminateProcessTree(
 
   const signalGroup = options.signalProcessGroup ?? defaultSignalProcessGroup;
   signalGroup(processGroupId, 'SIGTERM');
-  const exited = await waitForClose(
-    child,
-    options.gracePeriodMilliseconds ?? defaultGracePeriodMilliseconds,
-  );
-  if (!exited) signalGroup(processGroupId, 'SIGKILL');
+  // The leader can exit before descendants which inherited its stdout/stderr.
+  // A `close` event is therefore not proof that the whole process group is
+  // gone. Always finish the grace period and then reap the group decisively.
+  await waitForGracePeriod(options.gracePeriodMilliseconds ?? defaultGracePeriodMilliseconds);
+  signalGroup(processGroupId, 'SIGKILL');
 }
 
 function terminateChild(child: ChildProcess, signal?: NodeJS.Signals): void {
@@ -70,23 +70,10 @@ function defaultSignalProcessGroup(processGroupId: number, signal: NodeJS.Signal
   }
 }
 
-function waitForClose(child: ChildProcess, gracePeriodMilliseconds: number): Promise<boolean> {
+function waitForGracePeriod(gracePeriodMilliseconds: number): Promise<void> {
   return new Promise((resolve) => {
-    let settled = false;
-    const finish = (exited: boolean): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.off('close', onClose);
-      child.off('error', onError);
-      resolve(exited);
-    };
-    const onClose = (): void => finish(true);
-    const onError = (): void => finish(true);
-    const timer = setTimeout(() => finish(false), Math.max(0, gracePeriodMilliseconds));
+    const timer = setTimeout(resolve, Math.max(0, gracePeriodMilliseconds));
     timer.unref();
-    child.once('close', onClose);
-    child.once('error', onError);
   });
 }
 

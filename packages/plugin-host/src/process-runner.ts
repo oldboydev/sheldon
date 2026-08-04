@@ -1010,7 +1010,15 @@ async function terminateAndWait(
       throw new Error('The plugin process could not be terminated.');
     }
   }
-  return exit;
+  // A malformed or externally killed process can retain the inherited pipes forever. The group
+  // was already sent SIGKILL above, so do not let that stale close event keep the host operation
+  // alive indefinitely.
+  return Promise.race([
+    exit,
+    new Promise<ProcessExit>((resolve) => {
+      setTimeout(() => resolve({ code: null, signal: 'SIGKILL' }), 250).unref();
+    }),
+  ]);
 }
 
 async function terminateBestEffort(

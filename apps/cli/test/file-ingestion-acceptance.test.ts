@@ -28,7 +28,7 @@ beforeEach(async () => {
   const vault = join(root, 'vault');
   const input = join(root, 'evidence.md');
   const dependencies: CliDependencies = {
-    environment: { APPDATA: join(root, 'appdata') },
+    environment: { XDG_STATE_HOME: join(root, 'state') },
     homeDirectory: root,
     confirm: async () => true,
     commandAvailable: async () => false,
@@ -111,7 +111,7 @@ describe('file ingestion CLI flow', () => {
       const message = `Diagnostic message for ${code}.`;
       const pluginId = `diagnostic.${code.toLowerCase().replaceAll('_', '-')}`;
 
-      const registry = await PluginRegistry.open(join(harness.root, 'appdata', 'Sheldon'));
+      const registry = await PluginRegistry.open(join(harness.root, 'state', 'sheldon'));
       await registry.install(pluginRoot, new Set());
       const result = await runCli(
         [...ingestArguments(), '--plugin', pluginId],

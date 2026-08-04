@@ -48,7 +48,7 @@ describe('image language commands', () => {
 async function installedImageDependencies(): Promise<{ dependencies: CliDependencies }> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-cli-image-'));
   temporaryDirectories.push(root);
-  const appRoot = join(root, 'appdata', 'Sheldon');
+  const appRoot = join(root, 'state', 'sheldon');
   const registry = await PluginRegistry.open(appRoot);
   await registry.install(
     join(process.cwd(), 'packages', 'plugins', 'official', 'source.image'),
@@ -70,9 +70,9 @@ async function installedImageDependencies(): Promise<{ dependencies: CliDependen
   };
   return {
     dependencies: {
-      environment: { APPDATA: join(root, 'appdata') },
+      environment: { XDG_STATE_HOME: join(root, 'state') },
       homeDirectory: root,
-      platform: 'win32-x64',
+      platform: 'linux-x64',
       officialCatalogClient: {
         load: async () => catalog,
         install: async () => {

@@ -38,7 +38,7 @@ beforeEach(async () => {
     'src/index.ts': 'export const answer = 42;\n',
   });
   const dependencies: CliDependencies = {
-    environment: { APPDATA: join(root, 'appdata') },
+    environment: { XDG_STATE_HOME: join(root, 'state'), PATH: process.env.PATH },
     homeDirectory: root,
     confirm: async () => true,
     commandAvailable: async () => false,
@@ -46,7 +46,7 @@ beforeEach(async () => {
   await runCli(['init', vault], dependencies);
   await runCli(['topic', 'create', 'Repository', '--vault', vault], dependencies);
 
-  const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+  const registry = await PluginRegistry.open(join(root, 'state', 'sheldon'));
   await registry.install(await writeOfficialPluginFixture(root), new Set(['git']));
   const incompatible = await registry.install(
     await writeFixturePlugin(root, {
@@ -189,7 +189,7 @@ describe('repository ingestion CLI flow', { timeout: 15_000 }, () => {
   });
 
   it('honors an explicit compatible plugin override and passes fixed empty options', async () => {
-    const registry = await PluginRegistry.open(join(harness.root, 'appdata', 'Sheldon'));
+    const registry = await PluginRegistry.open(join(harness.root, 'state', 'sheldon'));
     const alternate = await registry.install(
       await writeFixturePlugin(harness.root, {
         id: 'fixture.repository-alternate',

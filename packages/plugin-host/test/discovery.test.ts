@@ -56,7 +56,8 @@ describe('PluginDiscovery', () => {
     await mkdir(official);
     await mkdir(join(official, 'fixture.invalid'));
     await writeFile(join(official, 'fixture.invalid', 'sheldon-plugin.json'), '{');
-    await writePlugin(official, 'fixture.linux', { platforms: ['linux'] });
+    const incompatiblePlatform = process.platform === 'linux' ? 'win32' : 'linux';
+    await writePlugin(official, 'fixture.incompatible', { platforms: [incompatiblePlatform] });
     await writePlugin(official, 'fixture.node');
 
     const registry = await PluginRegistry.open(join(root, 'app'));
@@ -84,7 +85,7 @@ describe('PluginDiscovery', () => {
           health: { status: 'unchecked' },
         }),
         expect.objectContaining({
-          id: 'fixture.linux',
+          id: 'fixture.incompatible',
           discovery: { status: 'incompatible', reason: expect.stringContaining(process.platform) },
         }),
         expect.objectContaining({

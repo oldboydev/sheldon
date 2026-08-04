@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, win32 } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -26,12 +26,12 @@ describe('application paths', () => {
     };
 
     expect(applicationPaths(context)).toEqual({
-      configRoot: join('C:/Users/Ada/AppData/Roaming', 'Sheldon'),
-      stateRoot: join('C:/Users/Ada/AppData/Roaming', 'Sheldon'),
-      temporaryRoot: join('C:/Users/Ada/AppData/Roaming', 'Sheldon', 'temporary'),
+      configRoot: win32.join('C:/Users/Ada/AppData/Roaming', 'Sheldon'),
+      stateRoot: win32.join('C:/Users/Ada/AppData/Roaming', 'Sheldon'),
+      temporaryRoot: win32.join('C:/Users/Ada/AppData/Roaming', 'Sheldon', 'temporary'),
     });
     expect(configPath(context)).toBe(
-      join('C:/Users/Ada/AppData/Roaming', 'Sheldon', 'config.yaml'),
+      win32.join('C:/Users/Ada/AppData/Roaming', 'Sheldon', 'config.yaml'),
     );
   });
 
@@ -95,13 +95,13 @@ it('offers explicit verified migration of plugin state', async () => {
   await writeFile(join(source, 'plugin-registry.yaml'), 'version: 1\nrecords: []\n');
 
   const result = await runCli(['migrate-state', '--from', source], {
-    environment: { APPDATA: join(root, 'appdata') },
+    environment: { XDG_STATE_HOME: join(root, 'state') },
     homeDirectory: root,
-    platform: 'win32-x64',
+    platform: 'linux-x64',
   });
 
   expect(result).toMatchObject({ exitCode: 0, stderr: '' });
   await expect(
-    readFile(join(root, 'appdata', 'Sheldon', 'plugin-registry.yaml'), 'utf8'),
+    readFile(join(root, 'state', 'sheldon', 'plugin-registry.yaml'), 'utf8'),
   ).resolves.toBe('version: 1\nrecords: []\n');
 });

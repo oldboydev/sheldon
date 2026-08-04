@@ -303,10 +303,14 @@ export async function publishPluginFileIngestion(
   dependencies: PluginFileIngestorDependencies = {},
 ): Promise<PluginFileIngestionResult> {
   return publishPluginSourceIngestion(
-    { ...input, originalName: basename(input.filePath) },
+    { ...input, originalName: crossPlatformBasename(input.filePath) },
     lease,
     dependencies,
   );
+}
+
+function crossPlatformBasename(path: string): string {
+  return path.split(/[\\/]/u).at(-1) ?? '';
 }
 
 function requiredArtifact(

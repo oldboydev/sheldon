@@ -26,7 +26,7 @@ async function environment(
   return {
     root,
     dependencies: {
-      environment: { APPDATA: join(root, 'appdata') },
+      environment: { XDG_STATE_HOME: join(root, 'state'), PATH: process.env.PATH },
       homeDirectory: root,
       confirm: async () => true,
       commandAvailable: async () => true,
@@ -38,11 +38,18 @@ async function environment(
 async function fixture(root: string, name = 'fixture'): Promise<string> {
   const target = join(root, name);
   await cp(rawFixture, target, { recursive: true });
+  const manifest = JSON.parse(
+    await readFile(join(target, 'sheldon-plugin.json'), 'utf8'),
+  ) as object;
+  await writeFile(
+    join(target, 'sheldon-plugin.json'),
+    JSON.stringify({ ...manifest, platforms: [process.platform] }),
+  );
   return target;
 }
 
 async function installFixture(root: string, source: string): Promise<InstalledPlugin> {
-  const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+  const registry = await PluginRegistry.open(join(root, 'state', 'sheldon'));
   return registry.install(source, new Set());
 }
 

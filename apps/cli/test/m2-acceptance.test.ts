@@ -54,13 +54,13 @@ describe('M2 vertical flow', () => {
     const input = join(root, 'evidence.md');
     await writeFile(input, '# Evidence\nA durable fact.\n');
     const dependencies: CliDependencies = {
-      environment: { APPDATA: join(root, 'appdata') },
+      environment: { XDG_STATE_HOME: join(root, 'state') },
       homeDirectory: root,
       confirm: async () => true,
       commandAvailable: async () => false,
       agentExecutor: fakeExecutor(),
     };
-    const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+    const registry = await PluginRegistry.open(join(root, 'state', 'sheldon'));
     await registry.install(await writeFilePlugin(root), new Set());
 
     await runCli(['init', vault], dependencies);
