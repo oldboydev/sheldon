@@ -125,6 +125,8 @@ caminhos absolutos. Temporários pertencem a cada operação e nunca entram no v
 normalizados para seus caminhos físicos antes da validação de repositórios; symlinks fornecidos
 pelo usuário continuam recusados. A validação usa a plataforma do processo no início da execução,
 com injeção explícita reservada aos testes, para preservar o mesmo contrato durante a operação.
+Os caminhos de configuração, vault padrão e vault explícito usam a mesma semântica de caminho da
+plataforma selecionada, inclusive nos testes de migração de estado.
 
 Para remover Sheldon, apague o diretório de configuração/estado correspondente e o vault somente
 se ele não for mais necessário. A configuração pode ser recriada com `sheldon init`; um vault é

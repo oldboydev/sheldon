@@ -45,6 +45,14 @@ describe('resolvePluginAppPaths', () => {
     ).toMatchObject({
       root: 'C:\\Users\\Ada\\AppData\\Roaming\\Sheldon',
     });
+
+    expect(() =>
+      resolvePluginAppPaths({
+        platform: 'win32',
+        environment: {},
+        homeDirectory: 'relative-home',
+      }),
+    ).toThrow('An absolute Windows home directory is required when APPDATA is not available.');
   });
 
   it('uses explicit XDG configuration and state directories on POSIX', () => {

@@ -7,15 +7,16 @@ export function testApplicationRoot(root: string): string {
 }
 
 export function testConfigurationRoot(root: string): string {
-  return process.platform === 'win32'
-    ? testApplicationRoot(root)
-    : join(root, '.config', 'sheldon');
+  return process.platform === 'win32' ? testApplicationRoot(root) : join(root, 'config', 'sheldon');
 }
 
 export function testApplicationEnvironment(root: string, includePath = false): NodeJS.ProcessEnv {
-  const stateHome = join(root, process.platform === 'win32' ? 'appdata' : 'state');
+  const windows = process.platform === 'win32';
+  const stateHome = join(root, windows ? 'appdata' : 'state');
   return {
-    [process.platform === 'win32' ? 'APPDATA' : 'XDG_STATE_HOME']: stateHome,
+    ...(windows
+      ? { APPDATA: stateHome }
+      : { XDG_CONFIG_HOME: join(root, 'config'), XDG_STATE_HOME: stateHome }),
     ...(includePath ? { PATH: process.env.PATH } : {}),
   };
 }

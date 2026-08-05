@@ -1,9 +1,7 @@
-import { resolve } from 'node:path';
-
 import { OperationsDatabase } from '@sheldon/persistence';
 import { VaultService, vaultPaths } from '@sheldon/vault';
 
-import { defaultVaultPath, saveConfiguredVault } from '../config.js';
+import { defaultVaultPath, resolveApplicationPath, saveConfiguredVault } from '../config.js';
 import type { CommandContext } from '../runtime.js';
 
 export interface InitOptions {
@@ -15,7 +13,7 @@ export async function executeInit(
   options: InitOptions,
   context: CommandContext,
 ): Promise<void> {
-  const target = resolve(path ?? defaultVaultPath(context));
+  const target = resolveApplicationPath(context, path ?? defaultVaultPath(context));
 
   if (!path && !options.yes && !(await context.confirm(`Initialize vault at ${target}?`))) {
     context.write('Initialization cancelled.');

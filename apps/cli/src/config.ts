@@ -1,5 +1,5 @@
 import { readFile } from 'node:fs/promises';
-import { join, posix, resolve, win32 } from 'node:path';
+import { posix, win32 } from 'node:path';
 
 import { atomicWriteFile, VaultError } from '@sheldon/vault';
 import { migratePluginAppState, resolvePluginAppPaths } from '@sheldon/plugin-host';
@@ -23,17 +23,25 @@ type PathContext = Pick<CommandContext, 'environment' | 'homeDirectory'> & {
 
 /** Resolves local application data without putting mutable state in the vault. */
 export function applicationPaths(context: PathContext): ApplicationPaths {
+  const { pathApi, paths } = resolvedApplicationPaths(context);
+  return {
+    configRoot: paths.configRoot,
+    stateRoot: paths.stateRoot,
+    temporaryRoot: pathApi.join(paths.stateRoot, 'temporary'),
+  };
+}
+
+function resolvedApplicationPaths(context: PathContext): {
+  readonly pathApi: Pick<typeof posix, 'join' | 'resolve'>;
+  readonly paths: ReturnType<typeof resolvePluginAppPaths>;
+} {
   const platform = nodePlatform(context.platform);
   const paths = resolvePluginAppPaths({
     environment: context.environment,
     homeDirectory: context.homeDirectory,
     platform,
   });
-  return {
-    configRoot: paths.configRoot,
-    stateRoot: paths.stateRoot,
-    temporaryRoot: (platform === 'win32' ? win32 : posix).join(paths.stateRoot, 'temporary'),
-  };
+  return { pathApi: platform === 'win32' ? win32 : posix, paths };
 }
 
 export function appDataRoot(context: PathContext): string {
@@ -41,28 +49,38 @@ export function appDataRoot(context: PathContext): string {
 }
 
 export function configPath(context: PathContext): string {
-  const pathApi = nodePlatform(context.platform) === 'win32' ? win32 : posix;
-  return pathApi.join(applicationPaths(context).configRoot, 'config.yaml');
+  const { pathApi, paths } = resolvedApplicationPaths(context);
+  return pathApi.join(paths.configRoot, 'config.yaml');
 }
 
-export function defaultVaultPath(context: Pick<CommandContext, 'homeDirectory'>): string {
-  return join(context.homeDirectory, 'Documents', 'Sheldon');
+export function defaultVaultPath(context: PathContext): string {
+  const { pathApi } = resolvedApplicationPaths(context);
+  return pathApi.join(context.homeDirectory, 'Documents', 'Sheldon');
+}
+
+/** Resolves a user-supplied local path using the same platform contract as application paths. */
+export function resolveApplicationPath(context: PathContext, value: string): string {
+  return resolvedApplicationPaths(context).pathApi.resolve(value);
 }
 
 export async function saveConfiguredVault(context: CommandContext, vault: string): Promise<void> {
-  await atomicWriteFile(configPath(context), stringify({ vault: resolve(vault) }));
+  await atomicWriteFile(
+    configPath(context),
+    stringify({ vault: resolveApplicationPath(context, vault) }),
+  );
 }
 
 export async function resolveVaultPath(
   context: CommandContext,
   explicit?: string,
 ): Promise<string> {
-  if (explicit) return resolve(explicit);
+  if (explicit) return resolveApplicationPath(context, explicit);
 
   const target = configPath(context);
   try {
     const config = parse(await readFile(target, 'utf8')) as Partial<SheldonConfig>;
-    if (typeof config.vault === 'string' && config.vault.length > 0) return resolve(config.vault);
+    if (typeof config.vault === 'string' && config.vault.length > 0)
+      return resolveApplicationPath(context, config.vault);
     throw new Error('Missing vault property.');
   } catch (error) {
     throw new VaultError(

@@ -4,10 +4,20 @@ import { join, win32 } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { applicationPaths, configPath } from '../src/config.js';
+import {
+  applicationPaths,
+  configPath,
+  defaultVaultPath,
+  resolveApplicationPath,
+} from '../src/config.js';
 import { runCli } from '../src/main.js';
 
-import { testApplicationEnvironment, testApplicationRoot, testPlatform } from './app-state.js';
+import {
+  testApplicationEnvironment,
+  testApplicationRoot,
+  testConfigurationRoot,
+  testPlatform,
+} from './app-state.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -35,6 +45,8 @@ describe('application paths', () => {
     expect(configPath(context)).toBe(
       win32.join('C:/Users/Ada/AppData/Roaming', 'Sheldon', 'config.yaml'),
     );
+    expect(defaultVaultPath(context)).toBe(win32.join('/home/ada', 'Documents', 'Sheldon'));
+    expect(resolveApplicationPath(context, 'C:/vault')).toBe('C:\\vault');
   });
 
   it('uses explicit absolute XDG configuration and state roots', () => {
@@ -102,8 +114,11 @@ it('offers explicit verified migration of plugin state', async () => {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-cli-migrate-'));
   temporaryDirectories.push(root);
   const source = join(root, 'previous state');
+  const configurationRoot = testConfigurationRoot(root);
   await mkdir(source, { recursive: true });
+  await mkdir(configurationRoot, { recursive: true });
   await writeFile(join(source, 'plugin-registry.yaml'), 'version: 1\nrecords: []\n');
+  await writeFile(join(configurationRoot, 'config.yaml'), 'vault: /existing-vault\n');
 
   const result = await runCli(['migrate-state', '--from', source], {
     environment: testApplicationEnvironment(root),
@@ -115,4 +130,7 @@ it('offers explicit verified migration of plugin state', async () => {
   await expect(
     readFile(join(testApplicationRoot(root), 'plugin-registry.yaml'), 'utf8'),
   ).resolves.toBe('version: 1\nrecords: []\n');
+  await expect(readFile(join(configurationRoot, 'config.yaml'), 'utf8')).resolves.toBe(
+    'vault: /existing-vault\n',
+  );
 });

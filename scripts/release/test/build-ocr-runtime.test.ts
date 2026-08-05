@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -18,6 +18,10 @@ const execFileAsync = promisify(execFile);
 // not weaken the watchdog contract once the harness is executing.
 const windowsWatchdogHarnessProcessTimeoutMs = 30_000;
 const windowsWatchdogTestTimeoutMs = 35_000;
+const canRunWindowsWatchdogHarness = canRunPowerShellWatchdogHarness(
+  process.platform,
+  isPowerShellAvailable(),
+);
 
 afterEach(async () => {
   await Promise.all(
@@ -116,6 +120,14 @@ describe('Linux OCR runtime builder', () => {
     expect(() => parseBuildOcrRuntimeArguments(['--platform', 'linux-x64'])).toThrow(
       'OCR_RUNTIME_ARGUMENTS_INVALID',
     );
+  });
+});
+
+describe('PowerShell watchdog test gating', () => {
+  it('requires both Windows job-object support and an available pwsh executable', () => {
+    expect(canRunPowerShellWatchdogHarness('win32', true)).toBe(true);
+    expect(canRunPowerShellWatchdogHarness('win32', false)).toBe(false);
+    expect(canRunPowerShellWatchdogHarness('linux', true)).toBe(false);
   });
 });
 
@@ -286,7 +298,7 @@ describe('Native OCR runtime workflow', () => {
     }
   });
 
-  it.skipIf(process.platform !== 'win32')(
+  it.skipIf(!canRunWindowsWatchdogHarness)(
     'times out a large stdin write when the child never reads it',
     async () => {
       const root = await temporaryRoot();
@@ -302,7 +314,7 @@ describe('Native OCR runtime workflow', () => {
     windowsWatchdogTestTimeoutMs,
   );
 
-  it.skipIf(process.platform !== 'win32')(
+  it.skipIf(!canRunWindowsWatchdogHarness)(
     'times out and cleans a descendant that keeps the redirected streams open after its parent exits',
     async () => {
       const root = await temporaryRoot();
@@ -567,6 +579,24 @@ function testSources() {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function canRunPowerShellWatchdogHarness(
+  platform: NodeJS.Platform,
+  pwshAvailable: boolean,
+): boolean {
+  // The harness exercises the Windows Job Object implementation, so pwsh alone is insufficient
+  // on POSIX. On Windows, skip only when the executable cannot actually be started.
+  return platform === 'win32' && pwshAvailable;
+}
+
+function isPowerShellAvailable(): boolean {
+  const result = spawnSync('pwsh', ['-NoProfile', '-Command', 'exit 0'], {
+    shell: false,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  return result.error === undefined && result.status === 0;
 }
 
 async function runWindowsRunnerTimeoutHarness(
