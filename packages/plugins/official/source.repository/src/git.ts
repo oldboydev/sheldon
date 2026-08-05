@@ -67,6 +67,7 @@ export interface GitDependencies {
 }
 
 const isWindows = process.platform === 'win32';
+const defaultPlatform = process.platform;
 const nullDevice = isWindows ? 'NUL' : '/dev/null';
 const metadataOutputLimit = 16 * 1024;
 const treeOutputLimit = 16 * 1024 * 1024;
@@ -638,7 +639,7 @@ export async function openCommittedGitHead(
 ): Promise<CommittedGitHead> {
   const worktreePath = await validateWorktreePath(
     inputPath,
-    dependencies.platform ?? process.platform,
+    dependencies.platform ?? defaultPlatform,
   );
   const runner = dependencies.runner ?? productionGitRunner;
 
