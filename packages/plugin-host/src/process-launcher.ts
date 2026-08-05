@@ -83,7 +83,7 @@ export async function startPluginProcess(
         setTimeout(() => {
           supervisor.kill();
           resolve();
-        }, supervisorHandshakeTimeoutMilliseconds).unref();
+        }, supervisorHandshakeTimeoutMilliseconds);
       }),
     ]);
     throw error;
@@ -115,7 +115,6 @@ function waitForSupervisorHandshake(
       () => settle(supervisorStartError()),
       supervisorHandshakeTimeoutMilliseconds,
     );
-    timeout.unref();
 
     const cleanup = (): void => {
       clearTimeout(timeout);

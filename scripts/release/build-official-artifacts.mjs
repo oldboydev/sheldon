@@ -76,6 +76,48 @@ export async function buildOfficialArtifacts(input, output, publishedAt) {
   );
 }
 
+/**
+ * Recomputes catalog digests after a platform-specific signing step has replaced release ZIPs.
+ * The catalog signature must be generated only after this function completes.
+ */
+export async function refreshOfficialArtifactCatalog(output) {
+  const catalogPath = join(output, 'catalog.json');
+  const catalog = await readJson(catalogPath, 'OFFICIAL_RELEASE_CATALOG_INVALID');
+  if (!Array.isArray(catalog.plugins)) {
+    throw releaseError(
+      'OFFICIAL_RELEASE_CATALOG_INVALID',
+      'The release catalog plugins are invalid.',
+    );
+  }
+  for (const plugin of catalog.plugins) {
+    if (
+      plugin === null ||
+      typeof plugin !== 'object' ||
+      typeof plugin.id !== 'string' ||
+      plugin.artifacts === null ||
+      typeof plugin.artifacts !== 'object'
+    ) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_CATALOG_INVALID',
+        'The release catalog plugins are invalid.',
+      );
+    }
+    for (const platform of OFFICIAL_PLATFORMS) {
+      const artifact = plugin.artifacts[platform];
+      if (artifact === null || typeof artifact !== 'object') {
+        throw releaseError(
+          'OFFICIAL_RELEASE_CATALOG_INVALID',
+          'The release catalog artifacts are invalid.',
+        );
+      }
+      const archive = await readFile(join(output, `${plugin.id}-${platform}.zip`));
+      artifact.sha256 = createHash('sha256').update(archive).digest('hex');
+      artifact.bytes = archive.byteLength;
+    }
+  }
+  await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+}
+
 async function validatePluginStage(root, expectedId) {
   const manifest = await readJson(
     join(root, 'sheldon-plugin.json'),
@@ -291,15 +333,26 @@ function readArguments(argv) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const argumentsByName = readArguments(process.argv.slice(2));
-  const input = argumentsByName.get('--input');
-  const output = argumentsByName.get('--output');
-  const publishedAt = argumentsByName.get('--published-at');
-  if (!input || !output || !publishedAt) {
-    throw releaseError(
-      'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
-      'Use --input, --output, and --published-at.',
-    );
+  const argv = process.argv.slice(2);
+  if (argv[0] === '--refresh-catalog') {
+    if (argv.length !== 3 || argv[1] !== '--output' || !argv[2]) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
+        'Use --refresh-catalog --output <directory>.',
+      );
+    }
+    await refreshOfficialArtifactCatalog(argv[2]);
+  } else {
+    const argumentsByName = readArguments(argv);
+    const input = argumentsByName.get('--input');
+    const output = argumentsByName.get('--output');
+    const publishedAt = argumentsByName.get('--published-at');
+    if (!input || !output || !publishedAt) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
+        'Use --input, --output, and --published-at.',
+      );
+    }
+    await buildOfficialArtifacts(input, output, publishedAt);
   }
-  await buildOfficialArtifacts(input, output, publishedAt);
 }

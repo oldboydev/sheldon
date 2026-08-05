@@ -11,50 +11,110 @@ import { releaseError } from './build-official-artifacts.mjs';
 
 const execFileAsync = promisify(execFile);
 
-/** Verifies that every executable packaged for one macOS target is signed and accepted by Gatekeeper. */
-export async function verifyMacosArtifactSignatures(directory, platform) {
-  if (platform !== 'darwin-arm64' && platform !== 'darwin-x64') {
-    throw releaseError('OFFICIAL_RELEASE_ARGUMENTS_INVALID', 'A macOS target is required.');
-  }
-  if (!process.env.SHELDON_MACOS_SIGNING_IDENTITY || !process.env.SHELDON_MACOS_NOTARY_PROFILE) {
+const macosExecutables = Object.freeze({
+  'source.image': 'tesseract',
+  'source.youtube': 'yt-dlp',
+  'source.instagram': 'yt-dlp',
+});
+
+/**
+ * Signs every native executable shipped for one macOS target, replaces the ZIP payload, and waits
+ * for Apple notarization of each final ZIP.  The ZIP is never changed after notarytool accepts it.
+ */
+export async function signAndNotarizeMacosArtifacts(directory, platform, options = {}) {
+  assertMacosPlatform(platform);
+  const environment = options.environment ?? process.env;
+  const identity = environment.SHELDON_MACOS_SIGNING_IDENTITY;
+  const profile = environment.SHELDON_MACOS_NOTARY_PROFILE;
+  if (!identity || !profile) {
     throw releaseError(
       'OFFICIAL_RELEASE_MACOS_NOTARIZATION_UNAVAILABLE',
-      'macOS promotion requires configured signing identity and notarization credentials.',
+      'macOS signing requires configured signing identity and notarization credentials.',
     );
   }
-  const root = await mkdtemp(join(tmpdir(), 'sheldon-macos-signature-'));
+  const execute = options.execute ?? execFileAsync;
+  const root = await mkdtemp(join(tmpdir(), 'sheldon-macos-sign-'));
   try {
-    const archives = (await readdir(directory)).filter((entry) =>
-      entry.endsWith(`-${platform}.zip`),
-    );
-    if (archives.length === 0) {
-      throw releaseError(
-        'OFFICIAL_RELEASE_ARTIFACT_MISSING',
-        `No ${platform} archive is available.`,
-      );
-    }
-    const executables = [];
-    for (const archive of archives)
-      executables.push(...(await extractExecutables(join(directory, archive), root)));
-    if (executables.length === 0) {
-      throw releaseError(
-        'OFFICIAL_RELEASE_MACOS_SIGNATURE_INVALID',
-        'No executable was found to verify.',
-      );
-    }
-    for (const executable of executables) {
+    const archives = await requiredMacosArchives(directory, platform);
+    for (const { archive, path, executable } of archives) {
+      const { zip } = await loadArchive(join(directory, archive));
+      const extracted = join(root, archive, ...path.split('/'));
+      await mkdir(dirname(extracted), { recursive: true });
+      await writeFile(extracted, await zip.file(path).async('nodebuffer'));
+      await chmod(extracted, 0o755);
       try {
-        await execFileAsync('codesign', ['--verify', '--deep', '--strict', executable], {
-          timeout: 30_000,
-        });
-        await execFileAsync('spctl', ['--assess', '--type', 'execute', '--verbose=4', executable], {
+        await execute(
+          'codesign',
+          ['--force', '--options', 'runtime', '--timestamp', '--sign', identity, extracted],
+          {
+            timeout: 30_000,
+          },
+        );
+        await execute('codesign', ['--verify', '--deep', '--strict', extracted], {
           timeout: 30_000,
         });
       } catch (error) {
-        throw releaseError(
-          'OFFICIAL_RELEASE_MACOS_SIGNATURE_INVALID',
-          `macOS signature or Gatekeeper verification failed for ${executable}: ${error instanceof Error ? error.message : 'unknown error'}`,
+        throw signingError(extracted, error);
+      }
+      zip.file(path, await readFile(extracted), {
+        date: zip.file(path).date,
+        unixPermissions: 0o100755,
+        createFolders: false,
+      });
+      await writeFile(join(directory, archive), await zip.generateAsync(zipOptions()));
+      try {
+        await execute(
+          'xcrun',
+          [
+            'notarytool',
+            'submit',
+            join(directory, archive),
+            '--keychain-profile',
+            profile,
+            '--wait',
+          ],
+          {
+            timeout: 20 * 60_000,
+          },
         );
+        await execute('spctl', ['--assess', '--type', 'execute', '--verbose=4', extracted], {
+          timeout: 30_000,
+        });
+      } catch (error) {
+        throw notarizationError(archive, error);
+      }
+      // Keep TypeScript-style structural checks in one place; this also makes the expected payload
+      // explicit when reviewing future official plugins.
+      if (!path.endsWith(`/runtime/${platform}/${executable}`))
+        throw new Error('Invalid runtime map.');
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+}
+
+/** Verifies every executable packaged for one macOS target after the final catalog has been built. */
+export async function verifyMacosArtifactSignatures(directory, platform, options = {}) {
+  assertMacosPlatform(platform);
+  const execute = options.execute ?? execFileAsync;
+  const root = await mkdtemp(join(tmpdir(), 'sheldon-macos-signature-'));
+  try {
+    const archives = await requiredMacosArchives(directory, platform);
+    for (const { archive, path } of archives) {
+      const { zip } = await loadArchive(join(directory, archive));
+      const extracted = join(root, archive, ...path.split('/'));
+      await mkdir(dirname(extracted), { recursive: true });
+      await writeFile(extracted, await zip.file(path).async('nodebuffer'));
+      await chmod(extracted, 0o755);
+      try {
+        await execute('codesign', ['--verify', '--deep', '--strict', extracted], {
+          timeout: 30_000,
+        });
+        await execute('spctl', ['--assess', '--type', 'execute', '--verbose=4', extracted], {
+          timeout: 30_000,
+        });
+      } catch (error) {
+        throw signingError(extracted, error);
       }
     }
   } finally {
@@ -62,43 +122,101 @@ export async function verifyMacosArtifactSignatures(directory, platform) {
   }
 }
 
-async function extractExecutables(archivePath, destinationRoot) {
-  const zip = await JSZip.loadAsync(await readFile(archivePath), {
-    createFolders: false,
-    checkCRC32: true,
-  });
-  const executables = [];
-  for (const entry of Object.values(zip.files)) {
-    if (entry.dir || !safeEntry(entry.name)) continue;
-    if ((entry.unixPermissions & 0o111) === 0) continue;
-    const destination = join(destinationRoot, ...entry.name.split('/'));
-    await mkdir(dirname(destination), { recursive: true });
-    await writeFile(destination, await entry.async('nodebuffer'));
-    await chmod(destination, 0o755);
-    executables.push(destination);
+async function requiredMacosArchives(directory, platform) {
+  const names = await readdir(directory);
+  const result = [];
+  for (const [plugin, executable] of Object.entries(macosExecutables)) {
+    const archive = `${plugin}-${platform}.zip`;
+    if (!names.includes(archive)) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_ARTIFACT_MISSING',
+        `No ${platform} archive is available: ${archive}.`,
+      );
+    }
+    const path = `${plugin}/runtime/${platform}/${executable}`;
+    const loaded = await loadArchive(join(directory, archive));
+    const executablePaths = Object.values(loaded.zip.files)
+      .filter((entry) => !entry.dir && (entry.unixPermissions & 0o111) !== 0)
+      .map((entry) => entry.name)
+      .sort();
+    if (
+      executablePaths.length !== 1 ||
+      executablePaths[0] !== path ||
+      loaded.zip.file(path) === null
+    ) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_MACOS_SIGNATURE_INVALID',
+        `The ${archive} executable payload is incomplete or contains an unexpected executable.`,
+      );
+    }
+    result.push({ archive, path, executable });
   }
-  return executables;
+  return result;
 }
 
-function safeEntry(name) {
-  return (
-    !name.startsWith('/') &&
-    !name.includes('\\') &&
-    !name.split('/').some((part) => !part || part === '.' || part === '..')
+async function loadArchive(path) {
+  try {
+    const zip = await JSZip.loadAsync(await readFile(path), {
+      createFolders: false,
+      checkCRC32: true,
+    });
+    return { zip, path: undefined };
+  } catch (error) {
+    throw releaseError(
+      'OFFICIAL_RELEASE_ARCHIVE_INVALID',
+      `The macOS official artifact is invalid: ${path}. ${error instanceof Error ? error.message : ''}`.trim(),
+    );
+  }
+}
+
+function assertMacosPlatform(platform) {
+  if (platform !== 'darwin-arm64' && platform !== 'darwin-x64') {
+    throw releaseError('OFFICIAL_RELEASE_ARGUMENTS_INVALID', 'A macOS target is required.');
+  }
+}
+
+function signingError(executable, error) {
+  return releaseError(
+    'OFFICIAL_RELEASE_MACOS_SIGNATURE_INVALID',
+    `macOS signature or Gatekeeper verification failed for ${executable}: ${error instanceof Error ? error.message : 'unknown error'}`,
   );
 }
 
+function notarizationError(archive, error) {
+  return releaseError(
+    'OFFICIAL_RELEASE_MACOS_NOTARIZATION_INVALID',
+    `macOS notarization failed for ${archive}: ${error instanceof Error ? error.message : 'unknown error'}`,
+  );
+}
+
+function zipOptions() {
+  return {
+    type: 'nodebuffer',
+    compression: 'DEFLATE',
+    compressionOptions: { level: 9 },
+    platform: 'UNIX',
+  };
+}
+
 function parseOptions(argv) {
-  if (argv.length !== 4 || argv[0] !== '--directory' || argv[2] !== '--platform') {
+  if (
+    argv.length !== 5 ||
+    argv[0] !== '--directory' ||
+    argv[2] !== '--platform' ||
+    (argv[4] !== '--sign-and-notarize' && argv[4] !== '--verify')
+  ) {
     throw releaseError(
       'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
-      'Use --directory <path> --platform <target>.',
+      'Use --directory <path> --platform <target> (--sign-and-notarize | --verify).',
     );
   }
-  return { directory: argv[1], platform: argv[3] };
+  return { directory: argv[1], platform: argv[3], mode: argv[4] };
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const options = parseOptions(process.argv.slice(2));
+  if (options.mode === '--sign-and-notarize') {
+    await signAndNotarizeMacosArtifacts(options.directory, options.platform);
+  }
   await verifyMacosArtifactSignatures(options.directory, options.platform);
 }

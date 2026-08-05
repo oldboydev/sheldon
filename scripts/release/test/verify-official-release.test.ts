@@ -5,10 +5,13 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildOfficialArtifacts } from '../build-official-artifacts.mjs';
+import {
+  buildOfficialArtifacts,
+  refreshOfficialArtifactCatalog,
+} from '../build-official-artifacts.mjs';
 import { signOfficialCatalog } from '../sign-official-catalog.mjs';
 import { smokeOfficialArtifacts } from '../smoke-official-artifacts.mjs';
-import { verifyMacosArtifactSignatures } from '../verify-macos-artifact-signatures.mjs';
+import { signAndNotarizeMacosArtifacts } from '../verify-macos-artifact-signatures.mjs';
 import { verifyOfficialRelease } from '../verify-official-release.mjs';
 
 const temporaryRoots: string[] = [];
@@ -37,7 +40,7 @@ describe('official release verifier', () => {
     delete process.env.SHELDON_MACOS_SIGNING_IDENTITY;
     delete process.env.SHELDON_MACOS_NOTARY_PROFILE;
     try {
-      await expect(verifyMacosArtifactSignatures(root, 'darwin-arm64')).rejects.toMatchObject({
+      await expect(signAndNotarizeMacosArtifacts(root, 'darwin-arm64')).rejects.toMatchObject({
         code: 'OFFICIAL_RELEASE_MACOS_NOTARIZATION_UNAVAILABLE',
       });
     } finally {
@@ -45,6 +48,36 @@ describe('official release verifier', () => {
         process.env.SHELDON_MACOS_SIGNING_IDENTITY = signingIdentity;
       if (notaryProfile !== undefined) process.env.SHELDON_MACOS_NOTARY_PROFILE = notaryProfile;
     }
+  });
+
+  it('signs and notarizes every executable sent in a macOS target before refreshing the catalog', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-macos-sign-'));
+    temporaryRoots.push(root);
+    const input = join(root, 'stage');
+    const output = join(root, 'out');
+    await createStage(input);
+    await buildOfficialArtifacts(input, output, '2026-07-21T00:00:00.000Z');
+    const execute = vi.fn(async () => ({ stdout: '', stderr: '' }));
+
+    await signAndNotarizeMacosArtifacts(output, 'darwin-arm64', {
+      environment: {
+        SHELDON_MACOS_SIGNING_IDENTITY: 'Developer ID Application: Sheldon',
+        SHELDON_MACOS_NOTARY_PROFILE: 'sheldon-notary',
+      },
+      execute,
+    });
+    await refreshOfficialArtifactCatalog(output);
+
+    const signed = execute.mock.calls.filter(([command]) => command === 'codesign');
+    expect(signed.filter(([, arguments_]) => arguments_[0] === '--force')).toHaveLength(3);
+    expect(execute.mock.calls.filter(([command]) => command === 'xcrun')).toHaveLength(3);
+    expect(signed.map(([, arguments_]) => arguments_.at(-1))).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(/source\.image.*tesseract$/),
+        expect.stringMatching(/source\.youtube.*yt-dlp$/),
+        expect.stringMatching(/source\.instagram.*yt-dlp$/),
+      ]),
+    );
   });
 
   it('verifies a signed release and exercises every packaged image runtime through injection', async () => {

@@ -1,6 +1,5 @@
 import type { ChildProcess } from 'node:child_process';
 
-const defaultGracePeriodMilliseconds = 500;
 const posixProcessGroups = new WeakMap<ChildProcess, number>();
 
 export interface ProcessTreeOptions {
@@ -43,12 +42,12 @@ export async function terminateProcessTree(
   }
 
   const signalGroup = options.signalProcessGroup ?? defaultSignalProcessGroup;
-  signalGroup(processGroupId, 'SIGTERM');
+  if (!signalOwnedProcessGroup(child, processGroupId, 'SIGTERM', signalGroup)) return;
   // The leader can exit before descendants which inherited its stdout/stderr.
   // A `close` event is therefore not proof that the whole process group is
   // gone. Always finish the grace period and then reap the group decisively.
-  await waitForGracePeriod(options.gracePeriodMilliseconds ?? defaultGracePeriodMilliseconds);
-  signalGroup(processGroupId, 'SIGKILL');
+  await waitForGracePeriod(options.gracePeriodMilliseconds ?? 0);
+  signalOwnedProcessGroup(child, processGroupId, 'SIGKILL', signalGroup);
 }
 
 function terminateChild(child: ChildProcess, signal?: NodeJS.Signals): void {
@@ -61,24 +60,38 @@ function terminateChild(child: ChildProcess, signal?: NodeJS.Signals): void {
 }
 
 function defaultSignalProcessGroup(processGroupId: number, signal: NodeJS.Signals): void {
+  process.kill(-processGroupId, signal);
+}
+
+function signalOwnedProcessGroup(
+  child: ChildProcess,
+  processGroupId: number,
+  signal: NodeJS.Signals,
+  signalGroup: (processGroupId: number, signal: NodeJS.Signals) => void,
+): boolean {
   try {
-    process.kill(-processGroupId, signal);
+    signalGroup(processGroupId, signal);
+    return true;
   } catch (error) {
-    // A process can exit between the close check and kill(2).  ESRCH is therefore benign, but all
-    // other errors (notably EPERM) remain visible to the caller.
-    if (!isNoSuchProcess(error)) throw error;
+    // PID/group reuse is unsafe. ESRCH is benign only after the child exit has been observed;
+    // otherwise the caller must use its direct-child failure path instead of guessing.
+    if (isNoSuchProcess(error) && hasExited(child)) return false;
+    throw error;
   }
 }
 
 function waitForGracePeriod(gracePeriodMilliseconds: number): Promise<void> {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, Math.max(0, gracePeriodMilliseconds));
-    timer.unref();
+    setTimeout(resolve, Math.max(0, gracePeriodMilliseconds));
   });
 }
 
 function isSafeChildPid(pid: number | undefined): pid is number {
   return pid !== undefined && Number.isSafeInteger(pid) && pid > 0;
+}
+
+function hasExited(child: ChildProcess): boolean {
+  return child.exitCode !== null || child.signalCode !== null;
 }
 
 function isNoSuchProcess(error: unknown): boolean {

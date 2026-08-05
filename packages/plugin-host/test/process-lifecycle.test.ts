@@ -93,7 +93,7 @@ function unkillableProcessLauncher(killResult: 'throw' | 'false' = 'throw'): {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   Object.assign(child, {
-    pid: 99_999,
+    pid: process.pid,
     stdin,
     stdout,
     stderr,

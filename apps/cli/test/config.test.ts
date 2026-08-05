@@ -87,6 +87,15 @@ describe('application paths', () => {
       }),
     ).toThrow('XDG_STATE_HOME must be an absolute path.');
   });
+
+  it.each(['win32-x64-extra', 'linux-arm64', 'darwin-preview'])(
+    'rejects an unsupported injected platform: %s',
+    (platform) => {
+      expect(() =>
+        applicationPaths({ platform, environment: {}, homeDirectory: '/home/ada' }),
+      ).toThrow(`Unsupported Sheldon platform: ${platform}.`);
+    },
+  );
 });
 
 it('offers explicit verified migration of plugin state', async () => {

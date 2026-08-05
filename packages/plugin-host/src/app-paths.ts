@@ -1,4 +1,5 @@
-import { cp, mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { cp, lstat, mkdir, readdir, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { join, posix, resolve, win32 } from 'node:path';
 
@@ -17,6 +18,14 @@ export interface PluginAppPathOptions {
   readonly homeDirectory?: string;
 }
 
+const legacyStateEntries = new Set([
+  'plugins',
+  'plugin-registry.yaml',
+  'plugin-state.db',
+  'plugin-state.db-shm',
+  'plugin-state.db-wal',
+]);
+
 /**
  * Resolves Sheldon directories without consulting ambient process state.  Keeping the inputs
  * injectable makes the platform contract testable and prevents POSIX from accidentally inheriting
@@ -31,12 +40,16 @@ export function resolvePluginAppPaths(options: PluginAppPathOptions = {}): Plugi
     const appData =
       environment.APPDATA ??
       (homeDirectory === undefined ? undefined : win32.join(homeDirectory, 'AppData', 'Roaming'));
-    if (appData === undefined || appData.length === 0) {
+    if (appData === undefined || appData.length === 0 || !win32.isAbsolute(appData)) {
       throw new Error(
-        'APPDATA is required to resolve the Sheldon application directory on Windows.',
+        'An absolute APPDATA directory is required to resolve the Sheldon application directory on Windows.',
       );
     }
     return pathsForRoots(win32.join(appData, 'Sheldon'), win32.join(appData, 'Sheldon'), win32);
+  }
+
+  if (platform !== 'darwin' && platform !== 'linux') {
+    throw new Error(`Unsupported Sheldon platform: ${platform}.`);
   }
 
   if (
@@ -74,9 +87,13 @@ export async function migratePluginAppState(sourceRoot: string, targetRoot: stri
   const source = resolve(sourceRoot);
   const target = resolve(targetRoot);
   if (source === target) return;
-  await mkdir(target, { recursive: true });
-  await copyAndVerify(source, target);
-  await writeFile(join(target, '.migration-complete'), `${await directoryHash(source)}\n`, 'utf8');
+  await ensureRegularDirectory(target);
+  await copyAndVerify(source, target, true);
+  await writeFile(
+    join(target, '.migration-complete'),
+    `${await directoryHash(source, true)}\n`,
+    'utf8',
+  );
 }
 
 function pathsForRoots(
@@ -100,20 +117,20 @@ function xdgBase(value: string | undefined, fallback: string, variable: string):
   return value;
 }
 
-async function copyAndVerify(source: string, target: string): Promise<void> {
+async function copyAndVerify(source: string, target: string, legacyRoot: boolean): Promise<void> {
   const entries = await readdir(source, { withFileTypes: true });
   for (const entry of entries) {
-    if (entry.name === '.migration-complete') continue;
+    if (legacyRoot && !legacyStateEntries.has(entry.name)) continue;
     const sourcePath = join(source, entry.name);
     const targetPath = join(target, entry.name);
     if (entry.isDirectory()) {
-      await mkdir(targetPath, { recursive: true });
-      await copyAndVerify(sourcePath, targetPath);
+      await ensureRegularDirectory(targetPath);
+      await copyAndVerify(sourcePath, targetPath, false);
       continue;
     }
     if (!entry.isFile()) throw new Error(`Cannot migrate non-regular state entry: ${sourcePath}`);
     try {
-      const targetStats = await stat(targetPath);
+      const targetStats = await lstat(targetPath);
       if (!targetStats.isFile() || (await fileHash(sourcePath)) !== (await fileHash(targetPath))) {
         throw new Error(`Existing migrated state does not match: ${targetPath}`);
       }
@@ -127,15 +144,23 @@ async function copyAndVerify(source: string, target: string): Promise<void> {
   }
 }
 
-async function directoryHash(root: string): Promise<string> {
+async function ensureRegularDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true });
+  const metadata = await lstat(path);
+  if (!metadata.isDirectory() || metadata.isSymbolicLink()) {
+    throw new Error(`Migration target must be a regular directory: ${path}`);
+  }
+}
+
+async function directoryHash(root: string, legacyRoot: boolean): Promise<string> {
   const hash = createHash('sha256');
   const entries = await readdir(root, { withFileTypes: true });
   for (const entry of entries
-    .filter((candidate) => candidate.name !== '.migration-complete')
+    .filter((candidate) => !legacyRoot || legacyStateEntries.has(candidate.name))
     .sort((a, b) => a.name.localeCompare(b.name))) {
     const item = join(root, entry.name);
     hash.update(entry.name);
-    if (entry.isDirectory()) hash.update(await directoryHash(item));
+    if (entry.isDirectory()) hash.update(await directoryHash(item, false));
     else if (entry.isFile()) hash.update(await fileHash(item));
     else throw new Error(`Cannot hash non-regular state entry: ${item}`);
   }
@@ -143,9 +168,9 @@ async function directoryHash(root: string): Promise<string> {
 }
 
 async function fileHash(path: string): Promise<string> {
-  return createHash('sha256')
-    .update(await readFile(path))
-    .digest('hex');
+  const hash = createHash('sha256');
+  for await (const chunk of createReadStream(path)) hash.update(chunk);
+  return hash.digest('hex');
 }
 
 function isMissing(error: unknown): boolean {

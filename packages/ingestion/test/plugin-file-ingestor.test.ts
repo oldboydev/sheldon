@@ -109,6 +109,21 @@ function sourceInput(rawDirectory: string, originalName = 'fixture.pdf'): Publis
 }
 
 describe('plugin file ingestion publication', () => {
+  it('derives a legacy Windows basename independently of the host platform', async () => {
+    const directory = await fixtureDirectory();
+    const temporaryDirectory = join(directory, 'lease');
+    await mkdir(temporaryDirectory);
+    const fixtureLease = await lease(temporaryDirectory, Buffer.from('windows-basename'));
+
+    const result = await publishPluginFileIngestion(
+      input(join(directory, 'raw')),
+      fixtureLease,
+      fixedClock,
+    );
+
+    expect(result.manifest.original_name).toBe('fixture.pdf');
+  });
+
   it('publishes the supplied safe original basename', async () => {
     const directory = await fixtureDirectory();
     const temporaryDirectory = join(directory, 'lease');

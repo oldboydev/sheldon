@@ -39,15 +39,12 @@ function delayedMalformedProcessLauncher(): {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   Object.assign(child, {
-    pid: 99_998,
+    pid: process.pid,
     stdin,
     stdout,
     stderr,
     stdio: [stdin, stdout, stderr],
-    kill: () => {
-      child.emit('close', null, 'SIGKILL');
-      return true;
-    },
+    kill: () => true,
   });
   stdin.once('data', () => {
     stdout.end('not-json\n');
@@ -57,6 +54,30 @@ function delayedMalformedProcessLauncher(): {
     platform: 'linux',
     spawn: (() => child) as unknown as typeof spawn,
   };
+}
+
+function delayedTerminationExitLauncher(): {
+  readonly platform: 'linux';
+  readonly spawn: typeof spawn;
+} {
+  const child = new EventEmitter() as ChildProcessWithoutNullStreams;
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  Object.assign(child, {
+    // The process-tree guard rejects this as the host group, then the runner's direct fallback
+    // provides a deterministic delayed, real close event.
+    pid: process.pid,
+    stdin,
+    stdout,
+    stderr,
+    stdio: [stdin, stdout, stderr],
+    kill: () => {
+      setTimeout(() => child.emit('close', 23, null), 300);
+      return true;
+    },
+  });
+  return { platform: 'linux', spawn: (() => child) as unknown as typeof spawn };
 }
 
 function manifest(mode = 'success'): PluginManifest {
@@ -388,6 +409,23 @@ describe('PluginProcessRunner', () => {
       code: 'PLUGIN_PROTOCOL_INVALID_JSON',
     });
     expect(state.listRuns().at(-1)).toMatchObject({ exitCode: 0 });
+  });
+
+  it('waits for the real termination exit instead of synthesizing SIGKILL', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({
+      state,
+      limits: {
+        ...DEFAULT_PLUGIN_LIMITS,
+        timeouts: { ...DEFAULT_PLUGIN_LIMITS.timeouts, describe: 10, cancellationGrace: 10 },
+      },
+      processLauncher: delayedTerminationExitLauncher(),
+    });
+
+    await expect(runner.describe(await pluginFor('hang'))).rejects.toMatchObject({
+      code: 'PLUGIN_TIMEOUT',
+    });
+    expect(state.listRuns().at(-1)).toMatchObject({ exitCode: 23 });
   });
 
   it('treats equivalent capability and permission ordering as the same identity', async () => {

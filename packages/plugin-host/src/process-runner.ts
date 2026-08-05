@@ -106,9 +106,6 @@ const recordedErrorMessage =
   'Plugin operation failed. Inspect the stable error code and retained stderr.';
 const defaultPluginRecovery =
   'Inspect the plugin manifest, protocol output, and retained stderr before retrying.';
-// Let a plugin that has already closed its protocol stream drain through a supervised process
-// before forcing termination. This remains bounded for plugins that keep running after a fault.
-const protocolFailureExitGraceMilliseconds = 250;
 const sourceDiagnosticCodes = new Set([
   'CRAWL_INPUT_INVALID',
   'CRAWL_RAW_BUDGET_EXCEEDED',
@@ -336,7 +333,12 @@ export class PluginProcessRunner {
         ]);
         terminal = requestOutcome.kind === 'terminal' ? requestOutcome.terminal : await lifecycle;
       } catch (error) {
-        const failedExit = await settleFailedProcess(child, exit, error).catch(() => undefined);
+        const failedExit = await settleFailedProcess(
+          child,
+          exit,
+          error,
+          this.limits.timeouts.cancellationGrace,
+        ).catch(() => undefined);
         if (failedExit?.code !== null && failedExit?.code !== undefined) {
           exitCode = failedExit.code;
         }
@@ -492,7 +494,7 @@ export class PluginProcessRunner {
         grace.promise.then(() => 'grace' as const),
       ]);
       if (writeOutcome !== 'written') {
-        await terminateBestEffort(child, exit);
+        await terminateBestEffort(child, exit, this.limits.timeouts.cancellationGrace);
         return;
       }
       const acknowledgement = await Promise.race([
@@ -510,9 +512,9 @@ export class PluginProcessRunner {
       } else if (acknowledgement === 'exit') {
         return;
       }
-      await terminateBestEffort(child, exit);
+      await terminateBestEffort(child, exit, this.limits.timeouts.cancellationGrace);
     } catch {
-      await terminateBestEffort(child, exit);
+      await terminateBestEffort(child, exit, this.limits.timeouts.cancellationGrace);
     } finally {
       grace.cancel();
     }
@@ -1002,40 +1004,37 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<ProcessExit
 async function terminateAndWait(
   child: ChildProcessWithoutNullStreams,
   exit: Promise<ProcessExit>,
+  gracePeriodMilliseconds: number,
 ): Promise<ProcessExit> {
   try {
-    await terminateProcessTree(child);
+    await terminateProcessTree(child, { gracePeriodMilliseconds });
   } catch {
     if (!child.kill('SIGKILL')) {
       throw new Error('The plugin process could not be terminated.');
     }
   }
-  // A malformed or externally killed process can retain the inherited pipes forever. The group
-  // was already sent SIGKILL above, so do not let that stale close event keep the host operation
-  // alive indefinitely.
-  return Promise.race([
-    exit,
-    new Promise<ProcessExit>((resolve) => {
-      setTimeout(() => resolve({ code: null, signal: 'SIGKILL' }), 250).unref();
-    }),
-  ]);
+  return exit;
 }
 
 async function terminateBestEffort(
   child: ChildProcessWithoutNullStreams,
   exit: Promise<ProcessExit>,
+  gracePeriodMilliseconds: number,
 ): Promise<void> {
-  await terminateAndWait(child, exit).catch(() => undefined);
+  await terminateAndWait(child, exit, gracePeriodMilliseconds).catch(() => undefined);
 }
 
 async function settleFailedProcess(
   child: ChildProcessWithoutNullStreams,
   exit: Promise<ProcessExit>,
   error: unknown,
+  gracePeriodMilliseconds: number,
 ): Promise<ProcessExit> {
-  if (requiresImmediateTermination(error)) return terminateAndWait(child, exit);
+  if (requiresImmediateTermination(error)) {
+    return terminateAndWait(child, exit, gracePeriodMilliseconds);
+  }
 
-  const grace = deferredTimer(protocolFailureExitGraceMilliseconds);
+  const grace = deferredTimer(gracePeriodMilliseconds);
   try {
     const outcome = await Promise.race([
       exit.then((processExit) => ({ kind: 'exit' as const, processExit })),
@@ -1045,7 +1044,7 @@ async function settleFailedProcess(
   } finally {
     grace.cancel();
   }
-  return terminateAndWait(child, exit);
+  return terminateAndWait(child, exit, gracePeriodMilliseconds);
 }
 
 function requiresImmediateTermination(error: unknown): boolean {

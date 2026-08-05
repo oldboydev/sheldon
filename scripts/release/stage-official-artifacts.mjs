@@ -1,5 +1,5 @@
-import { cp, lstat, mkdir, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { cp, lstat, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { OFFICIAL_PLUGIN_IDS, releaseError } from './build-official-artifacts.mjs';
@@ -7,7 +7,14 @@ import { prepareOcrRuntime } from './prepare-ocr-runtime.mjs';
 
 const PACKAGE_FILES = ['package.json', 'sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'];
 
-export async function stageOfficialArtifacts(source, output, runtimeArtifacts, ytDlpRuntime) {
+export async function stageOfficialArtifacts(
+  source,
+  output,
+  runtimeArtifacts,
+  ytDlpRuntime,
+  options = {},
+) {
+  const dependencyRoot = options.dependencyRoot ?? join(process.cwd(), 'node_modules');
   await assertNoStageInputSymlinks(source);
   if (runtimeArtifacts) await assertNoStageInputSymlinks(runtimeArtifacts);
   if (ytDlpRuntime) await assertNoStageInputSymlinks(ytDlpRuntime);
@@ -33,7 +40,107 @@ export async function stageOfficialArtifacts(source, output, runtimeArtifacts, y
     if ((id === 'source.youtube' || id === 'source.instagram') && ytDlpRuntime) {
       await copyRequired(join(ytDlpRuntime, 'runtime'), join(pluginOutput, 'runtime'), true);
     }
+    await copyProductionDependencies(pluginSource, pluginOutput, dependencyRoot);
   }
+}
+
+/**
+ * Official plugins run outside this monorepo after installation.  Keep their runtime dependency
+ * closure inside the archive instead of accidentally resolving the developer checkout's
+ * node_modules directory.  Development dependencies are intentionally never copied.
+ */
+async function copyProductionDependencies(pluginSource, pluginOutput, dependencyRoot) {
+  const manifest = await packageManifest(pluginSource);
+  const copied = new Map();
+  await copyDependencyClosure(
+    pluginSource,
+    join(pluginOutput, 'node_modules'),
+    dependencyRoot,
+    manifest,
+    copied,
+  );
+}
+
+async function copyDependencyClosure(
+  sourcePackage,
+  targetNodeModules,
+  dependencyRoot,
+  manifest,
+  copied,
+) {
+  const dependencies = {
+    ...(manifest.dependencies ?? {}),
+    ...(manifest.optionalDependencies ?? {}),
+  };
+  for (const name of Object.keys(dependencies).sort()) {
+    const source = await resolveProductionDependency(sourcePackage, dependencyRoot, name);
+    const target = join(targetNodeModules, ...name.split('/'));
+    const existing = copied.get(target);
+    if (existing !== undefined) {
+      if (existing !== source) {
+        throw releaseError(
+          'OFFICIAL_RELEASE_DEPENDENCY_INVALID',
+          `Conflicting production dependency sources were found for ${name}.`,
+        );
+      }
+      continue;
+    }
+    copied.set(target, source);
+    await mkdir(targetNodeModules, { recursive: true });
+    await cp(source, target, {
+      recursive: true,
+      verbatimSymlinks: true,
+      filter: (path) => basename(path) !== 'node_modules',
+    });
+    await copyDependencyClosure(
+      source,
+      join(target, 'node_modules'),
+      dependencyRoot,
+      await packageManifest(source),
+      copied,
+    );
+  }
+}
+
+async function resolveProductionDependency(sourcePackage, dependencyRoot, name) {
+  for (const candidate of [join(sourcePackage, 'node_modules', name), join(dependencyRoot, name)]) {
+    try {
+      return await realpath(candidate);
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+  }
+  throw releaseError(
+    'OFFICIAL_RELEASE_DEPENDENCY_MISSING',
+    `The production dependency ${name} is unavailable for official artifact staging.`,
+  );
+}
+
+async function packageManifest(root) {
+  try {
+    const candidate = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate))
+      throw new Error();
+    if (
+      (candidate.dependencies !== undefined &&
+        (typeof candidate.dependencies !== 'object' || Array.isArray(candidate.dependencies))) ||
+      (candidate.optionalDependencies !== undefined &&
+        (typeof candidate.optionalDependencies !== 'object' ||
+          Array.isArray(candidate.optionalDependencies)))
+    ) {
+      throw new Error();
+    }
+    return candidate;
+  } catch {
+    throw releaseError(
+      'OFFICIAL_RELEASE_PACKAGE_INVALID',
+      `The staged package manifest is invalid: ${join(root, 'package.json')}.`,
+    );
+  }
+}
+
+function isMissing(error) {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
 export async function assertNoStageInputSymlinks(root, readDirectory = readdir, statPath = lstat) {

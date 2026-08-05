@@ -28,6 +28,25 @@ describe('resolvePluginAppPaths', () => {
     });
   });
 
+  it('requires absolute Windows application data and supports an injected Windows home', () => {
+    expect(() =>
+      resolvePluginAppPaths({
+        platform: 'win32',
+        environment: { APPDATA: 'relative-appdata' },
+      }),
+    ).toThrow('An absolute APPDATA directory is required');
+
+    expect(
+      resolvePluginAppPaths({
+        platform: 'win32',
+        environment: {},
+        homeDirectory: 'C:\\Users\\Ada',
+      }),
+    ).toMatchObject({
+      root: 'C:\\Users\\Ada\\AppData\\Roaming\\Sheldon',
+    });
+  });
+
   it('uses explicit XDG configuration and state directories on POSIX', () => {
     expect(
       resolvePluginAppPaths({
@@ -61,6 +80,16 @@ describe('resolvePluginAppPaths', () => {
     ).toThrow('XDG_CONFIG_HOME must be an absolute path.');
   });
 
+  it('rejects an injected platform outside the supported matrix', () => {
+    expect(() =>
+      resolvePluginAppPaths({
+        platform: 'freebsd' as NodeJS.Platform,
+        environment: {},
+        homeDirectory: '/home/ada',
+      }),
+    ).toThrow('Unsupported Sheldon platform: freebsd.');
+  });
+
   it('keeps callers that provide an application root backward compatible', () => {
     expect(pluginAppPaths('/application')).toMatchObject({
       root: '/application',
@@ -78,6 +107,9 @@ describe('migratePluginAppState', () => {
     const target = join(root, 'xdg-state');
     await mkdir(source, { recursive: true });
     await writeFile(join(source, 'plugin-registry.yaml'), 'version: 1\n', 'utf8');
+    await mkdir(join(source, 'plugins', 'source.file'), { recursive: true });
+    await writeFile(join(source, 'plugins', 'source.file', 'plugin.mjs'), 'export {};\n', 'utf8');
+    await writeFile(join(source, 'config.yaml'), 'vault: /knowledge\n', 'utf8');
 
     await migratePluginAppState(source, target);
     await migratePluginAppState(source, target);
@@ -88,6 +120,12 @@ describe('migratePluginAppState', () => {
     await expect(readFile(join(source, 'plugin-registry.yaml'), 'utf8')).resolves.toBe(
       'version: 1\n',
     );
+    await expect(
+      readFile(join(target, 'plugins', 'source.file', 'plugin.mjs'), 'utf8'),
+    ).resolves.toBe('export {};\n');
+    await expect(readFile(join(target, 'config.yaml'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
     await expect(readFile(join(target, '.migration-complete'), 'utf8')).resolves.toMatch(
       /^[a-f0-9]{64}\n$/,
     );

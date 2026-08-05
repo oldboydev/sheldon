@@ -109,6 +109,10 @@ também executa smoke nativo dos artefatos macOS Intel e Apple Silicon antes de 
 gate local cobre formatação, lint, typecheck, testes, cobertura, build, contratos de plugin,
 validações de domínio/repositório e o check de diff.
 
+Além de `workflow_dispatch` e tags `v*`, a validação de release roda toda segunda-feira às 04:17
+UTC. Essa agenda gera e verifica os artefatos, incluindo o smoke e a checagem de assinatura/notarização
+do macOS, mas não publica: a promoção do catálogo oficial exige uma tag `v*`.
+
 ## Plataformas e dados locais
 
 Sheldon suporta Windows x64, Ubuntu 22.04+ x64, macOS 14+ Intel x64 e Apple Silicon arm64, com
@@ -318,6 +322,12 @@ Quando o host detecta uma violação do protocolo JSONL, ele dá uma breve oport
 O contrato de limites do host publica 10 segundos para `describe` e `probe`, 30 segundos para `healthcheck` e 15 minutos para `ingest`, destinados ao controlador de ciclo de vida. Os limites já aplicados pelo runner restringem cada linha JSONL a 1 MiB e o stdout de protocolo a 8 MiB. Logs continuam separados no stderr, cujo histórico preserva somente a cauda mais recente de 256 KiB. Esses processos reduzem interferência entre operações, mas não constituem um sandbox do sistema operacional: um plugin local ainda executa com os acessos concedidos ao usuário atual.
 
 Em `ingest`, o plugin devolve somente descritores temporários de artefatos. Antes de entregar a lease ao consumidor, o host valida que cada caminho permanece no diretório temporário canônico, aponta para um arquivo regular, tem tamanho e SHA-256 declarados corretos e respeita os limites agregados. A lease termina quando o consumidor conclui, inclusive se houver erro, e seus arquivos são removidos. Em cancelamento, o host pede cancelamento cooperativo e aguarda a resposta terminal por um período curto; se o processo não encerrar, força o término. No Windows, cada plugin nasce sob um supervisor privado que entra em um Job Object com `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` antes de iniciar o comando do plugin. Encerrar o supervisor fecha o Job Object e elimina toda a árvore, inclusive descendentes que conservaram pipes depois que o processo direto do plugin saiu. A ausência ou incompatibilidade do addon interrompe o lançamento com `PLUGIN_SUPERVISOR_UNAVAILABLE`, sem fallback mais fraco. Isso é controle de ciclo de vida, não sandbox: plugins locais continuam com os acessos do usuário atual.
+
+No Linux e no macOS, o plugin inicia em seu próprio grupo de processos POSIX. Em timeout,
+cancelamento ou falha de protocolo, o host envia `SIGTERM` ao grupo, aguarda o grace period
+configurado e então envia `SIGKILL` se ainda houver processos. Como isso é supervisão de processos
+do usuário, não é um sandbox nem substitui um gerenciador de serviços quando o próprio host é
+encerrado externamente.
 
 Publicações concorrentes usam um claim exclusivo por raw. No Windows, uma breve disputa com rename ou remoção desse claim é repetida de modo limitado; falhas de acesso que persistem continuam sendo devolvidas como erro.
 
