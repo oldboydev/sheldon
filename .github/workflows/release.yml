@@ -47,6 +47,10 @@ jobs:
           --input release/stage
           --output release/out
           --published-at ${{ steps.published-at.outputs.value }}
+      - run: >-
+          node scripts/release/assert-signed-macos-artifact-replacements.mjs
+          --directory release/out
+          --write-candidate
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: official-release-candidate
@@ -84,10 +88,17 @@ jobs:
         env:
           SHELDON_MACOS_SIGNING_IDENTITY: ${{ secrets.SHELDON_MACOS_SIGNING_IDENTITY }}
           SHELDON_MACOS_NOTARY_PROFILE: ${{ secrets.SHELDON_MACOS_NOTARY_PROFILE }}
+      - run: >-
+          node scripts/release/assert-signed-macos-artifact-replacements.mjs
+          --directory release/out
+          --platform ${{ matrix.platform }}
+          --write-signed
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: signed-macos-${{ matrix.platform }}
-          path: release/out/*-${{ matrix.platform }}.zip
+          path: |
+            release/out/*-${{ matrix.platform }}.zip
+            release/out/signed-macos-${{ matrix.platform }}-checksums.json
           if-no-files-found: error
 
   assemble-official-catalog:
@@ -109,6 +120,11 @@ jobs:
           pattern: signed-macos-*
           path: release/out
           merge-multiple: true
+      - run: >-
+          node scripts/release/assert-signed-macos-artifact-replacements.mjs
+          --directory release/out
+          --assert-replacements
+      - run: rm -f release/out/macos-candidate-checksums.json release/out/signed-macos-*-checksums.json
       - run: >-
           node scripts/release/build-official-artifacts.mjs
           --refresh-catalog

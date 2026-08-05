@@ -15,7 +15,7 @@ describe('official release workflow', () => {
         'build-ocr-runtime'?: { uses?: string };
         'official-catalog'?: {
           needs?: unknown;
-          steps?: Array<{ uses?: string; with?: Record<string, unknown> }>;
+          steps?: Array<{ uses?: string; with?: Record<string, unknown>; run?: string }>;
         };
         'smoke-official-artifacts'?: {
           needs?: unknown;
@@ -33,7 +33,10 @@ describe('official release workflow', () => {
           needs?: unknown;
           strategy?: { matrix?: { include?: unknown[] } };
         };
-        'assemble-official-catalog'?: { needs?: unknown; steps?: Array<{ uses?: string }> };
+        'assemble-official-catalog'?: {
+          needs?: unknown;
+          steps?: Array<{ uses?: string; run?: string }>;
+        };
       };
     };
     const releaseSteps = workflow.jobs?.['official-catalog']?.steps ?? [];
@@ -57,6 +60,12 @@ describe('official release workflow', () => {
     expect(workflow.jobs?.['sign-macos-artifacts']?.needs).toBe('official-catalog');
     expect(workflow.jobs?.['sign-macos-artifacts']?.strategy?.matrix?.include).toHaveLength(2);
     expect(workflow.jobs?.['assemble-official-catalog']?.needs).toBe('sign-macos-artifacts');
+    expect(releaseSteps).toContainEqual(
+      expect.objectContaining({ run: expect.stringContaining('--write-candidate') }),
+    );
+    expect(workflow.jobs?.['assemble-official-catalog']?.steps).toContainEqual(
+      expect.objectContaining({ run: expect.stringContaining('--assert-replacements') }),
+    );
     expect(workflow.jobs?.['smoke-official-artifacts']?.needs).toBe('assemble-official-catalog');
     expect(workflow.jobs?.['smoke-official-artifacts']?.strategy?.matrix?.include).toHaveLength(4);
     expect(workflow.jobs?.['verify-macos-notarization']?.needs).toBe('assemble-official-catalog');

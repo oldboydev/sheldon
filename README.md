@@ -327,7 +327,8 @@ No Linux e no macOS, o plugin inicia em seu próprio grupo de processos POSIX. E
 cancelamento ou falha de protocolo, o host envia `SIGTERM` ao grupo, aguarda o grace period
 configurado e então envia `SIGKILL` se ainda houver processos. Como isso é supervisão de processos
 do usuário, não é um sandbox nem substitui um gerenciador de serviços quando o próprio host é
-encerrado externamente.
+encerrado externamente. O grupo destacado também não recebe sinais diretamente do terminal do
+host; não use `Ctrl-C` ou o encerramento forçado do host como mecanismo para administrar um plugin.
 
 Publicações concorrentes usam um claim exclusivo por raw. No Windows, uma breve disputa com rename ou remoção desse claim é repetida de modo limitado; falhas de acesso que persistem continuam sendo devolvidas como erro.
 

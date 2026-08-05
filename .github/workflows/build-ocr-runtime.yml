@@ -66,21 +66,6 @@ jobs:
           bash scripts/release/build-native-ocr-runtime.sh
           --platform ${{ matrix.platform }}
           --output "$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
-      - name: Sign and notarize macOS runtime
-        if: startsWith(matrix.platform, 'darwin-')
-        shell: bash
-        env:
-          SHELDON_MACOS_SIGNING_IDENTITY: ${{ secrets.SHELDON_MACOS_SIGNING_IDENTITY }}
-          SHELDON_MACOS_NOTARY_PROFILE: ${{ secrets.SHELDON_MACOS_NOTARY_PROFILE }}
-        run: |
-          test -n "$SHELDON_MACOS_SIGNING_IDENTITY" || { echo "macOS signing identity is required" >&2; exit 1; }
-          test -n "$SHELDON_MACOS_NOTARY_PROFILE" || { echo "macOS notarization profile is required" >&2; exit 1; }
-          runtime="$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}"
-          find "$runtime" -type f -perm -111 -exec codesign --force --options runtime --timestamp --sign "$SHELDON_MACOS_SIGNING_IDENTITY" {} \;
-          archive="$RUNNER_TEMP/ocr-runtime-${{ matrix.platform }}.zip"
-          ditto -c -k --keepParent "$runtime" "$archive"
-          xcrun notarytool submit "$archive" --keychain-profile "$SHELDON_MACOS_NOTARY_PROFILE" --wait
-          find "$runtime" -type f -perm -111 -exec codesign --verify --deep --strict {} \;
       - name: Build Linux runtime
         if: matrix.platform == 'linux-x64'
         shell: bash

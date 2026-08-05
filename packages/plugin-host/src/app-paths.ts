@@ -129,16 +129,21 @@ async function copyAndVerify(source: string, target: string, legacyRoot: boolean
       continue;
     }
     if (!entry.isFile()) throw new Error(`Cannot migrate non-regular state entry: ${sourcePath}`);
+    let targetExists = true;
     try {
       const targetStats = await lstat(targetPath);
-      if (!targetStats.isFile() || (await fileHash(sourcePath)) !== (await fileHash(targetPath))) {
+      if (!targetStats.isFile())
         throw new Error(`Existing migrated state does not match: ${targetPath}`);
-      }
     } catch (error) {
-      if (isMissing(error)) await cp(sourcePath, targetPath, { force: false });
+      if (isMissing(error)) targetExists = false;
       else throw error;
     }
-    if ((await fileHash(sourcePath)) !== (await fileHash(targetPath))) {
+    if (!targetExists) await cp(sourcePath, targetPath, { force: false });
+    const [sourceHash, targetHash] = await Promise.all([
+      fileHash(sourcePath),
+      fileHash(targetPath),
+    ]);
+    if (sourceHash !== targetHash) {
       throw new Error(`Migrated state hash does not match: ${targetPath}`);
     }
   }

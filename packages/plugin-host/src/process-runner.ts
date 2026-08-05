@@ -996,8 +996,11 @@ function waitForExit(child: ChildProcessWithoutNullStreams): Promise<ProcessExit
     let startError: Error | undefined;
     child.once('error', (error) => {
       startError = error;
+      resolve({ code: child.exitCode, signal: child.signalCode, error: startError });
     });
-    child.once('close', (code, signal) => resolve({ code, signal, error: startError }));
+    // `close` waits for stdio to close too. A POSIX descendant can inherit a pipe after the
+    // direct child has exited, so process lifecycle ownership must use `exit` instead.
+    child.once('exit', (code, signal) => resolve({ code, signal, error: startError }));
   });
 }
 
@@ -1013,7 +1016,26 @@ async function terminateAndWait(
       throw new Error('The plugin process could not be terminated.');
     }
   }
-  return exit;
+  return waitForTerminationExit(exit, gracePeriodMilliseconds);
+}
+
+async function waitForTerminationExit(
+  exit: Promise<ProcessExit>,
+  gracePeriodMilliseconds: number,
+): Promise<ProcessExit> {
+  // The child should emit `exit` as soon as it is reaped. Bound the rare broken-process path,
+  // but never manufacture a signal/code: callers retain the original operation failure.
+  const deadline = deferredTimer(Math.max(1_000, gracePeriodMilliseconds));
+  try {
+    return await Promise.race([
+      exit,
+      deadline.promise.then(() => {
+        throw new Error('The plugin process did not exit after termination.');
+      }),
+    ]);
+  } finally {
+    deadline.cancel();
+  }
 }
 
 async function terminateBestEffort(

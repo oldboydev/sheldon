@@ -145,7 +145,7 @@ describe('official release staging', () => {
     await expect(access(join(output, 'source.file', 'src', 'index.ts'))).rejects.toThrow();
   });
 
-  it('bundles the complete production dependency closure but excludes development dependencies', async () => {
+  it('hoists a cyclic, shared production dependency closure and excludes development dependencies', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-release-dependencies-'));
     temporaryRoots.push(root);
     const source = join(root, 'plugins');
@@ -166,7 +166,7 @@ describe('official release staging', () => {
         JSON.stringify({
           name: `@fixture/${id}`,
           version: '1.0.0',
-          dependencies: id === 'source.file' ? { runtime: '1.0.0' } : {},
+          dependencies: id === 'source.file' ? { runtime: '1.0.0', sibling: '1.0.0' } : {},
           devDependencies: { 'test-only': '1.0.0' },
         }),
       );
@@ -187,9 +187,15 @@ describe('official release staging', () => {
     await mkdir(join(dependencyRoot, 'nested'), { recursive: true });
     await writeFile(
       join(dependencyRoot, 'nested', 'package.json'),
-      JSON.stringify({ name: 'nested', version: '1.0.0' }),
+      JSON.stringify({ name: 'nested', version: '1.0.0', dependencies: { runtime: '1.0.0' } }),
     );
     await writeFile(join(dependencyRoot, 'nested', 'index.js'), 'nested');
+    await mkdir(join(dependencyRoot, 'sibling'), { recursive: true });
+    await writeFile(
+      join(dependencyRoot, 'sibling', 'package.json'),
+      JSON.stringify({ name: 'sibling', version: '1.0.0', dependencies: { nested: '1.0.0' } }),
+    );
+    await writeFile(join(dependencyRoot, 'sibling', 'index.js'), 'sibling');
 
     await stageOfficialArtifacts(source, output, undefined, undefined, { dependencyRoot });
 
@@ -197,19 +203,14 @@ describe('official release staging', () => {
       readFile(join(output, 'source.file', 'node_modules', 'runtime', 'index.js'), 'utf8'),
     ).resolves.toBe('runtime');
     await expect(
-      readFile(
-        join(
-          output,
-          'source.file',
-          'node_modules',
-          'runtime',
-          'node_modules',
-          'nested',
-          'index.js',
-        ),
-        'utf8',
-      ),
+      readFile(join(output, 'source.file', 'node_modules', 'nested', 'index.js'), 'utf8'),
     ).resolves.toBe('nested');
+    await expect(
+      readFile(join(output, 'source.file', 'node_modules', 'sibling', 'index.js'), 'utf8'),
+    ).resolves.toBe('sibling');
+    await expect(
+      access(join(output, 'source.file', 'node_modules', 'runtime', 'node_modules')),
+    ).rejects.toThrow();
     await expect(
       access(join(output, 'source.file', 'node_modules', 'test-only')),
     ).rejects.toThrow();

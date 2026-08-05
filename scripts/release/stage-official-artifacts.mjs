@@ -16,6 +16,9 @@ export async function stageOfficialArtifacts(
 ) {
   const dependencyRoot = options.dependencyRoot ?? join(process.cwd(), 'node_modules');
   await assertNoStageInputSymlinks(source);
+  // Workspace packages can be linked below this directory, so validate the input root itself here
+  // and validate every resolved package before it is copied below.
+  await assertNoStageInputSymlinks(dependencyRoot, readdir, lstat, false);
   if (runtimeArtifacts) await assertNoStageInputSymlinks(runtimeArtifacts);
   if (ytDlpRuntime) await assertNoStageInputSymlinks(ytDlpRuntime);
   await rm(output, { recursive: true, force: true });
@@ -52,12 +55,14 @@ export async function stageOfficialArtifacts(
 async function copyProductionDependencies(pluginSource, pluginOutput, dependencyRoot) {
   const manifest = await packageManifest(pluginSource);
   const copied = new Map();
+  const targets = new Map();
   await copyDependencyClosure(
     pluginSource,
     join(pluginOutput, 'node_modules'),
     dependencyRoot,
     manifest,
     copied,
+    targets,
   );
 }
 
@@ -67,6 +72,7 @@ async function copyDependencyClosure(
   dependencyRoot,
   manifest,
   copied,
+  targets,
 ) {
   const dependencies = {
     ...(manifest.dependencies ?? {}),
@@ -75,29 +81,39 @@ async function copyDependencyClosure(
   for (const name of Object.keys(dependencies).sort()) {
     const source = await resolveProductionDependency(sourcePackage, dependencyRoot, name);
     const target = join(targetNodeModules, ...name.split('/'));
-    const existing = copied.get(target);
+    const existing = copied.get(source);
     if (existing !== undefined) {
-      if (existing !== source) {
+      if (existing !== target) {
         throw releaseError(
           'OFFICIAL_RELEASE_DEPENDENCY_INVALID',
-          `Conflicting production dependency sources were found for ${name}.`,
+          `The production dependency ${name} is required from conflicting locations.`,
         );
       }
       continue;
     }
-    copied.set(target, source);
+    const existingSource = targets.get(target);
+    if (existingSource !== undefined && existingSource !== source) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_DEPENDENCY_INVALID',
+        `Conflicting production dependency sources were found for ${name}.`,
+      );
+    }
+    // Record before traversing children: A -> B -> A is valid and must not recurse forever.
+    copied.set(source, target);
+    targets.set(target, source);
+    await assertNoStageInputSymlinks(source);
     await mkdir(targetNodeModules, { recursive: true });
     await cp(source, target, {
       recursive: true,
-      verbatimSymlinks: true,
       filter: (path) => basename(path) !== 'node_modules',
     });
     await copyDependencyClosure(
       source,
-      join(target, 'node_modules'),
+      targetNodeModules,
       dependencyRoot,
       await packageManifest(source),
       copied,
+      targets,
     );
   }
 }
@@ -143,7 +159,12 @@ function isMissing(error) {
   return error instanceof Error && 'code' in error && error.code === 'ENOENT';
 }
 
-export async function assertNoStageInputSymlinks(root, readDirectory = readdir, statPath = lstat) {
+export async function assertNoStageInputSymlinks(
+  root,
+  readDirectory = readdir,
+  statPath = lstat,
+  recursive = true,
+) {
   let rootEntry;
   try {
     rootEntry = await statPath(root);
@@ -182,7 +203,9 @@ export async function assertNoStageInputSymlinks(root, readDirectory = readdir, 
         `A staged package input is a symbolic link: ${path}.`,
       );
     }
-    if (entry.isDirectory()) await assertNoStageInputSymlinks(path, readDirectory, statPath);
+    if (recursive && entry.isDirectory()) {
+      await assertNoStageInputSymlinks(path, readDirectory, statPath, true);
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import type { ChildProcess } from 'node:child_process';
 
+const defaultGracePeriodMilliseconds = 500;
 const posixProcessGroups = new WeakMap<ChildProcess, number>();
 
 export interface ProcessTreeOptions {
@@ -46,7 +47,7 @@ export async function terminateProcessTree(
   // The leader can exit before descendants which inherited its stdout/stderr.
   // A `close` event is therefore not proof that the whole process group is
   // gone. Always finish the grace period and then reap the group decisively.
-  await waitForGracePeriod(options.gracePeriodMilliseconds ?? 0);
+  await waitForGracePeriod(options.gracePeriodMilliseconds ?? defaultGracePeriodMilliseconds);
   signalOwnedProcessGroup(child, processGroupId, 'SIGKILL', signalGroup);
 }
 

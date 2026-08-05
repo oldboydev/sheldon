@@ -36,11 +36,10 @@ export async function signAndNotarizeMacosArtifacts(directory, platform, options
   const root = await mkdtemp(join(tmpdir(), 'sheldon-macos-sign-'));
   try {
     const archives = await requiredMacosArchives(directory, platform);
-    for (const { archive, path, executable } of archives) {
-      const { zip } = await loadArchive(join(directory, archive));
+    for (const { archive, path, entry, zip } of archives) {
       const extracted = join(root, archive, ...path.split('/'));
       await mkdir(dirname(extracted), { recursive: true });
-      await writeFile(extracted, await zip.file(path).async('nodebuffer'));
+      await writeFile(extracted, await entry.async('nodebuffer'));
       await chmod(extracted, 0o755);
       try {
         await execute(
@@ -83,10 +82,6 @@ export async function signAndNotarizeMacosArtifacts(directory, platform, options
       } catch (error) {
         throw notarizationError(archive, error);
       }
-      // Keep TypeScript-style structural checks in one place; this also makes the expected payload
-      // explicit when reviewing future official plugins.
-      if (!path.endsWith(`/runtime/${platform}/${executable}`))
-        throw new Error('Invalid runtime map.');
     }
   } finally {
     await rm(root, { recursive: true, force: true });
@@ -100,11 +95,10 @@ export async function verifyMacosArtifactSignatures(directory, platform, options
   const root = await mkdtemp(join(tmpdir(), 'sheldon-macos-signature-'));
   try {
     const archives = await requiredMacosArchives(directory, platform);
-    for (const { archive, path } of archives) {
-      const { zip } = await loadArchive(join(directory, archive));
+    for (const { archive, path, entry } of archives) {
       const extracted = join(root, archive, ...path.split('/'));
       await mkdir(dirname(extracted), { recursive: true });
-      await writeFile(extracted, await zip.file(path).async('nodebuffer'));
+      await writeFile(extracted, await entry.async('nodebuffer'));
       await chmod(extracted, 0o755);
       try {
         await execute('codesign', ['--verify', '--deep', '--strict', extracted], {
@@ -134,33 +128,29 @@ async function requiredMacosArchives(directory, platform) {
       );
     }
     const path = `${plugin}/runtime/${platform}/${executable}`;
-    const loaded = await loadArchive(join(directory, archive));
-    const executablePaths = Object.values(loaded.zip.files)
+    const zip = await loadArchive(join(directory, archive));
+    const executablePaths = Object.values(zip.files)
       .filter((entry) => !entry.dir && (entry.unixPermissions & 0o111) !== 0)
       .map((entry) => entry.name)
       .sort();
-    if (
-      executablePaths.length !== 1 ||
-      executablePaths[0] !== path ||
-      loaded.zip.file(path) === null
-    ) {
+    const entry = zip.file(path);
+    if (executablePaths.length !== 1 || executablePaths[0] !== path || entry === null) {
       throw releaseError(
         'OFFICIAL_RELEASE_MACOS_SIGNATURE_INVALID',
         `The ${archive} executable payload is incomplete or contains an unexpected executable.`,
       );
     }
-    result.push({ archive, path, executable });
+    result.push({ archive, path, executable, zip, entry });
   }
   return result;
 }
 
 async function loadArchive(path) {
   try {
-    const zip = await JSZip.loadAsync(await readFile(path), {
+    return await JSZip.loadAsync(await readFile(path), {
       createFolders: false,
       checkCRC32: true,
     });
-    return { zip, path: undefined };
   } catch (error) {
     throw releaseError(
       'OFFICIAL_RELEASE_ARCHIVE_INVALID',
@@ -217,6 +207,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const options = parseOptions(process.argv.slice(2));
   if (options.mode === '--sign-and-notarize') {
     await signAndNotarizeMacosArtifacts(options.directory, options.platform);
+  } else {
+    await verifyMacosArtifactSignatures(options.directory, options.platform);
   }
-  await verifyMacosArtifactSignatures(options.directory, options.platform);
 }

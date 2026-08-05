@@ -92,7 +92,7 @@ async function lease(
 
 function input(rawDirectory: string): PublishPluginFileInput {
   return {
-    filePath: 'C:\\knowledge\\fixture.pdf',
+    filePath: join('knowledge', 'fixture.pdf'),
     rawDirectory,
     plugin: { id: 'sheldon.file', version: '1.0.0' },
     options: { language: 'en', ocr: 'off' },
@@ -109,7 +109,7 @@ function sourceInput(rawDirectory: string, originalName = 'fixture.pdf'): Publis
 }
 
 describe('plugin file ingestion publication', () => {
-  it('derives a legacy Windows basename independently of the host platform', async () => {
+  it('derives a basename with the host path semantics', async () => {
     const directory = await fixtureDirectory();
     const temporaryDirectory = join(directory, 'lease');
     await mkdir(temporaryDirectory);
@@ -123,6 +123,24 @@ describe('plugin file ingestion publication', () => {
 
     expect(result.manifest.original_name).toBe('fixture.pdf');
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'does not reinterpret a POSIX backslash as a path separator',
+    async () => {
+      const directory = await fixtureDirectory();
+      const temporaryDirectory = join(directory, 'lease');
+      await mkdir(temporaryDirectory);
+      const fixtureLease = await lease(temporaryDirectory, Buffer.from('posix-backslash'));
+
+      await expect(
+        publishPluginFileIngestion(
+          { ...input(join(directory, 'raw')), filePath: '/knowledge/folder\\fixture.pdf' },
+          fixtureLease,
+          fixedClock,
+        ),
+      ).rejects.toMatchObject({ code: 'PLUGIN_FILE_ORIGINAL_NAME_INVALID' });
+    },
+  );
 
   it('publishes the supplied safe original basename', async () => {
     const directory = await fixtureDirectory();

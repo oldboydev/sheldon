@@ -12,7 +12,7 @@ import {
   stat,
   writeFile,
 } from 'node:fs/promises';
-import { extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 import type { IngestLease } from '@sheldon/plugin-host';
@@ -306,14 +306,10 @@ export async function publishPluginFileIngestion(
   dependencies: PluginFileIngestorDependencies = {},
 ): Promise<PluginFileIngestionResult> {
   return publishPluginSourceIngestion(
-    { ...input, originalName: crossPlatformBasename(input.filePath) },
+    { ...input, originalName: basename(input.filePath) },
     lease,
     dependencies,
   );
-}
-
-function crossPlatformBasename(path: string): string {
-  return path.split(/[\\/]/u).at(-1) ?? '';
 }
 
 function requiredArtifact(
@@ -408,7 +404,7 @@ function artifactManifest(artifact: SourceArtifact, path: string): PluginFileArt
 }
 
 function originalFileName(path: string): string {
-  const extension = extname(crossPlatformBasename(path));
+  const extension = extname(basename(path));
   return extension.length === 0 ? 'original' : `original${extension}`;
 }
 
@@ -418,7 +414,7 @@ function safeOriginalName(originalName: string): string {
     /^\.+$/u.test(originalName) ||
     originalName.includes('/') ||
     originalName.includes('\\') ||
-    crossPlatformBasename(originalName) !== originalName
+    basename(originalName) !== originalName
   ) {
     throw new PluginFileIngestionError(
       'PLUGIN_FILE_ORIGINAL_NAME_INVALID',

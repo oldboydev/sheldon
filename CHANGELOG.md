@@ -22,11 +22,13 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
-- O release oficial agora inclui a closure de dependências de produção em cada plugin, assina e
-  notariza os executáveis finais de macOS (OCR e `yt-dlp`) antes de recalcular e assinar o catálogo.
-  A validação semanal de artefatos ocorre às segundas-feiras, 04:17 UTC, sem publicar o catálogo.
+- O release oficial agora inclui uma closure de dependências de produção plana, protegida contra
+  ciclos e symlinks, em cada plugin. Ele assina e notariza os executáveis finais de macOS (OCR e
+  `yt-dlp`) antes de recalcular e assinar o catálogo, e confirma que os ZIPs assinados substituíram
+  os candidatos. A validação semanal ocorre às segundas-feiras, 04:17 UTC, sem publicar o catálogo.
 - O supervisor POSIX usa o grace period configurado em timeout, cancelamento e falha de protocolo,
-  aguarda o encerramento real da árvore e não sintetiza mais um código de saída `SIGKILL`.
+  observa a saída do filho sem aguardar pipes herdados e limita o fallback sem sintetizar um código
+  de saída `SIGKILL`.
 - A resolução de diretórios e a migração de estado agora validam estritamente a plataforma e raízes
   absolutas injetadas; a publicação de fontes calcula hashes por streaming.
 - A validação de repositórios no macOS aceita somente os aliases de sistema `/var` e `/tmp`,

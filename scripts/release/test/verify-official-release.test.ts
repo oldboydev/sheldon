@@ -1,5 +1,5 @@
 import { generateKeyPairSync } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -11,7 +11,10 @@ import {
 } from '../build-official-artifacts.mjs';
 import { signOfficialCatalog } from '../sign-official-catalog.mjs';
 import { smokeOfficialArtifacts } from '../smoke-official-artifacts.mjs';
-import { signAndNotarizeMacosArtifacts } from '../verify-macos-artifact-signatures.mjs';
+import {
+  signAndNotarizeMacosArtifacts,
+  verifyMacosArtifactSignatures,
+} from '../verify-macos-artifact-signatures.mjs';
 import { verifyOfficialRelease } from '../verify-official-release.mjs';
 
 const temporaryRoots: string[] = [];
@@ -78,6 +81,30 @@ describe('official release verifier', () => {
         expect.stringMatching(/source\.instagram.*yt-dlp$/),
       ]),
     );
+    expect(execute.mock.calls.filter(([command]) => command === 'spctl')).toHaveLength(3);
+  });
+
+  it('rejects an archive whose expected executable payload is absent before invoking macOS tools', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-macos-invalid-'));
+    temporaryRoots.push(root);
+    const input = join(root, 'stage');
+    const output = join(root, 'out');
+    await createStage(input);
+    await buildOfficialArtifacts(input, output, '2026-07-21T00:00:00.000Z');
+    const archive = join(output, 'source.image-darwin-arm64.zip');
+    const JSZip = (await import('jszip')).default;
+    const zip = await JSZip.loadAsync(await readFile(archive));
+    zip.remove('source.image/runtime/darwin-arm64/tesseract');
+    await writeFile(
+      archive,
+      await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', platform: 'UNIX' }),
+    );
+    const execute = vi.fn(async () => ({ stdout: '', stderr: '' }));
+
+    await expect(
+      verifyMacosArtifactSignatures(output, 'darwin-arm64', { execute }),
+    ).rejects.toMatchObject({ code: 'OFFICIAL_RELEASE_MACOS_SIGNATURE_INVALID' });
+    expect(execute).not.toHaveBeenCalled();
   });
 
   it('verifies a signed release and exercises every packaged image runtime through injection', async () => {

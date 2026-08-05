@@ -85,6 +85,33 @@ describe('terminateProcessTree', () => {
     vi.useRealTimers();
   });
 
+  it('uses the documented default POSIX termination grace period', async () => {
+    vi.useFakeTimers();
+    try {
+      const grouped = Object.assign(new EventEmitter(), {
+        pid: 1236,
+        exitCode: null,
+        signalCode: null,
+        kill: vi.fn(() => true),
+      }) as unknown as ChildProcess;
+      const signals: NodeJS.Signals[] = [];
+      rememberPosixProcessGroup(grouped);
+      const termination = terminateProcessTree(grouped, {
+        platform: 'linux',
+        signalProcessGroup: (_group, signal) => signals.push(signal),
+      });
+
+      expect(signals).toEqual(['SIGTERM']);
+      await vi.advanceTimersByTimeAsync(499);
+      expect(signals).toEqual(['SIGTERM']);
+      await vi.advanceTimersByTimeAsync(1);
+      await termination;
+      expect(signals).toEqual(['SIGTERM', 'SIGKILL']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('does not signal a non-positive process identifier', async () => {
     await expect(terminateProcessTree(child(0), { platform: 'linux' })).rejects.toThrow(
       'Refusing to terminate an invalid plugin process.',
