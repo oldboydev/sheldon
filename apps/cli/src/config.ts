@@ -41,7 +41,13 @@ function resolvedApplicationPaths(context: PathContext): {
     homeDirectory: context.homeDirectory,
     platform,
   });
-  return { pathApi: platform === 'win32' ? win32 : posix, paths };
+  return { pathApi: pathApiFor(context), paths };
+}
+
+function pathApiFor(
+  context: Pick<PathContext, 'platform'>,
+): Pick<typeof posix, 'join' | 'resolve'> {
+  return nodePlatform(context.platform) === 'win32' ? win32 : posix;
 }
 
 export function appDataRoot(context: PathContext): string {
@@ -54,13 +60,12 @@ export function configPath(context: PathContext): string {
 }
 
 export function defaultVaultPath(context: PathContext): string {
-  const { pathApi } = resolvedApplicationPaths(context);
-  return pathApi.join(context.homeDirectory, 'Documents', 'Sheldon');
+  return pathApiFor(context).join(context.homeDirectory, 'Documents', 'Sheldon');
 }
 
 /** Resolves a user-supplied local path using the same platform contract as application paths. */
 export function resolveApplicationPath(context: PathContext, value: string): string {
-  return resolvedApplicationPaths(context).pathApi.resolve(value);
+  return pathApiFor(context).resolve(value);
 }
 
 export async function saveConfiguredVault(context: CommandContext, vault: string): Promise<void> {

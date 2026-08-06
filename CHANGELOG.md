@@ -31,7 +31,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
   de saída `SIGKILL`.
 - A resolução de diretórios e a migração de estado agora validam estritamente a plataforma e raízes
   absolutas injetadas; caminhos de vault/configuração usam uma única semântica por plataforma e a
-  publicação de fontes calcula hashes por streaming.
+  publicação de fontes calcula hashes por streaming. A seleção de vault não exige que o layout de
+  estado XDG ou APPDATA já esteja válido.
 - A validação de repositórios no macOS aceita somente os aliases de sistema `/var` e `/tmp`,
   normalizando-os antes da inspeção; symlinks fornecidos pelo usuário permanecem recusados. O
   resolvedor de bibliotecas OCR também compara candidatos contra o Cellar canônico. A plataforma

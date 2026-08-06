@@ -1,6 +1,6 @@
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, win32 } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -61,6 +61,18 @@ describe('application paths', () => {
       stateRoot: '/var/state root/sheldon',
       temporaryRoot: '/var/state root/sheldon/temporary',
     });
+  });
+
+  it('resolves vault paths without consulting an invalid application-data layout', () => {
+    const context = {
+      platform: 'linux-x64',
+      environment: { XDG_CONFIG_HOME: 'relative', XDG_STATE_HOME: 'also-relative' },
+      homeDirectory: '/home/ada',
+    };
+
+    expect(defaultVaultPath(context)).toBe('/home/ada/Documents/Sheldon');
+    expect(resolveApplicationPath(context, '../vault')).toBe(posix.resolve('../vault'));
+    expect(() => applicationPaths(context)).toThrow('XDG_CONFIG_HOME must be an absolute path.');
   });
 
   it('uses conventional XDG fallbacks', () => {

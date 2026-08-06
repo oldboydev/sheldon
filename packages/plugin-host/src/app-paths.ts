@@ -37,22 +37,29 @@ export function resolvePluginAppPaths(options: PluginAppPathOptions = {}): Plugi
   const homeDirectory = options.homeDirectory ?? environment.HOME;
 
   if (platform === 'win32') {
+    const configuredAppData = environment.APPDATA;
+    if (configuredAppData !== undefined) {
+      if (configuredAppData.length === 0 || !win32.isAbsolute(configuredAppData)) {
+        throw new Error(
+          'An absolute APPDATA directory is required to resolve the Sheldon application directory on Windows.',
+        );
+      }
+      return pathsForRoots(
+        win32.join(configuredAppData, 'Sheldon'),
+        win32.join(configuredAppData, 'Sheldon'),
+        win32,
+      );
+    }
     if (
-      environment.APPDATA === undefined &&
-      (homeDirectory === undefined ||
-        homeDirectory.length === 0 ||
-        !win32.isAbsolute(homeDirectory))
+      homeDirectory === undefined ||
+      homeDirectory.length === 0 ||
+      !win32.isAbsolute(homeDirectory)
     ) {
       throw new Error(
         'An absolute Windows home directory is required when APPDATA is not available.',
       );
     }
-    const appData = environment.APPDATA ?? win32.join(homeDirectory!, 'AppData', 'Roaming');
-    if (appData === undefined || appData.length === 0 || !win32.isAbsolute(appData)) {
-      throw new Error(
-        'An absolute APPDATA directory is required to resolve the Sheldon application directory on Windows.',
-      );
-    }
+    const appData = win32.join(homeDirectory, 'AppData', 'Roaming');
     return pathsForRoots(win32.join(appData, 'Sheldon'), win32.join(appData, 'Sheldon'), win32);
   }
 
