@@ -22,12 +22,14 @@
 10. [Plugins de redes sociais](prds/010-social-media-plugins.md)
 11. [Posts e artigos públicos do LinkedIn](prds/011-linkedin-public-posts-and-articles.md)
 12. [Suporte efetivo a Linux e macOS](prds/012-cross-platform-support.md)
+13. [Distribuição pública pelo npm](prds/013-npm-publication-and-installation.md)
 
 ## Planos de implementação
 
 - [Fundação e vault central](superpowers/plans/2026-07-18-vault-foundation.md)
 - [Design da plataforma de plugins](superpowers/specs/2026-07-18-plugin-platform-design.md)
 - [Plataforma de plugins](superpowers/plans/2026-07-18-plugin-platform.md)
+- [Distribuição pública pelo npm](superpowers/plans/2026-08-06-npm-publication-and-installation.md)
 
 ## Pesquisa
 

@@ -124,7 +124,7 @@ núcleo.
 
 **PRD:** 012
 
-**Status:** em validação multiplataforma.
+**Status:** concluído em 6 de agosto de 2026.
 
 Entrega: Sheldon passa a suportar Windows x64, Linux x64 e macOS Intel/Apple Silicon com diretórios
 operacionais conformes à plataforma, isolamento de árvore de processos equivalente, artefatos
@@ -132,6 +132,20 @@ verificados e CI nativa para cada sistema.
 
 Saída: criar vault, ingerir fonte, consultar, gerar bundle, instalar plugins oficiais e iniciar a
 interface local têm o mesmo contrato operacional e de diagnóstico na matriz publicada.
+
+### M11 — Distribuição pública pelo npm
+
+**PRD:** 013
+
+**Status:** planejado.
+
+Entrega: um único comando instala a CLI pública em Windows x64, Linux x64, macOS Intel e Apple
+Silicon, com pacote selecionado pela plataforma, artefatos verificáveis, versão SemVer e publicação
+proveniente de uma tag protegida.
+
+Saída: `npm install -g @oldboydev/sheldon` instala a variante suportada, `sheldon --help` e
+`sheldon init` funcionam em ambiente limpo, e uma combinação não suportada falha com diagnóstico
+acionável sem baixar nem executar artefato aproximado.
 
 ## Definição do MVP
 
