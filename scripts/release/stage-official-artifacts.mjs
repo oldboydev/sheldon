@@ -1,5 +1,5 @@
-import { cp, lstat, mkdir, readdir, rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { cp, lstat, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promises';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { OFFICIAL_PLUGIN_IDS, releaseError } from './build-official-artifacts.mjs';
@@ -7,8 +7,18 @@ import { prepareOcrRuntime } from './prepare-ocr-runtime.mjs';
 
 const PACKAGE_FILES = ['package.json', 'sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'];
 
-export async function stageOfficialArtifacts(source, output, runtimeArtifacts, ytDlpRuntime) {
+export async function stageOfficialArtifacts(
+  source,
+  output,
+  runtimeArtifacts,
+  ytDlpRuntime,
+  options = {},
+) {
+  const dependencyRoot = options.dependencyRoot ?? join(process.cwd(), 'node_modules');
   await assertNoStageInputSymlinks(source);
+  // Workspace packages can be linked below this directory, so validate the input root itself here
+  // and validate every resolved package before it is copied below.
+  await assertNoStageInputSymlinks(dependencyRoot, readdir, lstat, false);
   if (runtimeArtifacts) await assertNoStageInputSymlinks(runtimeArtifacts);
   if (ytDlpRuntime) await assertNoStageInputSymlinks(ytDlpRuntime);
   await rm(output, { recursive: true, force: true });
@@ -33,10 +43,128 @@ export async function stageOfficialArtifacts(source, output, runtimeArtifacts, y
     if ((id === 'source.youtube' || id === 'source.instagram') && ytDlpRuntime) {
       await copyRequired(join(ytDlpRuntime, 'runtime'), join(pluginOutput, 'runtime'), true);
     }
+    await copyProductionDependencies(pluginSource, pluginOutput, dependencyRoot);
   }
 }
 
-export async function assertNoStageInputSymlinks(root, readDirectory = readdir, statPath = lstat) {
+/**
+ * Official plugins run outside this monorepo after installation.  Keep their runtime dependency
+ * closure inside the archive instead of accidentally resolving the developer checkout's
+ * node_modules directory.  Development dependencies are intentionally never copied.
+ */
+async function copyProductionDependencies(pluginSource, pluginOutput, dependencyRoot) {
+  const manifest = await packageManifest(pluginSource);
+  const copied = new Map();
+  const targets = new Map();
+  await copyDependencyClosure(
+    pluginSource,
+    join(pluginOutput, 'node_modules'),
+    dependencyRoot,
+    manifest,
+    copied,
+    targets,
+  );
+}
+
+async function copyDependencyClosure(
+  sourcePackage,
+  targetNodeModules,
+  dependencyRoot,
+  manifest,
+  copied,
+  targets,
+) {
+  const dependencies = {
+    ...(manifest.dependencies ?? {}),
+    ...(manifest.optionalDependencies ?? {}),
+  };
+  for (const name of Object.keys(dependencies).sort()) {
+    const source = await resolveProductionDependency(sourcePackage, dependencyRoot, name);
+    const target = join(targetNodeModules, ...name.split('/'));
+    const existing = copied.get(source);
+    if (existing !== undefined) {
+      if (existing !== target) {
+        throw releaseError(
+          'OFFICIAL_RELEASE_DEPENDENCY_INVALID',
+          `The production dependency ${name} is required from conflicting locations.`,
+        );
+      }
+      continue;
+    }
+    const existingSource = targets.get(target);
+    if (existingSource !== undefined && existingSource !== source) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_DEPENDENCY_INVALID',
+        `Conflicting production dependency sources were found for ${name}.`,
+      );
+    }
+    // Record before traversing children: A -> B -> A is valid and must not recurse forever.
+    copied.set(source, target);
+    targets.set(target, source);
+    await assertNoStageInputSymlinks(source);
+    await mkdir(targetNodeModules, { recursive: true });
+    await cp(source, target, {
+      recursive: true,
+      filter: (path) => basename(path) !== 'node_modules',
+    });
+    await copyDependencyClosure(
+      source,
+      targetNodeModules,
+      dependencyRoot,
+      await packageManifest(source),
+      copied,
+      targets,
+    );
+  }
+}
+
+async function resolveProductionDependency(sourcePackage, dependencyRoot, name) {
+  for (const candidate of [join(sourcePackage, 'node_modules', name), join(dependencyRoot, name)]) {
+    try {
+      return await realpath(candidate);
+    } catch (error) {
+      if (!isMissing(error)) throw error;
+    }
+  }
+  throw releaseError(
+    'OFFICIAL_RELEASE_DEPENDENCY_MISSING',
+    `The production dependency ${name} is unavailable for official artifact staging.`,
+  );
+}
+
+async function packageManifest(root) {
+  try {
+    const candidate = JSON.parse(await readFile(join(root, 'package.json'), 'utf8'));
+    if (candidate === null || typeof candidate !== 'object' || Array.isArray(candidate))
+      throw new Error();
+    if (
+      (candidate.dependencies !== undefined &&
+        (typeof candidate.dependencies !== 'object' || Array.isArray(candidate.dependencies))) ||
+      (candidate.optionalDependencies !== undefined &&
+        (typeof candidate.optionalDependencies !== 'object' ||
+          Array.isArray(candidate.optionalDependencies)))
+    ) {
+      throw new Error();
+    }
+    return candidate;
+  } catch {
+    throw releaseError(
+      'OFFICIAL_RELEASE_PACKAGE_INVALID',
+      `The staged package manifest is invalid: ${join(root, 'package.json')}.`,
+    );
+  }
+}
+
+function isMissing(error) {
+  return error instanceof Error && 'code' in error && error.code === 'ENOENT';
+}
+
+export async function assertNoStageInputSymlinks(
+  root,
+  readDirectory = readdir,
+  statPath = lstat,
+  recursive = true,
+) {
   let rootEntry;
   try {
     rootEntry = await statPath(root);
@@ -75,7 +203,9 @@ export async function assertNoStageInputSymlinks(root, readDirectory = readdir, 
         `A staged package input is a symbolic link: ${path}.`,
       );
     }
-    if (entry.isDirectory()) await assertNoStageInputSymlinks(path, readDirectory, statPath);
+    if (recursive && entry.isDirectory()) {
+      await assertNoStageInputSymlinks(path, readDirectory, statPath, true);
+    }
   }
 }
 

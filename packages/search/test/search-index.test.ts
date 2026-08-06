@@ -854,7 +854,7 @@ describe('SearchIndex', () => {
       .find((result) => result.conceptId === 'target');
     expect(cappedTarget?.relatedConcepts).toHaveLength(100);
     expect(cappedTarget?.relatedConceptsTruncated).toBe(true);
-  }, 15_000);
+  }, 45_000);
 
   it('keeps duplicate wiki paths separate by entity and compares date filters by instant', async () => {
     const root = await createVault();

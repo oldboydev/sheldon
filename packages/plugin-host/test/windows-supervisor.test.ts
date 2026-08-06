@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import type { PluginManifest } from '@sheldon/plugin-sdk';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 
 import { startPluginProcess, type RunnablePlugin } from '../src/index.js';
 
@@ -79,6 +79,32 @@ afterAll(async () => {
 });
 
 describe('startPluginProcess', () => {
+  it('creates a detached POSIX process group before returning the plugin child', async () => {
+    const runnable = await plugin();
+    const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-posix-group-test-'));
+    temporaryRoots.push(temporaryDirectory);
+    const launched = {
+      pid: 4321,
+      stdin: undefined,
+      stdout: undefined,
+      stderr: undefined,
+    } as unknown as ChildProcessWithoutNullStreams;
+    const spawnProcess = vi.fn(() => launched);
+
+    await expect(
+      startPluginProcess(runnable, temporaryDirectory, environment(temporaryDirectory), {
+        platform: 'linux',
+        spawn: spawnProcess as unknown as typeof spawn,
+      }),
+    ).resolves.toBe(launched);
+
+    expect(spawnProcess).toHaveBeenCalledWith(
+      runnable.manifest.command.executable,
+      runnable.manifest.command.arguments,
+      expect.objectContaining({ detached: true, stdio: ['pipe', 'pipe', 'pipe'] }),
+    );
+  });
+
   it('preserves plugin stdio bytes and exit code through platform dispatch', async () => {
     const runnable = await plugin();
     const temporaryDirectory = await mkdtemp(join(tmpdir(), 'sheldon-supervisor-environment-'));

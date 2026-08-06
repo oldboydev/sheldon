@@ -91,12 +91,17 @@ canonical_path() {
 }
 resolve_cellar_library_path() {
   local library_source="$1" library_name="$2" cellar="$3" candidate_file="$4"
-  [[ "$library_source" == "$cellar/"* ]] && {
+  local canonical_cellar
+  if ! canonical_cellar="$(canonical_path "$cellar")"; then
+    printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to canonicalize the Homebrew Cellar %s.\n' "$cellar" >&2
+    return 1
+  fi
+  [[ "$library_source" == "$canonical_cellar/"* ]] && {
     printf '%s\n' "$library_source"
     return
   }
 
-  if ! find "$cellar" \( -type f -o -type l \) -name "$library_name" -print0 > "$candidate_file"; then
+  if ! find "$canonical_cellar" \( -type f -o -type l \) -name "$library_name" -print0 > "$candidate_file"; then
     printf 'OCR_RUNTIME_NOTICES_INVALID: Unable to traverse the Homebrew Cellar for %s.\n' "$library_source" >&2
     return 1
   fi
@@ -109,7 +114,7 @@ resolve_cellar_library_path() {
         "$cellar_candidate" >&2
       return 1
     fi
-    if [[ "$canonical_candidate" != "$cellar/"* || ! -f "$canonical_candidate" ]]; then
+    if [[ "$canonical_candidate" != "$canonical_cellar/"* || ! -f "$canonical_candidate" ]]; then
       printf 'OCR_RUNTIME_NOTICES_INVALID: Homebrew Cellar candidate does not resolve inside the Homebrew Cellar: %s.\n' \
         "$cellar_candidate" >&2
       return 1

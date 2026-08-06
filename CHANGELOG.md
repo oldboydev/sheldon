@@ -8,6 +8,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Suporte operacional para Windows x64, Ubuntu x64 e macOS Intel/Apple Silicon, com diretórios
+  XDG separados para configuração e estado, encerramento de árvore POSIX e gates nativos por
+  plataforma.
 - Conector experimental `source.linkedin` para um post individual público ou LinkedIn Article
   público. Ele captura HTML sanitizado, texto e metadados em raws separados; imagens públicas são
   opt-in e OCR local é derivado pelo host em processos isolados. Não usa cookies ou browser
@@ -19,6 +22,21 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- O release oficial agora inclui uma closure de dependências de produção plana, protegida contra
+  ciclos e symlinks, em cada plugin. Ele assina e notariza os executáveis finais de macOS (OCR e
+  `yt-dlp`) antes de recalcular e assinar o catálogo, e confirma que os ZIPs assinados substituíram
+  os candidatos. A validação semanal ocorre às segundas-feiras, 04:17 UTC, sem publicar o catálogo.
+- O supervisor POSIX usa o grace period configurado em timeout, cancelamento e falha de protocolo,
+  observa a saída do filho sem aguardar pipes herdados e limita o fallback sem sintetizar um código
+  de saída `SIGKILL`.
+- A resolução de diretórios e a migração de estado agora validam estritamente a plataforma e raízes
+  absolutas injetadas; caminhos de vault/configuração usam uma única semântica por plataforma e a
+  publicação de fontes calcula hashes por streaming. A seleção de vault não exige que o layout de
+  estado XDG ou APPDATA já esteja válido.
+- A validação de repositórios no macOS aceita somente os aliases de sistema `/var` e `/tmp`,
+  normalizando-os antes da inspeção; symlinks fornecidos pelo usuário permanecem recusados. O
+  resolvedor de bibliotecas OCR também compara candidatos contra o Cellar canônico. A plataforma
+  usada nessa validação é estável por operação e pode ser injetada nos testes.
 - O watchdog OCR Windows agora cancela explicitamente uma escrita de stdin pendente antes de
   encerrar a árvore de processos no timeout.
 - Em timeout, o watchdog OCR Windows fecha diretamente o Job Object atribuído para encerrar a
