@@ -1,0 +1,268 @@
+name: Publish npm packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: SemVer version for the non-publishing package dry run.
+        required: true
+        default: 0.0.0-dry-run.0
+        type: string
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+jobs:
+  release-context:
+    runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.release.outputs.version }}
+      dist-tag: ${{ steps.release.outputs.dist-tag }}
+      candidate-dist-tag: ${{ steps.release.outputs.candidate-dist-tag }}
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.13.0
+      - id: release
+        shell: bash
+        run: |
+          version='${{ inputs.version }}'
+          if [[ "$GITHUB_EVENT_NAME" == 'push' ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          fi
+          node --input-type=module --eval '
+            import { assertNpmPackageVersion } from "./scripts/release/npm-package-model.mjs";
+            const version = process.argv[1];
+            assertNpmPackageVersion(version);
+            console.log(`dist-tag=${version.includes("-") ? "next" : "latest"}`);
+          ' "$version" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "candidate-dist-tag=candidate" >> "$GITHUB_OUTPUT"
+
+  quality-and-m10:
+    name: quality and M10 (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win32-x64
+            runner: windows-2022
+          - platform: linux-x64
+            runner: ubuntu-22.04
+          - platform: darwin-arm64
+            runner: macos-14
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run verify
+
+  build-and-verify-runtimes:
+    needs: [release-context, quality-and-m10]
+    name: build and verify (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win32-x64
+            runner: windows-2022
+          - platform: linux-x64
+            runner: ubuntu-22.04
+          - platform: darwin-arm64
+            runner: macos-14
+          - platform: darwin-x64
+            runner: macos-15-intel
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build isolated runtime package
+        run: >-
+          node scripts/release/build-npm-packages.mjs
+          --target ${{ matrix.platform }}
+          --version ${{ needs.release-context.outputs.version }}
+          --output release/npm
+      - name: Audit the npm package content without publishing
+        run: npm pack --dry-run --json ./release/npm/sheldon-${{ matrix.platform }}
+      - name: Create a tarball checksum for the release inventory
+        shell: bash
+        run: |
+          provenance_directory="release/npm-provenance/sheldon-${{ matrix.platform }}"
+          mkdir -p "$provenance_directory"
+          npm pack --json --pack-destination "$provenance_directory" "./release/npm/sheldon-${{ matrix.platform }}" > "$provenance_directory/pack.json"
+          node --input-type=module --eval '
+            import { createHash } from "node:crypto";
+            import { readdir, readFile, writeFile } from "node:fs/promises";
+            import { join } from "node:path";
+            const directory = process.argv[1];
+            const tarball = (await readdir(directory)).find((file) => file.endsWith(".tgz"));
+            if (!tarball) throw new Error("NPM_PACKAGE_TARBALL_MISSING");
+            const hash = createHash("sha256").update(await readFile(join(directory, tarball))).digest("hex");
+            await writeFile(join(directory, `${tarball}.sha256`), `${hash}  ${tarball}\n`);
+          ' "$provenance_directory"
+      - name: Smoke the packed runtime in a clean prefix
+        run: >-
+          node scripts/release/smoke-npm-package.mjs
+          --package release/npm/sheldon-${{ matrix.platform }}
+          --platform ${{ matrix.platform }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-runtime-${{ matrix.platform }}
+          path: |
+            release/npm/sheldon-${{ matrix.platform }}
+            release/npm-provenance/sheldon-${{ matrix.platform }}
+          if-no-files-found: error
+
+  build-metapackage:
+    needs: [release-context, build-and-verify-runtimes]
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.13.0
+          cache: npm
+      - run: npm ci
+      - run: npm run build
+      - name: Build the public metapackage after every runtime passes smoke
+        run: >-
+          node scripts/release/build-npm-packages.mjs
+          --metapackage
+          --version ${{ needs.release-context.outputs.version }}
+          --output release/npm
+      - name: Audit the npm package content without publishing
+        run: npm pack --dry-run --json ./release/npm/metapackage
+      - name: Create a tarball checksum for the release inventory
+        shell: bash
+        run: |
+          provenance_directory='release/npm-provenance/sheldon'
+          mkdir -p "$provenance_directory"
+          npm pack --json --pack-destination "$provenance_directory" ./release/npm/metapackage > "$provenance_directory/pack.json"
+          node --input-type=module --eval '
+            import { createHash } from "node:crypto";
+            import { readdir, readFile, writeFile } from "node:fs/promises";
+            import { join } from "node:path";
+            const directory = process.argv[1];
+            const tarball = (await readdir(directory)).find((file) => file.endsWith(".tgz"));
+            if (!tarball) throw new Error("NPM_PACKAGE_TARBALL_MISSING");
+            const hash = createHash("sha256").update(await readFile(join(directory, tarball))).digest("hex");
+            await writeFile(join(directory, `${tarball}.sha256`), `${hash}  ${tarball}\n`);
+          ' "$provenance_directory"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: npm-metapackage
+          path: |
+            release/npm/metapackage
+            release/npm-provenance/sheldon
+          if-no-files-found: error
+
+  publish-runtimes:
+    needs: [release-context, build-and-verify-runtimes]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    name: publish runtime (${{ matrix.platform }})
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: win32-x64
+          - platform: linux-x64
+          - platform: darwin-arm64
+          - platform: darwin-x64
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: npm-runtime-${{ matrix.platform }}
+          path: release
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.13.0
+      - name: Publish the verified runtime through npm OIDC
+        run: >-
+          npm publish release/npm/sheldon-${{ matrix.platform }}
+          --provenance
+          --tag ${{ needs.release-context.outputs.candidate-dist-tag }}
+
+  publish-metapackage:
+    needs: [release-context, build-metapackage, publish-runtimes]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          name: npm-metapackage
+          path: release
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.13.0
+      - name: Publish only after all four runtimes are available
+        run: >-
+          npm publish release/npm/metapackage
+          --provenance
+          --tag ${{ needs.release-context.outputs.candidate-dist-tag }}
+
+  promote-npm-packages:
+    needs: [release-context, publish-metapackage]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
+        with:
+          node-version: 24.13.0
+      - name: Promote the complete release only after every package is published
+        shell: bash
+        run: |
+          for package in sheldon-win32-x64 sheldon-linux-x64 sheldon-darwin-arm64 sheldon-darwin-x64 sheldon; do
+            npm dist-tag add "@oldboydev/$package@${{ needs.release-context.outputs.version }}" "${{ needs.release-context.outputs.dist-tag }}"
+          done
+
+  attach-package-provenance:
+    needs: [build-and-verify-runtimes, build-metapackage, promote-npm-packages]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5.0.0
+        with:
+          pattern: npm-*
+          path: release/npm-artifacts
+      - name: Give every inventory, SBOM, and tarball hash a unique release name
+        shell: bash
+        run: |
+          mkdir -p release/npm-attachments
+          for package in sheldon-win32-x64 sheldon-linux-x64 sheldon-darwin-arm64 sheldon-darwin-x64 sheldon; do
+            stage_directory="$package"
+            test "$package" != sheldon || stage_directory=metapackage
+            directory="$(find release/npm-artifacts -path "*/npm/$stage_directory" -type d -print -quit)"
+            provenance="$(find release/npm-artifacts -path "*/npm-provenance/$package" -type d -print -quit)"
+            test -n "$directory" && test -n "$provenance"
+            cp "$directory/inventory.json" "release/npm-attachments/$package.inventory.json"
+            cp "$directory/sbom.spdx.json" "release/npm-attachments/$package.sbom.spdx.json"
+            cp "$provenance"/*.tgz.sha256 release/npm-attachments/
+          done
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.3.3
+        with:
+          files: release/npm-attachments/*

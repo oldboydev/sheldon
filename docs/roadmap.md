@@ -137,7 +137,7 @@ interface local têm o mesmo contrato operacional e de diagnóstico na matriz pu
 
 **PRD:** 013
 
-**Status:** planejado.
+**Status:** em implementação.
 
 Entrega: um único comando instala a CLI pública em Windows x64, Linux x64, macOS Intel e Apple
 Silicon, com pacote selecionado pela plataforma, artefatos verificáveis, versão SemVer e publicação

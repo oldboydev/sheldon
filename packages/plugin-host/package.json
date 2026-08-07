@@ -12,6 +12,7 @@
   "dependencies": {
     "@sheldon/persistence": "*",
     "@sheldon/plugin-sdk": "*",
+    "jszip": "^3.10.1",
     "yaml": "^2.9.0"
   }
 }

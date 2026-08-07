@@ -6,13 +6,13 @@ O monorepo não será publicado. A distribuição terá um metapacote público
 `@oldboydev/sheldon` e quatro runtimes de implementação, publicamente instaláveis, com a mesma
 versão:
 
-| Pacote | `os` | `cpu` | Responsabilidade |
-| --- | --- | --- | --- |
-| `@oldboydev/sheldon` | qualquer | qualquer | binário, seleção e diagnóstico |
-| `@oldboydev/sheldon-win32-x64` | `win32` | `x64` | CLI e Job Object nativo |
-| `@oldboydev/sheldon-linux-x64` | `linux` | `x64` | CLI e supervisor POSIX |
-| `@oldboydev/sheldon-darwin-x64` | `darwin` | `x64` | CLI e supervisor POSIX Intel |
-| `@oldboydev/sheldon-darwin-arm64` | `darwin` | `arm64` | CLI e supervisor POSIX Apple Silicon |
+| Pacote                            | `os`     | `cpu`    | Responsabilidade                     |
+| --------------------------------- | -------- | -------- | ------------------------------------ |
+| `@oldboydev/sheldon`              | qualquer | qualquer | binário, seleção e diagnóstico       |
+| `@oldboydev/sheldon-win32-x64`    | `win32`  | `x64`    | CLI e Job Object nativo              |
+| `@oldboydev/sheldon-linux-x64`    | `linux`  | `x64`    | CLI e supervisor POSIX               |
+| `@oldboydev/sheldon-darwin-x64`   | `darwin` | `x64`    | CLI e supervisor POSIX Intel         |
+| `@oldboydev/sheldon-darwin-arm64` | `darwin` | `arm64`  | CLI e supervisor POSIX Apple Silicon |
 
 O metapacote declara os quatro runtimes como `optionalDependencies`, cada um com `os` e `cpu`
 restritos. Seu launcher resolve somente a combinação local. Ausência ou inconsistência gera
