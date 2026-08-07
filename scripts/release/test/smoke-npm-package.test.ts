@@ -1,4 +1,4 @@
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 
 import { describe, expect, it, vi } from 'vitest';
 
@@ -68,7 +68,7 @@ describe('installed npm package smoke', () => {
     const npmCli = '/usr/local/lib/node_modules/npm/bin/npm-cli.js';
     const exists = vi.fn(async (candidate: string) => candidate === npmCli);
 
-    await expect(npmCliPath(undefined, nodeExecutable, exists, 'linux')).resolves.toBe(npmCli);
+    await expect(npmCliPath('', nodeExecutable, exists, 'linux')).resolves.toBe(npmCli);
     expect(exists).toHaveBeenNthCalledWith(1, '/usr/local/bin/node_modules/npm/bin/npm-cli.js');
     expect(exists).toHaveBeenNthCalledWith(2, npmCli);
   });
@@ -127,13 +127,13 @@ describe('installed npm package smoke', () => {
   });
 
   it('packs, installs, and exercises only the installed runtime through injected process helpers', async () => {
-    const root = join('C:', 'temporary root', 'sheldon npm package smoke-abc');
-    const packageDirectory = join('C:', 'release artifacts', 'sheldon-linux-x64');
+    const root = resolve('temporary root', 'sheldon npm package smoke-abc');
+    const packageDirectory = resolve('release artifacts', 'sheldon-linux-x64');
     const packedTarball = join(root, 'packed tarballs', 'sheldon-linux-x64-1.2.3.tgz');
     const prefix = join(root, 'clean prefix');
     const vault = join(root, 'installed vault');
     const binary = join(prefix, 'bin', 'sheldon');
-    const npmCli = join('C:', 'nodejs', 'node_modules', 'npm', 'bin', 'npm-cli.js');
+    const npmCli = resolve('nodejs', 'node_modules', 'npm', 'bin', 'npm-cli.js');
     const run = vi.fn(async (command: string, arguments_: string[]) => {
       if (command === process.execPath && arguments_[1] === 'pack') {
         return { stdout: JSON.stringify([{ filename: 'sheldon-linux-x64-1.2.3.tgz' }]) };
