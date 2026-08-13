@@ -1,6 +1,6 @@
 {
   "name": "sheldon",
-  "version": "0.0.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "bin": {
@@ -17,6 +17,9 @@
   "scripts": {
     "prepare": "husky",
     "build": "node scripts/build.mjs",
+    "build:npm-package": "npm run build && node scripts/build-npm-package.mjs",
+    "pack:npm-package": "npm run build:npm-package && node scripts/pack-npm-package.mjs",
+    "verify:npm-package": "npm run pack:npm-package && node scripts/verify-npm-package.mjs",
     "build:ocr-runtime": "node scripts/release/build-ocr-runtime.mjs",
     "build:official-release": "node scripts/release/build-official-artifacts.mjs",
     "sign:official-catalog": "node scripts/release/sign-official-catalog.mjs",
