@@ -74,9 +74,15 @@ if (mode === 'cooperative-cancel') {
                   capabilities: [...description.capabilities].reverse(),
                   permissions: { cookies: false, network: false },
                 }
-              : mode === 'invalid-result'
-                ? { id: description.id }
-                : description;
+              : mode === 'legacy-false'
+                ? {
+                    ...description,
+                    permissions: { network: false, cookies: false, media: false },
+                    effects: { ocr: false, stt: false, modelDownload: false },
+                  }
+                : mode === 'invalid-result'
+                  ? { id: description.id }
+                  : description;
       break;
     case 'probe':
       result = {
@@ -84,6 +90,7 @@ if (mode === 'cooperative-cancel') {
         confidence: 90,
         reason: JSON.stringify({
           secret: process.env.SHELDON_TEST_SECRET ?? null,
+          cookieFile: process.env.SHELDON_SOCIAL_COOKIE_FILE ?? null,
           path: process.env.PATH ?? null,
           temp: process.env.TEMP ?? null,
           tmp: process.env.TMP ?? null,
@@ -91,8 +98,23 @@ if (mode === 'cooperative-cancel') {
       };
       break;
     case 'healthcheck':
-      process.stderr.write('fixture log\n');
-      result = { checks: [] };
+      process.stderr.write(
+        mode === 'secret-stderr'
+          ? `fixture log ${process.env.SHELDON_SOCIAL_COOKIE_FILE}\n`
+          : 'fixture log\n',
+      );
+      result = {
+        checks:
+          mode === 'secret-stderr' && process.env.SHELDON_SOCIAL_COOKIE_FILE !== undefined
+            ? [
+                {
+                  id: 'secret-environment',
+                  severity: 'info',
+                  message: 'Cookie environment received.',
+                },
+              ]
+            : [],
+      };
       break;
     case 'ingest': {
       const artifactContent = '# Fixture\n';

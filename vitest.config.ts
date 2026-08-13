@@ -38,6 +38,9 @@ export default defineConfig({
       '@sheldon/plugin-source-youtube': sourcePath(
         './packages/plugins/official/source.youtube/src/index.ts',
       ),
+      '@sheldon/plugin-source-linkedin': sourcePath(
+        './packages/plugins/official/source.linkedin/src/index.ts',
+      ),
     },
   },
   test: {

@@ -8,6 +8,8 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { runCli, type CliDependencies, type CliResult } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot } from './app-state.js';
+
 const pluginSdkEntrypoint = fileURLToPath(
   new URL('../../../packages/plugin-sdk/dist/index.js', import.meta.url),
 );
@@ -58,7 +60,7 @@ beforeEach(async () => {
   temporaryDirectories.push(root);
   const vault = join(root, 'vault');
   const dependencies: CliDependencies = {
-    environment: { APPDATA: join(root, 'appdata') },
+    environment: testApplicationEnvironment(root),
     homeDirectory: root,
     confirm: async () => true,
     commandAvailable: async () => false,
@@ -260,7 +262,7 @@ async function installCrawlPlugin(root: string, id: string): Promise<CrawlPlugin
   );
   await writeFile(join(directory, 'plugin.mjs'), crawlPluginSource(description), 'utf8');
 
-  const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+  const registry = await PluginRegistry.open(testApplicationRoot(root));
   const installed = await registry.install(directory, new Set());
   return {
     id,

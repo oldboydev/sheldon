@@ -62,9 +62,12 @@ export interface CommittedGitHead {
 
 export interface GitDependencies {
   readonly runner?: GitRunner;
+  /** Platform injection keeps system alias handling testable without mutating process globals. */
+  readonly platform?: NodeJS.Platform;
 }
 
 const isWindows = process.platform === 'win32';
+const defaultPlatform = process.platform;
 const nullDevice = isWindows ? 'NUL' : '/dev/null';
 const metadataOutputLimit = 16 * 1024;
 const treeOutputLimit = 16 * 1024 * 1024;
@@ -254,6 +257,13 @@ function sameCanonicalPath(first: string, second: string): boolean {
   return normalize(first) === normalize(second);
 }
 
+function normalizeMacosSystemAlias(path: string, platform: NodeJS.Platform): string {
+  if (platform !== 'darwin') return path;
+  if (path === '/var' || path.startsWith('/var/')) return `/private${path}`;
+  if (path === '/tmp' || path.startsWith('/tmp/')) return `/private${path}`;
+  return path;
+}
+
 async function assertNoSymbolicLinkComponents(path: string): Promise<void> {
   const root = parse(path).root;
   let componentPath = root;
@@ -270,13 +280,17 @@ async function assertNoSymbolicLinkComponents(path: string): Promise<void> {
   }
 }
 
-async function validateWorktreePath(inputPath: string): Promise<string> {
+async function validateWorktreePath(inputPath: string, platform: NodeJS.Platform): Promise<string> {
   if (!inputPath || inputPath.includes('\0')) return fail('REPOSITORY_INPUT_INVALID');
+  // macOS presents /var and /tmp as system aliases for /private/var and /private/tmp.
+  // Normalize only those fixed aliases before inspecting components: arbitrary user
+  // symlinks must remain forbidden.
   const requestedPath = resolve(inputPath);
+  const inspectionPath = normalizeMacosSystemAlias(requestedPath, platform);
 
   let requestedStats;
   try {
-    requestedStats = await lstat(requestedPath);
+    requestedStats = await lstat(inspectionPath);
   } catch {
     return fail('REPOSITORY_INPUT_INVALID');
   }
@@ -284,13 +298,13 @@ async function validateWorktreePath(inputPath: string): Promise<string> {
   if (!requestedStats.isDirectory()) return fail('REPOSITORY_INPUT_INVALID');
 
   try {
-    await access(requestedPath, constants.R_OK);
+    await access(inspectionPath, constants.R_OK);
   } catch {
     return fail('REPOSITORY_INPUT_UNREADABLE');
   }
-  await assertNoSymbolicLinkComponents(requestedPath);
+  await assertNoSymbolicLinkComponents(inspectionPath);
   try {
-    await realpath(requestedPath);
+    await realpath(inspectionPath);
     return requestedPath;
   } catch {
     return fail('REPOSITORY_INPUT_UNREADABLE');
@@ -623,7 +637,10 @@ export async function openCommittedGitHead(
   inputPath: string,
   dependencies: GitDependencies = {},
 ): Promise<CommittedGitHead> {
-  const worktreePath = await validateWorktreePath(inputPath);
+  const worktreePath = await validateWorktreePath(
+    inputPath,
+    dependencies.platform ?? defaultPlatform,
+  );
   const runner = dependencies.runner ?? productionGitRunner;
 
   const topLevelResult = await runGit(

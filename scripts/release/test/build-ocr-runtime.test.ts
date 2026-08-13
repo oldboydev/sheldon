@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { execFile } from 'node:child_process';
+import { execFile, spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join, resolve } from 'node:path';
@@ -13,6 +13,15 @@ import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
+// The harness itself enforces an eight-second deadline. These outer limits only
+// include cold PowerShell startup on a contended Windows hosted runner; they do
+// not weaken the watchdog contract once the harness is executing.
+const windowsWatchdogHarnessProcessTimeoutMs = 30_000;
+const windowsWatchdogTestTimeoutMs = 35_000;
+const canRunWindowsWatchdogHarness = canRunPowerShellWatchdogHarness(
+  process.platform,
+  isPowerShellAvailable(),
+);
 
 afterEach(async () => {
   await Promise.all(
@@ -114,6 +123,14 @@ describe('Linux OCR runtime builder', () => {
   });
 });
 
+describe('PowerShell watchdog test gating', () => {
+  it('requires both Windows job-object support and an available pwsh executable', () => {
+    expect(canRunPowerShellWatchdogHarness('win32', true)).toBe(true);
+    expect(canRunPowerShellWatchdogHarness('win32', false)).toBe(false);
+    expect(canRunPowerShellWatchdogHarness('linux', true)).toBe(false);
+  });
+});
+
 describe('Native OCR runtime workflow', () => {
   it('builds and names an artifact for every supported native platform', async () => {
     const workflow = parse(await readFile('.github/workflows/build-ocr-runtime.yml', 'utf8')) as {
@@ -198,6 +215,10 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain('$startInfo.RedirectStandardOutput = $true');
     expect(builder).toContain('$startInfo.RedirectStandardError = $true');
     expect(builder).toContain('$startInfo.ArgumentList.Add($argument)');
+    expect(builder).toContain(
+      'await writer.WriteAsync(text.AsMemory(), cancellationToken).ConfigureAwait(false)',
+    );
+    expect(builder).not.toContain('Task.Run(() =>');
     expect(builder).toContain('$stdout = [System.Text.StringBuilder]::new()');
     expect(builder).toContain('$stderr = [System.Text.StringBuilder]::new()');
     expect(builder).toContain(
@@ -206,19 +227,25 @@ describe('Native OCR runtime workflow', () => {
     expect(builder).toContain(
       '$process.StandardError.ReadAsync($stderrBuffer, 0, $stderrBuffer.Length)',
     );
+    expect(builder).toContain('[System.Threading.Tasks.Task]::WaitAny($pending.ToArray(), 50)');
+    expect(builder).not.toContain('[System.Threading.Thread]::Sleep(50)');
     expect(builder).toContain('$stdout.Append($stdoutChunk)');
     expect(builder).toContain('$stderr.Append($stderrChunk)');
     expect(builder).toContain('[Console]::Out.Write("OCR_RUNTIME_STDOUT: $stdoutChunk")');
     expect(builder).toContain('[Console]::Error.Write("OCR_RUNTIME_STDERR: $stderrChunk")');
-    expect(builder).toContain('$process.WaitForExit(0)');
-    expect(builder).toContain('$process.Kill($true)');
-    expect(builder).toContain('catch [System.InvalidOperationException]');
-    expect(builder).toContain('if (-not $process.HasExited) { throw }');
+    expect(builder).toContain('JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE');
+    expect(builder).toContain('$job.Dispose()');
+    expect(builder).not.toContain('$timedOutProcess');
     expect(builder).toContain(
       'throw "${TimeoutCode}: Stage $Stage exceeded $TimeoutSeconds seconds."',
     );
     expect(builder).toContain('$process.WaitForExit()');
-    expect(builder).toContain('$process.Dispose()');
+    expect(builder).toContain('$process = $null');
+    expect(builder).toContain('if ($null -ne $process) { $process.Dispose() }');
+    expect(builder).toMatch(
+      /\$process = \$null\r?\n\s+# Do not synchronously close[\s\S]*?\$job\.Dispose\(\)/u,
+    );
+    expect(builder).toContain('finalized with Dispose(false)');
     expect(builder).toContain('OCR_RUNTIME_DOWNLOAD_TIMEOUT');
     expect(builder).toContain('OCR_RUNTIME_BUILD_TIMEOUT');
     expect(builder).toContain('Write-Host "OCR_RUNTIME_STAGE: $Stage"');
@@ -271,7 +298,7 @@ describe('Native OCR runtime workflow', () => {
     }
   });
 
-  it.skipIf(process.platform !== 'win32')(
+  it.skipIf(!canRunWindowsWatchdogHarness)(
     'times out a large stdin write when the child never reads it',
     async () => {
       const root = await temporaryRoot();
@@ -284,10 +311,10 @@ describe('Native OCR runtime workflow', () => {
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
-    15_000,
+    windowsWatchdogTestTimeoutMs,
   );
 
-  it.skipIf(process.platform !== 'win32')(
+  it.skipIf(!canRunWindowsWatchdogHarness)(
     'times out and cleans a descendant that keeps the redirected streams open after its parent exits',
     async () => {
       const root = await temporaryRoot();
@@ -308,6 +335,7 @@ $childInfo.UseShellExecute = $false
         ),
       ).resolves.toContain('OCR_RUNTIME_TEST_TIMEOUT: Stage stdin-harness exceeded 1 seconds.');
     },
+    windowsWatchdogTestTimeoutMs,
   );
 
   it('batch-reports every missing Homebrew identity before downloading a notice source', async () => {
@@ -479,7 +507,7 @@ if resolve_cellar_library_path "$source" libsharpyuv.0.dylib "$cellar" "$root/fi
       expect(stderr).toContain('Unable to compare Homebrew library');
       expect(stderr).toContain('Unable to traverse the Homebrew Cellar');
       expect(builder).toContain(
-        'find "$cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
+        'find "$canonical_cellar" \\( -type f -o -type l \\) -name "$library_name" -print0 >',
       );
       expect(builder).toContain('if cmp -s "$library_source" "$canonical_candidate"; then');
       expect(builder).toContain('canonical_path "$cellar_candidate"');
@@ -553,6 +581,24 @@ function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
+function canRunPowerShellWatchdogHarness(
+  platform: NodeJS.Platform,
+  pwshAvailable: boolean,
+): boolean {
+  // The harness exercises the Windows Job Object implementation, so pwsh alone is insufficient
+  // on POSIX. On Windows, skip only when the executable cannot actually be started.
+  return platform === 'win32' && pwshAvailable;
+}
+
+function isPowerShellAvailable(): boolean {
+  const result = spawnSync('pwsh', ['-NoProfile', '-Command', 'exit 0'], {
+    shell: false,
+    stdio: 'ignore',
+    windowsHide: true,
+  });
+  return result.error === undefined && result.status === 0;
+}
+
 async function runWindowsRunnerTimeoutHarness(
   root: string,
   childScript: string,
@@ -588,7 +634,7 @@ try {
   );
   const result = await execFileAsync('pwsh', ['-NoProfile', '-File', harnessPath], {
     shell: false,
-    timeout: 15_000,
+    timeout: windowsWatchdogHarnessProcessTimeoutMs,
   });
   return result.stdout;
 }

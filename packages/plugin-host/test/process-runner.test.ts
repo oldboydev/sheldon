@@ -39,24 +39,65 @@ function delayedMalformedProcessLauncher(): {
   const stdout = new PassThrough();
   const stderr = new PassThrough();
   Object.assign(child, {
-    pid: 99_998,
+    pid: process.pid,
     stdin,
     stdout,
     stderr,
     stdio: [stdin, stdout, stderr],
-    kill: () => {
-      child.emit('close', null, 'SIGKILL');
-      return true;
-    },
+    kill: () => true,
   });
   stdin.once('data', () => {
     stdout.end('not-json\n');
-    setTimeout(() => child.emit('close', 0, null), 100);
+    setTimeout(() => child.emit('exit', 0, null), 100);
   });
   return {
     platform: 'linux',
     spawn: (() => child) as unknown as typeof spawn,
   };
+}
+
+function delayedTerminationExitLauncher(): {
+  readonly platform: 'linux';
+  readonly spawn: typeof spawn;
+} {
+  const child = new EventEmitter() as ChildProcessWithoutNullStreams;
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  Object.assign(child, {
+    // The process-tree guard rejects this as the host group, then the runner's direct fallback
+    // provides a deterministic exit while a descendant-like inherited pipe remains open.
+    pid: process.pid,
+    stdin,
+    stdout,
+    stderr,
+    stdio: [stdin, stdout, stderr],
+    kill: () => {
+      setTimeout(() => child.emit('exit', 23, null), 30);
+      return true;
+    },
+  });
+  return { platform: 'linux', spawn: (() => child) as unknown as typeof spawn };
+}
+
+function nonExitingTerminationLauncher(): {
+  readonly platform: 'linux';
+  readonly spawn: typeof spawn;
+} {
+  const child = new EventEmitter() as ChildProcessWithoutNullStreams;
+  const stdin = new PassThrough();
+  const stdout = new PassThrough();
+  const stderr = new PassThrough();
+  Object.assign(child, {
+    pid: process.pid,
+    stdin,
+    stdout,
+    stderr,
+    stdio: [stdin, stdout, stderr],
+    kill: () => true,
+  });
+  stdin.once('data', () => stdout.end('not-json\n'));
+  return { platform: 'linux', spawn: (() => child) as unknown as typeof spawn };
 }
 
 function manifest(mode = 'success'): PluginManifest {
@@ -180,6 +221,70 @@ describe('PluginProcessRunner', () => {
     expect(JSON.stringify(state.listRuns())).not.toContain('must-not-leak');
   });
 
+  it('supplies approved cookie paths only to the child and discards secret-bearing stderr', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+    const plugin = await pluginFor('secret-stderr');
+    const cookiePlugin = {
+      ...plugin,
+      manifest: {
+        ...plugin.manifest,
+        permissions: { ...plugin.manifest.permissions, cookies: true },
+      },
+    };
+    const cookiePath = 'C:\\private\\cookies.txt';
+
+    const health = await runner.healthcheck(cookiePlugin, {
+      secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: cookiePath },
+    });
+    expect(health.result.checks).toContainEqual(
+      expect.objectContaining({ id: 'secret-environment' }),
+    );
+    expect(health.stderrTail).toBe('[REDACTED: secret-bearing plugin run]');
+    expect(state.listRuns().at(-1)).toMatchObject({
+      stderrTail: '[REDACTED: secret-bearing plugin run]',
+    });
+    expect(JSON.stringify(state.listRuns())).not.toContain(cookiePath);
+  });
+
+  it('rejects secret environment injection without the cookie permission', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+    const secret = 'C:\\private\\cookies.txt';
+
+    await expect(
+      runner.healthcheck(await pluginFor(), {
+        secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: secret },
+      }),
+    ).rejects.toMatchObject({ code: 'PLUGIN_SECRET_PERMISSION_DENIED' });
+    expect(state.listRuns().at(-1)).toMatchObject({
+      errorCode: 'PLUGIN_SECRET_PERMISSION_DENIED',
+      stderrTail: '[REDACTED: secret-bearing plugin run]',
+    });
+    expect(JSON.stringify(state.listRuns())).not.toContain(secret);
+  });
+
+  it('rejects secret environment names outside the cookie allowlist', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+    const plugin = await pluginFor();
+    const cookiePlugin = {
+      ...plugin,
+      manifest: {
+        ...plugin.manifest,
+        permissions: { ...plugin.manifest.permissions, cookies: true },
+      },
+    };
+
+    await expect(
+      runner.healthcheck(cookiePlugin, { secretEnvironment: { PATH: 'secret-path-value' } }),
+    ).rejects.toMatchObject({ code: 'PLUGIN_SECRET_ENVIRONMENT_INVALID' });
+    expect(state.listRuns().at(-1)).toMatchObject({
+      errorCode: 'PLUGIN_SECRET_ENVIRONMENT_INVALID',
+      stderrTail: '[REDACTED: secret-bearing plugin run]',
+    });
+  });
+
   it.each([
     ['malformed', 'PLUGIN_PROTOCOL_INVALID_JSON'],
     ['duplicate', 'PLUGIN_PROTOCOL_DUPLICATE_TERMINAL'],
@@ -215,6 +320,42 @@ describe('PluginProcessRunner', () => {
     });
     await expect(runner.describe(await pluginFor('identity-mismatch'))).rejects.toMatchObject({
       code: 'PLUGIN_DESCRIPTION_MISMATCH',
+    });
+  });
+
+  it('rejects a description whose media permission differs from its manifest', async () => {
+    const runner = new PluginProcessRunner({ state: stateDatabase(), processLauncher });
+    const plugin = await pluginFor('success');
+    const mediaDeclared = {
+      ...plugin,
+      manifest: {
+        ...plugin.manifest,
+        permissions: { ...plugin.manifest.permissions, media: true },
+      },
+    };
+
+    await expect(runner.describe(mediaDeclared)).rejects.toMatchObject({
+      code: 'PLUGIN_DESCRIPTION_MISMATCH',
+    });
+  });
+
+  it('treats omitted legacy media and effects declarations as false', async () => {
+    const runner = new PluginProcessRunner({ state: stateDatabase(), processLauncher });
+    const plugin = await pluginFor();
+    const legacyManifest = {
+      ...plugin,
+      manifest: {
+        ...plugin.manifest,
+        permissions: { ...plugin.manifest.permissions, media: false },
+        effects: { ocr: false, stt: false, modelDownload: false },
+      },
+    };
+
+    await expect(runner.describe(legacyManifest)).resolves.toMatchObject({
+      result: { id: 'fixture.node' },
+    });
+    await expect(runner.describe(await pluginFor('legacy-false'))).resolves.toMatchObject({
+      result: { id: 'fixture.node' },
     });
   });
 
@@ -289,6 +430,40 @@ describe('PluginProcessRunner', () => {
     });
     expect(state.listRuns().at(-1)).toMatchObject({ exitCode: 0 });
   });
+
+  it('records the real termination exit without waiting for inherited pipes to close', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({
+      state,
+      limits: {
+        ...DEFAULT_PLUGIN_LIMITS,
+        timeouts: { ...DEFAULT_PLUGIN_LIMITS.timeouts, describe: 10, cancellationGrace: 10 },
+      },
+      processLauncher: delayedTerminationExitLauncher(),
+    });
+
+    await expect(runner.describe(await pluginFor('hang'))).rejects.toMatchObject({
+      code: 'PLUGIN_TIMEOUT',
+    });
+    expect(state.listRuns().at(-1)).toMatchObject({ exitCode: 23 });
+  });
+
+  it('bounds a failed termination that never reports an exit without inventing one', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({
+      state,
+      limits: {
+        ...DEFAULT_PLUGIN_LIMITS,
+        timeouts: { ...DEFAULT_PLUGIN_LIMITS.timeouts, describe: 10, cancellationGrace: 0 },
+      },
+      processLauncher: nonExitingTerminationLauncher(),
+    });
+
+    await expect(runner.describe(await pluginFor('hang'))).rejects.toMatchObject({
+      code: 'PLUGIN_PROTOCOL_INVALID_JSON',
+    });
+    expect(state.listRuns().at(-1)).not.toHaveProperty('exitCode');
+  }, 2_000);
 
   it('treats equivalent capability and permission ordering as the same identity', async () => {
     const runner = new PluginProcessRunner({ state: stateDatabase(), processLauncher });

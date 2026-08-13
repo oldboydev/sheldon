@@ -8,6 +8,8 @@ import { afterEach, describe, expect, it } from 'vitest';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot, testPlatform } from './app-state.js';
+
 const temporaryDirectories: string[] = [];
 
 afterEach(async () => {
@@ -48,7 +50,7 @@ describe('image language commands', () => {
 async function installedImageDependencies(): Promise<{ dependencies: CliDependencies }> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-cli-image-'));
   temporaryDirectories.push(root);
-  const appRoot = join(root, 'appdata', 'Sheldon');
+  const appRoot = testApplicationRoot(root);
   const registry = await PluginRegistry.open(appRoot);
   await registry.install(
     join(process.cwd(), 'packages', 'plugins', 'official', 'source.image'),
@@ -70,9 +72,9 @@ async function installedImageDependencies(): Promise<{ dependencies: CliDependen
   };
   return {
     dependencies: {
-      environment: { APPDATA: join(root, 'appdata') },
+      environment: testApplicationEnvironment(root),
       homeDirectory: root,
-      platform: 'win32-x64',
+      platform: testPlatform(),
       officialCatalogClient: {
         load: async () => catalog,
         install: async () => {

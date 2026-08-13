@@ -1,0 +1,4 @@
+The packaged yt-dlp runtime and its third-party license notices are included in each
+platform-specific official source.instagram release archive.
+This experimental connector invokes that packaged runtime only.
+It does not bundle a speech-to-text model and never downloads one.

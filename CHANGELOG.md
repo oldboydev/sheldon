@@ -8,8 +8,64 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
-- Empacotamento da CLI pública `@oldboydev/sheldon` para Windows x64, com dependências internas
-  agrupadas, validação por instalação global isolada e instruções de publicação no npm.
+- Distribuição npm preparada para a CLI: metapacote público `@oldboydev/sheldon`, runtimes fechados
+  para Windows x64, Linux x64, macOS Intel e Apple Silicon, seleção fail-closed, closure física de
+  produção, inventário/SBOM e smoke de tarball instalado em prefixo limpo. O workflow de publicação
+  por tag usa npm trusted publishing/OIDC e não contém token npm de escrita.
+- Suporte operacional para Windows x64, Ubuntu x64 e macOS Intel/Apple Silicon, com diretórios
+  XDG separados para configuração e estado, encerramento de árvore POSIX e gates nativos por
+  plataforma.
+- Conector experimental `source.linkedin` para um post individual público ou LinkedIn Article
+  público. Ele captura HTML sanitizado, texto e metadados em raws separados; imagens públicas são
+  opt-in e OCR local é derivado pelo host em processos isolados. Não usa cookies ou browser
+  automatizado e devolve diagnósticos estáveis para acesso restrito, rate limit, conteúdo
+  indisponível e alteração de plataforma.
+- Conector experimental `source.instagram` para Reels e posts de vídeo públicos, com cookies
+  locais opcionais efêmeros, raws separados, diagnósticos estáveis e backoff limitado. Nenhum
+  cookie é serializado em vault, manifesto, protocolo ou logs do host.
+
+### Changed
+
+- O release oficial agora inclui uma closure de dependências de produção plana, protegida contra
+  ciclos e symlinks, em cada plugin. Ele assina e notariza os executáveis finais de macOS (OCR e
+  `yt-dlp`) antes de recalcular e assinar o catálogo, e confirma que os ZIPs assinados substituíram
+  os candidatos. A validação semanal ocorre às segundas-feiras, 04:17 UTC, sem publicar o catálogo.
+- O supervisor POSIX usa o grace period configurado em timeout, cancelamento e falha de protocolo,
+  observa a saída do filho sem aguardar pipes herdados e limita o fallback sem sintetizar um código
+  de saída `SIGKILL`.
+- A resolução de diretórios e a migração de estado agora validam estritamente a plataforma e raízes
+  absolutas injetadas; caminhos de vault/configuração usam uma única semântica por plataforma e a
+  publicação de fontes calcula hashes por streaming. A seleção de vault não exige que o layout de
+  estado XDG ou APPDATA já esteja válido.
+- A validação de repositórios no macOS aceita somente os aliases de sistema `/var` e `/tmp`,
+  normalizando-os antes da inspeção; symlinks fornecidos pelo usuário permanecem recusados. O
+  resolvedor de bibliotecas OCR também compara candidatos contra o Cellar canônico. A plataforma
+  usada nessa validação é estável por operação e pode ser injetada nos testes.
+- O watchdog OCR Windows agora cancela explicitamente uma escrita de stdin pendente antes de
+  encerrar a árvore de processos no timeout.
+- Em timeout, o watchdog OCR Windows fecha diretamente o Job Object atribuído para encerrar a
+  árvore, sem um `Process.Kill` recursivo que possa ultrapassar seu próprio limite. A escrita em
+  stdin também passou a usar I/O assíncrono nativo, sem prender uma thread do host em um pipe
+  cheio. Os testes preservam esse prazo interno e reservam um limite externo independente para a
+  inicialização fria do PowerShell em runners hospedados.
+- O conector LinkedIn agora segue até três redirecionamentos canônicos, aplica backoff exponencial
+  cancelável, limita streaming de HTML e imagens, nomeia imagens pelo SHA-256 e sanitiza metadados
+  antes de publicá-los. OCR é declarado somente pelo derivador `source.image`; URLs de imagem com
+  query são descartadas sem persistência e registradas como aviso estável quando a mídia é solicitada.
+- Após timeout, o builder OCR Windows encerra o Job Object e retorna o diagnóstico sem aguardar
+  pipes redirecionados nem dispor sincronicamente um stdin cuja escrita de fundo está bloqueada;
+  o watchdog permanece limitado mesmo com pipe cheio.
+- A captura Instagram agora trata legenda declarada mas ausente como lacuna, respeita a ordem de
+  idiomas solicitada, registra avisos de legenda descartada e diagnostica configuração STT local
+  inválida ou mídia STT acima do limite. As opções de mídia e STT da CLI agora são habilitadas por
+  capabilities declaradas, permitindo conectores futuros.
+- O pipeline de release passou a nomear o runtime compartilhado como `yt-dlp`, com diagnósticos e
+  notices de licença aplicáveis tanto a YouTube quanto a Instagram.
+- O conector experimental `source.instagram` agora inclui o runtime verificado de `yt-dlp` no
+  artefato oficial, confina toda saída do extrator ao diretório temporário e remove metadata de
+  sessão antes de publicar raws. Opções sociais são rejeitadas para plugins incompatíveis.
+- README principal agora prioriza a proposta do produto, privacidade e uso diário, deixando marcos
+  e detalhes de implementação para a documentação técnica.
 - Interface Web Local M7 em React, servida por Fastify no mesmo processo e limitada a `127.0.0.1`, com dashboard, entrada de fontes, acompanhamento de jobs e navegação inicial do vault.
 - Contrato OpenAPI local em `/api/v1/openapi.json`, cliente tipado do navegador e eventos SSE retomáveis por cursor para trabalhos persistidos no SQLite operacional.
 - Comando `sheldon web` com escolha segura de porta livre, além de declaração opcional de efeitos de plugin para OCR, STT e download de modelo.

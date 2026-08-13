@@ -1,0 +1,12 @@
+{
+  "supportedProbe": {
+    "input": { "url": "https://www.instagram.com/reel/C0ffee12345/" },
+    "minimumConfidence": 100
+  },
+  "unsupportedProbe": { "input": { "url": "https://example.test/reel/C0ffee12345/" } },
+  "ingest": {
+    "input": { "url": "file:///contract-must-not-open-network" },
+    "options": {},
+    "expectedDiagnosticCode": "INSTAGRAM_INPUT_INVALID"
+  }
+}

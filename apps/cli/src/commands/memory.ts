@@ -1,4 +1,5 @@
-import { lstat, open, realpath, stat } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { basename, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -14,7 +15,13 @@ import {
 } from '@sheldon/agent-runtime';
 import type { EntityKind } from '@sheldon/core';
 import { publishPluginSourceIngestion } from '@sheldon/ingestion';
-import { PluginHostError, PluginSelector } from '@sheldon/plugin-host';
+import {
+  PluginHostError,
+  PluginSelector,
+  type IngestLease,
+  type RunnablePlugin,
+} from '@sheldon/plugin-host';
+import type { SourceArtifact } from '@sheldon/plugin-sdk';
 import { ReviewService } from '@sheldon/review';
 import { entityDirectory, VaultService } from '@sheldon/vault';
 
@@ -35,6 +42,11 @@ export interface FileIngestionOptions extends VaultOption {
 export interface UrlIngestionOptions extends VaultOption {
   readonly plugin?: string;
   readonly language?: string;
+  /** A local Netscape/JSON cookie file passed only through the child environment. */
+  readonly cookies?: string;
+  readonly media?: 'none' | 'thumbnail' | 'images';
+  readonly ocr?: boolean;
+  readonly stt?: boolean;
   readonly signal?: AbortSignal;
 }
 
@@ -110,8 +122,6 @@ export async function ingestUrl(
   const canonical = canonicalUrl(value);
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const input = { url: canonical.href };
-  const pluginOptions: Readonly<Record<string, string>> =
-    options.language === undefined ? {} : { language: options.language };
   await withPluginServices(context, async ({ discovery, runner }) => {
     const selection = await new PluginSelector(runner).select(await discovery.discover(), input, {
       capability: 'ingest-url',
@@ -127,16 +137,63 @@ export async function ingestUrl(
         'Retry with --plugin <id> to choose one of the listed plugins.',
       );
     }
+    const supportsMedia = selection.plugin.manifest.permissions.media === true;
+    const supportsStt = selection.plugin.manifest.effects?.stt === true;
+    if (options.media !== undefined && !supportsMedia) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support media capture.',
+        selection.plugin.manifest.id,
+        'Remove --media or select a plugin that explicitly declares media permission.',
+      );
+    }
+    if (options.stt === true && !supportsStt) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support local speech-to-text.',
+        selection.plugin.manifest.id,
+        'Remove --stt or select a plugin that explicitly declares the local STT effect.',
+      );
+    }
+    if (options.ocr === true && options.media !== 'images') {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'Local OCR requires --media images.',
+        selection.plugin.manifest.id,
+        'Retry with --media images --ocr.',
+      );
+    }
+    const discovered = await discovery.discover();
+    const ocrPlugin = options.ocr ? await readyOcrPlugin(discovered, runner) : undefined;
+    if (options.cookies !== undefined && !selection.plugin.manifest.permissions.cookies) {
+      throw new PluginHostError(
+        'PLUGIN_OPTION_UNSUPPORTED',
+        'The selected URL plugin does not support local cookies.',
+        selection.plugin.manifest.id,
+        'Remove --cookies or select a plugin that explicitly declares local cookie access.',
+      );
+    }
+    const pluginOptions: Readonly<Record<string, string | boolean>> = {
+      ...(options.language === undefined ? {} : { language: options.language }),
+      ...(supportsMedia && options.media !== undefined ? { media: options.media } : {}),
+      ...(supportsStt && options.stt === true ? { stt: true } : {}),
+    };
+    const cookies =
+      options.cookies === undefined ? undefined : await localCookieFile(options.cookies);
     const result = await runner.ingest(
       selection.plugin,
       input,
       pluginOptions,
-      (lease) => {
+      async (lease) => {
         options.signal?.throwIfAborted();
         const originals = lease.artifacts.filter((artifact) => artifact.role === 'original');
         if (originals.length !== 1) {
           throw new Error('Plugin URL ingestion requires exactly one original artifact.');
         }
+        const derived =
+          ocrPlugin === undefined
+            ? lease
+            : await appendImageOcr(lease, ocrPlugin, runner, options.signal);
         return publishPluginSourceIngestion(
           {
             originalName: basename(originals[0].path),
@@ -144,14 +201,125 @@ export async function ingestUrl(
             plugin: selection.plugin.manifest,
             options: pluginOptions,
           },
-          lease,
+          derived,
           { signal: options.signal },
         );
       },
-      { signal: options.signal },
+      {
+        ...(options.signal === undefined ? {} : { signal: options.signal }),
+        ...(cookies === undefined
+          ? {}
+          : {
+              secretEnvironment: { SHELDON_SOCIAL_COOKIE_FILE: cookies.path },
+            }),
+      },
     );
     context.write(JSON.stringify(result, null, 2));
   });
+}
+
+async function readyOcrPlugin(
+  entries: Awaited<ReturnType<import('@sheldon/plugin-host').PluginDiscovery['discover']>>,
+  runner: import('@sheldon/plugin-host').PluginProcessRunner,
+): Promise<RunnablePlugin> {
+  const entry = entries.find(
+    (candidate) =>
+      candidate.id === 'source.image' &&
+      candidate.discovery.status === 'ready' &&
+      candidate.manifest?.capabilities.includes('ingest-file') &&
+      candidate.manifest.effects?.ocr === true,
+  );
+  if (entry?.manifest === undefined || entry.manifestDigest === undefined) {
+    throw new PluginHostError(
+      'LINKEDIN_OCR_UNAVAILABLE',
+      'No healthy local image OCR plugin is installed.',
+      'source.linkedin',
+      'Install source.image or remove --ocr.',
+    );
+  }
+  const plugin: RunnablePlugin = {
+    root: entry.root,
+    manifest: entry.manifest,
+    manifestDigest: entry.manifestDigest,
+  };
+  const health = await runner.healthcheck(plugin);
+  if (health.result.checks.some((check) => check.severity === 'error')) {
+    throw new PluginHostError(
+      'LINKEDIN_OCR_UNAVAILABLE',
+      'The installed local image OCR plugin is unhealthy.',
+      'source.linkedin',
+      'Run sheldon plugin doctor source.image or remove --ocr.',
+    );
+  }
+  return plugin;
+}
+
+async function appendImageOcr(
+  lease: IngestLease,
+  plugin: RunnablePlugin,
+  runner: import('@sheldon/plugin-host').PluginProcessRunner,
+  signal: AbortSignal | undefined,
+): Promise<IngestLease> {
+  const images = lease.artifacts.filter((artifact) => artifact.path.startsWith('assets/images/'));
+  if (images.length === 0) return lease;
+  const warnings: string[] = [];
+  const artifacts: SourceArtifact[] = [...lease.artifacts];
+  for (const image of images) {
+    try {
+      const text = await runner.ingest(
+        plugin,
+        {
+          filePath: join(lease.temporaryDirectory, image.path),
+          canonicalUri: pathToFileURL(join(lease.temporaryDirectory, image.path)).href,
+        },
+        {},
+        async (derived) => {
+          const content = derived.artifacts.find(
+            (artifact) => artifact.role === 'normalized' && artifact.path === 'content.md',
+          );
+          if (content === undefined)
+            throw new Error('OCR plugin did not return normalized content.');
+          return readFile(join(derived.temporaryDirectory, content.path), 'utf8');
+        },
+        ...(signal === undefined ? [] : [{ signal }]),
+      );
+      const stem = basename(image.path).replace(/\.[^.]+$/u, '');
+      const path = `assets/ocr/${stem}.txt`;
+      await mkdir(join(lease.temporaryDirectory, 'assets', 'ocr'), { recursive: true });
+      await writeFile(join(lease.temporaryDirectory, path), text, 'utf8');
+      const bytes = new Uint8Array(await readFile(join(lease.temporaryDirectory, path)));
+      artifacts.push({
+        id: `asset.assets-ocr-${stem}-txt`,
+        role: 'asset',
+        path,
+        mediaType: 'text/plain',
+        bytes: bytes.byteLength,
+        sha256: createHash('sha256').update(bytes).digest('hex'),
+      });
+    } catch {
+      warnings.push(
+        `OCR derivation failed for ${image.path}; the image was retained without invented text.`,
+      );
+    }
+  }
+  if (warnings.length === 0) return { ...lease, artifacts };
+  return {
+    ...lease,
+    artifacts: artifacts.map((artifact) =>
+      artifact.path !== 'content.md'
+        ? artifact
+        : {
+            ...artifact,
+            metadata: {
+              ...artifact.metadata,
+              warnings: [
+                ...((artifact.metadata?.warnings as readonly string[] | undefined) ?? []),
+                ...warnings,
+              ],
+            },
+          },
+    ),
+  };
 }
 
 export async function ingestCrawl(
@@ -436,6 +604,38 @@ function invalidUrlInput(): never {
     'The input must be an absolute HTTP(S) URL without credentials, a fragment, or a non-default port.',
     'URL input',
     'Choose one public HTTP(S) page URL and retry.',
+  );
+}
+
+async function localCookieFile(value: string): Promise<{
+  readonly path: string;
+}> {
+  const inputPath = resolve(value);
+  let metadata: Awaited<ReturnType<typeof lstat>>;
+  try {
+    metadata = await lstat(inputPath);
+  } catch {
+    throw cookieInputError();
+  }
+  if (metadata.isSymbolicLink() || !metadata.isFile() || metadata.size > 1_048_576) {
+    throw cookieInputError();
+  }
+  let path: string;
+  try {
+    path = await realpath(inputPath);
+    if (!(await lstat(path)).isFile()) throw new Error('not a regular file');
+  } catch {
+    throw cookieInputError();
+  }
+  return { path };
+}
+
+function cookieInputError(): PluginHostError {
+  return new PluginHostError(
+    'SOCIAL_COOKIE_FILE_INVALID',
+    'The local cookie file must be a readable regular file no larger than 1 MiB.',
+    'local cookie file',
+    'Export a local cookie file and retry. Its path and contents are never stored in Sheldon.',
   );
 }
 

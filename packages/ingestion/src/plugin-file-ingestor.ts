@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { createReadStream } from 'node:fs';
 import {
   copyFile,
   mkdir,
@@ -177,9 +178,11 @@ export async function publishPluginSourceIngestion(
   const optionsJson = stableJson(options);
   const optionsSha256 = sha256(optionsJson);
   const originalSourcePath = resolve(lease.temporaryDirectory, original.path);
-  const originalBytes = await readFile(originalSourcePath);
-  const contentSha256 = sha256(originalBytes);
-  const sourceId = sourceIdentity(originalBytes, optionsJson);
+  const {
+    contentSha256,
+    sourceId,
+    bytes: originalByteLength,
+  } = await originalIdentity(originalSourcePath, optionsJson);
   const legacySourceId = sha256(`${contentSha256}\n${optionsSha256}`);
   const rawRoot = resolve(input.rawDirectory);
   const rawPath = join(rawRoot, sourceId);
@@ -229,7 +232,7 @@ export async function publishPluginSourceIngestion(
       options,
       original: {
         ...artifactManifest(original, originalPath),
-        bytes: originalBytes.byteLength,
+        bytes: originalByteLength,
         sha256: contentSha256,
       },
       content: { ...artifactManifest(normalized, 'content.md'), path: 'content.md' },
@@ -249,7 +252,7 @@ export async function publishPluginSourceIngestion(
     try {
       await mkdir(join(stagingPath, 'assets'));
       await Promise.all([
-        writeFile(join(stagingPath, originalPath), originalBytes),
+        copyFile(originalSourcePath, join(stagingPath, originalPath)),
         copyFile(
           resolve(lease.temporaryDirectory, normalized.path),
           join(stagingPath, 'content.md'),
@@ -401,7 +404,7 @@ function artifactManifest(artifact: SourceArtifact, path: string): PluginFileArt
 }
 
 function originalFileName(path: string): string {
-  const extension = extname(path);
+  const extension = extname(basename(path));
   return extension.length === 0 ? 'original' : `original${extension}`;
 }
 
@@ -867,8 +870,20 @@ function sha256(value: string | Uint8Array): string {
   return createHash('sha256').update(value).digest('hex');
 }
 
-function sourceIdentity(originalBytes: Uint8Array, optionsJson: string): string {
-  return createHash('sha256').update(originalBytes).update('\n').update(optionsJson).digest('hex');
+async function originalIdentity(
+  path: string,
+  optionsJson: string,
+): Promise<{ readonly contentSha256: string; readonly sourceId: string; readonly bytes: number }> {
+  const content = createHash('sha256');
+  const source = createHash('sha256');
+  let bytes = 0;
+  for await (const chunk of createReadStream(path)) {
+    content.update(chunk);
+    source.update(chunk);
+    bytes += chunk.length;
+  }
+  source.update('\n').update(optionsJson);
+  return { contentSha256: content.digest('hex'), sourceId: source.digest('hex'), bytes };
 }
 
 function stableJson(value: IngestionOption): string {

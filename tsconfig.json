@@ -28,6 +28,9 @@
       ],
       "@sheldon/plugin-source-url": ["./packages/plugins/official/source.url/src/index.ts"],
       "@sheldon/plugin-source-youtube": ["./packages/plugins/official/source.youtube/src/index.ts"],
+      "@sheldon/plugin-source-linkedin": [
+        "./packages/plugins/official/source.linkedin/src/index.ts"
+      ],
       "@sheldon/cli": ["./apps/cli/src/main.ts"],
       "@sheldon/cli/web-api": ["./apps/cli/src/web-api.ts"]
     },

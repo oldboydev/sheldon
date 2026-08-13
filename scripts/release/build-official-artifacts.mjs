@@ -5,7 +5,14 @@ import { fileURLToPath } from 'node:url';
 
 import JSZip from 'jszip';
 
-export const OFFICIAL_PLUGIN_IDS = ['source.file', 'source.image', 'source.url', 'source.youtube'];
+export const OFFICIAL_PLUGIN_IDS = [
+  'source.file',
+  'source.image',
+  'source.url',
+  'source.youtube',
+  'source.instagram',
+  'source.linkedin',
+];
 export const OFFICIAL_PLATFORMS = ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64'];
 export const OFFICIAL_RELEASE_TAG = 'official-catalog';
 export const OFFICIAL_RELEASE_PREFIX = `https://github.com/oldboydev/sheldon/releases/download/${OFFICIAL_RELEASE_TAG}/`;
@@ -69,6 +76,48 @@ export async function buildOfficialArtifacts(input, output, publishedAt) {
   );
 }
 
+/**
+ * Recomputes catalog digests after a platform-specific signing step has replaced release ZIPs.
+ * The catalog signature must be generated only after this function completes.
+ */
+export async function refreshOfficialArtifactCatalog(output) {
+  const catalogPath = join(output, 'catalog.json');
+  const catalog = await readJson(catalogPath, 'OFFICIAL_RELEASE_CATALOG_INVALID');
+  if (!Array.isArray(catalog.plugins)) {
+    throw releaseError(
+      'OFFICIAL_RELEASE_CATALOG_INVALID',
+      'The release catalog plugins are invalid.',
+    );
+  }
+  for (const plugin of catalog.plugins) {
+    if (
+      plugin === null ||
+      typeof plugin !== 'object' ||
+      typeof plugin.id !== 'string' ||
+      plugin.artifacts === null ||
+      typeof plugin.artifacts !== 'object'
+    ) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_CATALOG_INVALID',
+        'The release catalog plugins are invalid.',
+      );
+    }
+    for (const platform of OFFICIAL_PLATFORMS) {
+      const artifact = plugin.artifacts[platform];
+      if (artifact === null || typeof artifact !== 'object') {
+        throw releaseError(
+          'OFFICIAL_RELEASE_CATALOG_INVALID',
+          'The release catalog artifacts are invalid.',
+        );
+      }
+      const archive = await readFile(join(output, `${plugin.id}-${platform}.zip`));
+      artifact.sha256 = createHash('sha256').update(archive).digest('hex');
+      artifact.bytes = archive.byteLength;
+    }
+  }
+  await writeFile(catalogPath, `${JSON.stringify(catalog, null, 2)}\n`);
+}
+
 async function validatePluginStage(root, expectedId) {
   const manifest = await readJson(
     join(root, 'sheldon-plugin.json'),
@@ -95,7 +144,9 @@ async function validatePluginStage(root, expectedId) {
   }
   await requireRegularFile(join(root, 'THIRD_PARTY_NOTICES'), 'OFFICIAL_RELEASE_NOTICES_MISSING');
   if (expectedId === 'source.image') await validateImageStage(root);
-  if (expectedId === 'source.youtube') await validateYoutubeStage(root);
+  if (expectedId === 'source.youtube' || expectedId === 'source.instagram') {
+    await validateYtDlpStage(root);
+  }
   return { root, id: expectedId, version: manifest.version, name: manifest.name };
 }
 
@@ -114,15 +165,15 @@ async function validateImageStage(root) {
   }
 }
 
-async function validateYoutubeStage(root) {
+async function validateYtDlpStage(root) {
   for (const platform of OFFICIAL_PLATFORMS) {
     await requireRegularFile(
       join(root, 'runtime', platform, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'),
-      'OFFICIAL_RELEASE_YOUTUBE_RUNTIME_MISSING',
+      'OFFICIAL_RELEASE_YTDLP_RUNTIME_MISSING',
     );
     await requireRegularFile(
       join(root, 'runtime', platform, 'THIRD_PARTY_NOTICES'),
-      'OFFICIAL_RELEASE_YOUTUBE_NOTICES_MISSING',
+      'OFFICIAL_RELEASE_YTDLP_NOTICES_MISSING',
     );
   }
 }
@@ -147,7 +198,7 @@ async function createPluginArchive(plugin, platform, timestamp) {
 }
 
 function includeInPlatformArchive(id, path, platform) {
-  if (id === 'source.youtube') {
+  if (id === 'source.youtube' || id === 'source.instagram') {
     return !path.startsWith('runtime/') || path.startsWith(`runtime/${platform}/`);
   }
   if (id !== 'source.image') return true;
@@ -163,7 +214,8 @@ function archivePermissions(id, path, platform) {
   const unixRuntime =
     platform !== 'win32-x64' &&
     ((id === 'source.image' && path === `runtime/${platform}/tesseract`) ||
-      (id === 'source.youtube' && path === `runtime/${platform}/yt-dlp`));
+      ((id === 'source.youtube' || id === 'source.instagram') &&
+        path === `runtime/${platform}/yt-dlp`));
   return unixRuntime ? 0o100755 : 0o100644;
 }
 
@@ -281,15 +333,26 @@ function readArguments(argv) {
 }
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
-  const argumentsByName = readArguments(process.argv.slice(2));
-  const input = argumentsByName.get('--input');
-  const output = argumentsByName.get('--output');
-  const publishedAt = argumentsByName.get('--published-at');
-  if (!input || !output || !publishedAt) {
-    throw releaseError(
-      'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
-      'Use --input, --output, and --published-at.',
-    );
+  const argv = process.argv.slice(2);
+  if (argv[0] === '--refresh-catalog') {
+    if (argv.length !== 3 || argv[1] !== '--output' || !argv[2]) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
+        'Use --refresh-catalog --output <directory>.',
+      );
+    }
+    await refreshOfficialArtifactCatalog(argv[2]);
+  } else {
+    const argumentsByName = readArguments(argv);
+    const input = argumentsByName.get('--input');
+    const output = argumentsByName.get('--output');
+    const publishedAt = argumentsByName.get('--published-at');
+    if (!input || !output || !publishedAt) {
+      throw releaseError(
+        'OFFICIAL_RELEASE_ARGUMENTS_INVALID',
+        'Use --input, --output, and --published-at.',
+      );
+    }
+    await buildOfficialArtifacts(input, output, publishedAt);
   }
-  await buildOfficialArtifacts(input, output, publishedAt);
 }

@@ -70,6 +70,7 @@ const permissionsSchema = {
   properties: {
     network: { type: 'boolean' },
     cookies: { type: 'boolean' },
+    media: { type: 'boolean' },
   },
 } as const;
 

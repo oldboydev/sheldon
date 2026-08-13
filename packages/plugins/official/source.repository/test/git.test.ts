@@ -4,6 +4,7 @@ import fsPromises, {
   access,
   mkdtemp,
   mkdir,
+  realpath,
   rename,
   symlink,
   unlink,
@@ -612,6 +613,7 @@ describe('committed Git boundary', { timeout: 15_000 }, () => {
     async () => {
       const repository = await cleanRepositoryDirectory();
       const targetPath = join(repository, 'a-first.md');
+      const targetPaths = new Set([targetPath, await realpath(targetPath)]);
       const originalLstat = fsPromises.lstat;
       const originalOpen = fsPromises.open;
       const platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform')!;
@@ -629,7 +631,7 @@ describe('committed Git boundary', { timeout: 15_000 }, () => {
           const stats = (await Reflect.apply(originalLstat, fsPromises, args)) as {
             mode: bigint | number;
           };
-          return String(args[0]) === targetPath ? withGroupExecute(stats) : stats;
+          return targetPaths.has(String(args[0])) ? withGroupExecute(stats) : stats;
         },
         writable: true,
       });
@@ -639,7 +641,7 @@ describe('committed Git boundary', { timeout: 15_000 }, () => {
           const handle = (await Reflect.apply(originalOpen, fsPromises, args)) as Awaited<
             ReturnType<typeof originalOpen>
           >;
-          if (String(args[0]) !== targetPath) return handle;
+          if (!targetPaths.has(String(args[0]))) return handle;
           return new Proxy(handle, {
             get(target, property) {
               if (property === 'stat') {

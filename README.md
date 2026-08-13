@@ -1,9 +1,9 @@
 # Sheldon
 
 Transforme documentos, páginas públicas e repositórios locais em conhecimento que continua útil
-depois da tarefa de hoje. Sheldon é um segundo cérebro local-first: ele preserva as fontes, cria
-uma wiki Markdown revisável e permite reutilizar o conhecimento com a CLI, a interface web e
-agentes compatíveis.
+depois da tarefa de hoje. Sheldon é um segundo cérebro local-first: preserva as fontes, cria uma
+wiki Markdown revisável e permite reutilizar o conhecimento com a CLI, a interface web e agentes
+compatíveis.
 
 ## Por que Sheldon
 
@@ -24,8 +24,8 @@ para servir de contexto a outros projetos.
 ## O que ele faz
 
 - Organiza conhecimento em tópicos e projetos, guardando fontes, wiki e resultados no seu disco.
-- Importa documentos e dados locais, páginas públicas, crawls pequenos, legendas de vídeos públicos
-  do YouTube e snapshots de repositórios Git locais.
+- Importa documentos e dados locais, páginas públicas, crawls pequenos, vídeos públicos do YouTube,
+  posts públicos do Instagram e LinkedIn e snapshots de repositórios Git locais.
 - Oferece busca local, consultas com referências, revisão de propostas e bundles portáteis de
   conhecimento.
 - Expõe conteúdo aprovado para Codex e Claude por MCP local, com escopo explícito por projeto
@@ -34,8 +34,8 @@ para servir de contexto a outros projetos.
 
 ## Instalação
 
-O pacote público atual suporta Windows x64 e requer Node.js 24 LTS ou superior e npm 11 ou
-superior.
+O pacote público requer Node.js 24 LTS ou superior e oferece suporte para Windows x64, Linux x64 e
+macOS em processadores Intel ou Apple Silicon.
 
 ```powershell
 npm install --global @oldboydev/sheldon
@@ -166,25 +166,6 @@ só recebem contexto quando você inicia uma operação que pede um agente.
 - Consulte o [índice de documentação](docs/README.md) para roadmap, decisões, PRDs e notas de
   implementação.
 - Leia o [guia de contribuição](CONTRIBUTING.md) antes de contribuir com o projeto.
-
-## Desenvolvimento
-
-Para contribuir a partir do código-fonte, instale Node.js 24 LTS e npm 11 ou superior:
-
-```powershell
-npm install
-npm run verify
-```
-
-Para preparar e testar o pacote público localmente:
-
-```powershell
-npm run verify:npm-package
-```
-
-Isso gera o tarball em `release/npm-tarballs/` e verifica uma instalação global isolada. A
-publicação de uma nova versão é feita a partir de `release/npm-package/`; veja o `package.json`
-gerado e siga as regras de publicação do npm.
 
 ## Projeto
 

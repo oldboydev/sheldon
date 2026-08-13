@@ -7,6 +7,8 @@ import { PluginRegistry, type InstalledPlugin } from '@sheldon/plugin-host';
 
 import { runCli, type CliDependencies } from '../src/main.js';
 
+import { testApplicationEnvironment, testApplicationRoot } from './app-state.js';
+
 const temporaryDirectories: string[] = [];
 const rawFixture = join(process.cwd(), 'packages', 'plugin-sdk', 'test', 'fixtures', 'raw');
 
@@ -26,7 +28,7 @@ async function environment(
   return {
     root,
     dependencies: {
-      environment: { APPDATA: join(root, 'appdata') },
+      environment: testApplicationEnvironment(root, true),
       homeDirectory: root,
       confirm: async () => true,
       commandAvailable: async () => true,
@@ -38,11 +40,18 @@ async function environment(
 async function fixture(root: string, name = 'fixture'): Promise<string> {
   const target = join(root, name);
   await cp(rawFixture, target, { recursive: true });
+  const manifest = JSON.parse(
+    await readFile(join(target, 'sheldon-plugin.json'), 'utf8'),
+  ) as object;
+  await writeFile(
+    join(target, 'sheldon-plugin.json'),
+    JSON.stringify({ ...manifest, platforms: [process.platform] }),
+  );
   return target;
 }
 
 async function installFixture(root: string, source: string): Promise<InstalledPlugin> {
-  const registry = await PluginRegistry.open(join(root, 'appdata', 'Sheldon'));
+  const registry = await PluginRegistry.open(testApplicationRoot(root));
   return registry.install(source, new Set());
 }
 
@@ -79,7 +88,7 @@ describe('plugin commands', () => {
     const manifestPath = join(incompatible, 'sheldon-plugin.json');
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>;
     manifest.id = 'fixture.incompatible';
-    manifest.platforms = ['darwin'];
+    manifest.platforms = [process.platform === 'darwin' ? 'linux' : 'darwin'];
     await writeFile(manifestPath, JSON.stringify(manifest), 'utf8');
     await installFixture(root, incompatible);
 

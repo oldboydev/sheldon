@@ -1,0 +1,12 @@
+{
+  "name": "@sheldon/plugin-source-instagram",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./dist/index.js"
+  },
+  "dependencies": {
+    "@sheldon/plugin-sdk": "*"
+  }
+}

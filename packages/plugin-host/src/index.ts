@@ -1,4 +1,10 @@
-export { pluginAppPaths, type PluginAppPaths } from './app-paths.js';
+export {
+  migratePluginAppState,
+  pluginAppPaths,
+  resolvePluginAppPaths,
+  type PluginAppPathOptions,
+  type PluginAppPaths,
+} from './app-paths.js';
 export { ArtifactValidator, type ArtifactValidationLimits } from './artifact-validator.js';
 export { PluginHostError } from './errors.js';
 export {

@@ -1,0 +1,12 @@
+{
+  "supportedProbe": {
+    "input": { "url": "https://www.linkedin.com/posts/example-activity-1234567890123456789/" },
+    "minimumConfidence": 100
+  },
+  "unsupportedProbe": { "input": { "url": "https://example.test/posts/example" } },
+  "ingest": {
+    "input": { "url": "file:///contract-must-not-open-network" },
+    "options": {},
+    "expectedDiagnosticCode": "LINKEDIN_INPUT_INVALID"
+  }
+}
