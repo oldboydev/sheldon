@@ -374,6 +374,47 @@ Comandos individuais:
 - `npm run lint:domain`
 - `npm run lint:repo`
 
+## Instalação pelo npm (M11)
+
+A distribuição pública planejada usa Node.js 24 ou superior e seleciona somente o runtime exato da
+plataforma: Windows x64, Linux x64, macOS Intel x64 ou macOS Apple Silicon. Ela ainda **não foi
+publicada no npm**: até a primeira release, execute Sheldon a partir do checkout como descrito na
+próxima seção.
+
+Quando a primeira release pública estiver disponível, instale a versão estável e, depois, atualize-a
+com:
+
+```powershell
+npm install -g @oldboydev/sheldon
+npm update -g @oldboydev/sheldon
+sheldon --help
+```
+
+Em Linux e macOS, use os mesmos comandos sem PowerShell. Releases SemVer estáveis são promovidas
+para `latest`; pré-lançamentos são promovidos para `next`. Para instalar ou atualizar para a linha de
+pré-lançamento de forma explícita, use `npm install -g @oldboydev/sheldon@next` ou
+`npm update -g @oldboydev/sheldon@next`.
+
+Não há fallback de plataforma, download de runtime em tempo de execução nem cross-build. Linux
+arm64, Windows arm64, BSD, WSL tratado como plataforma distinta e macOS anterior ao 14 não fazem
+parte da matriz npm; uma combinação não suportada recebe um diagnóstico explícito em vez de usar um
+runtime aproximado.
+
+Para remover a instalação global:
+
+```powershell
+npm uninstall -g @oldboydev/sheldon
+```
+
+### Recuperação de publicação parcial (mantenedores)
+
+O workflow normal publica primeiro os quatro runtimes em `candidate`, depois o metapacote e somente
+então promove todos para `latest` ou `next`. Se uma publicação falhar parcialmente, não publique o
+metapacote enquanto qualquer runtime estiver ausente. Como o npm não permite reutilizar uma versão,
+recupere com uma nova versão SemVer e execute o fluxo novamente, ou corrija deliberadamente os
+dist-tags da versão já completa. Publicação manual é somente recuperação excepcional, feita por uma
+conta mantenedora com 2FA; nunca publique de uma máquina de desenvolvimento ou de um pull request.
+
 ## Uso da CLI
 
 Compile e execute localmente:

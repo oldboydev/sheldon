@@ -19,6 +19,7 @@
     "@sheldon/persistence": "*",
     "@sheldon/plugin-host": "*",
     "@sheldon/plugin-sdk": "*",
+    "@sheldon/plugin-source-image": "*",
     "@sheldon/review": "*",
     "@sheldon/search": "*",
     "@sheldon/vault": "*",
