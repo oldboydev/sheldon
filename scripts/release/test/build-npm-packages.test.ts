@@ -82,6 +82,9 @@ describe('npm package staging', () => {
     const metaManifest = JSON.parse(
       await readFile(join(fixture.output, 'metapackage', 'package.json'), 'utf8'),
     );
+    await expect(readFile(join(fixture.output, 'metapackage', 'README.md'), 'utf8')).resolves.toBe(
+      '# Sheldon fixture',
+    );
     expect(metaManifest.optionalDependencies).toEqual({
       '@oldboydev/sheldon-win32-x64': VERSION,
       '@oldboydev/sheldon-linux-x64': VERSION,
@@ -574,6 +577,7 @@ async function createFixture(root?: string, cleanupRoot?: string): Promise<Fixtu
   root ??= await mkdtemp(join(tmpdir(), 'sheldon-npm-stage-'));
   cleanupRoot ??= root;
   const output = join(root, 'output');
+  await write(join(root, 'README.md'), '# Sheldon fixture');
   await writeJson(join(root, 'apps', 'cli', 'package.json'), {
     name: '@sheldon/cli',
     type: 'module',

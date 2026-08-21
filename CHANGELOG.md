@@ -64,6 +64,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - O conector experimental `source.instagram` agora inclui o runtime verificado de `yt-dlp` no
   artefato oficial, confina toda saída do extrator ao diretório temporário e remove metadata de
   sessão antes de publicar raws. Opções sociais são rejeitadas para plugins incompatíveis.
+- README principal agora prioriza a proposta do produto, privacidade e uso diário, deixando marcos
+  e detalhes de implementação para a documentação técnica.
 - Interface Web Local M7 em React, servida por Fastify no mesmo processo e limitada a `127.0.0.1`, com dashboard, entrada de fontes, acompanhamento de jobs e navegação inicial do vault.
 - Contrato OpenAPI local em `/api/v1/openapi.json`, cliente tipado do navegador e eventos SSE retomáveis por cursor para trabalhos persistidos no SQLite operacional.
 - Comando `sheldon web` com escolha segura de porta livre, além de declaração opcional de efeitos de plugin para OCR, STT e download de modelo.
@@ -84,6 +86,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Matriz nativa de OCR integrada ao release: os quatro artefatos validados são incorporados ao `source.image`; execuções manuais fazem dry run sem upload e somente tags `v*` publicam o catálogo.
 
 ### Changed
+
+- A página pública do pacote npm passou a usar uma apresentação curta, orientada a instalação e uso,
+  separada da documentação de desenvolvimento do repositório.
 
 - `bundle build` agora mostra uma prévia auditável da seleção por padrão e só materializa a projeção OKF com `--apply`, expondo tags declaradas e sensibilidade não especificada sem inferir uma taxonomia.
 - Bundles OKF agora distinguem validação strict/lenient para tipos, preservam links deliberadamente quebrados com aviso, respeitam `max_depth` durante `include`, validam hashes do manifesto, incluem o resumo/links permitidos na identidade do build e recuperam uma troca de diretório interrompida.

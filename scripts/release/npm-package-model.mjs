@@ -115,7 +115,7 @@ export function createMetapackageManifest(version) {
     version,
     private: false,
     type: 'module',
-    description: 'Sheldon CLI.',
+    description: 'Local-first knowledge CLI that turns sources into a reviewable Markdown wiki.',
     license: 'MIT',
     repository: repository(),
     engines: { node: NPM_PACKAGE_NODE_ENGINE },

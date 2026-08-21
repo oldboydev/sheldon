@@ -5,6 +5,9 @@ coverage/
 *.db-shm
 *.db-wal
 dist/
+release/npm-package/
+release/npm-tarballs/
+release/npm-cache/
 native/**/build/
 packages/plugin-host/native/windows-job/build/
 *.node

@@ -92,7 +92,8 @@ export async function buildNpmPackages(options) {
   await mkdir(output, { recursive: true });
 
   const metapackage = join(output, 'metapackage');
-  if (!options.target || options.metapackage) await stageMetapackage(metapackage, options.version);
+  if (!options.target || options.metapackage)
+    await stageMetapackage(root, metapackage, options.version);
   if (options.metapackage) return { metapackage, runtimes: [] };
 
   const workspaces = await workspacePackages(root);
@@ -105,10 +106,11 @@ export async function buildNpmPackages(options) {
   return { metapackage, runtimes };
 }
 
-async function stageMetapackage(directory, version) {
+async function stageMetapackage(root, directory, version) {
   await mkdir(join(directory, 'bin'), { recursive: true });
   await writeJson(join(directory, 'package.json'), createMetapackageManifest(version));
   await writeFile(join(directory, 'bin', 'sheldon.mjs'), launcherSource(), 'utf8');
+  await cp(join(root, 'README.md'), join(directory, 'README.md'));
   await writeInventories(directory, 'metapackage', new Map());
 }
 

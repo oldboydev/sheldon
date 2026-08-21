@@ -625,7 +625,13 @@ async function defaultConfirm(message: string): Promise<boolean> {
 
 async function defaultCommandAvailable(command: string): Promise<boolean> {
   return new Promise((resolveAvailability) => {
-    const child = spawn(command, ['--version'], { stdio: 'ignore', windowsHide: true });
+    let child;
+    try {
+      child = spawn(command, ['--version'], { stdio: 'ignore', windowsHide: true });
+    } catch {
+      resolveAvailability(false);
+      return;
+    }
     const timeout = setTimeout(() => child.kill(), 3_000);
     child.once('error', () => {
       clearTimeout(timeout);
