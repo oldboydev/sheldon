@@ -160,7 +160,8 @@ só recebem contexto quando você inicia uma operação que pede um agente.
 
 ## Referência e documentação
 
-- Use `sheldon help` ou `sheldon help <comando>` para a referência completa da CLI.
+- Use `sheldon --help` para ver o propósito de cada comando principal e
+  `sheldon help <comando>` para consultar subcomandos, opções e a finalidade de cada operação.
 - Consulte a [visão do produto](docs/product/vision.md) para princípios e limites.
 - Consulte a [arquitetura](docs/product/architecture.md) para contratos, segurança e componentes.
 - Consulte o [índice de documentação](docs/README.md) para roadmap, decisões, PRDs e notas de

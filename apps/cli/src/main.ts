@@ -171,10 +171,13 @@ function configureCommander(command: Command, stdout: string[], stderr: string[]
 }
 
 function createProgram(context: CommandContext, dependencies: CliDependencies): Command {
-  const program = new Command('sheldon').description('Local-first personal knowledge vault.');
+  const program = new Command('sheldon').description(
+    'Build and use a local, reviewable knowledge vault.',
+  );
 
   program
     .command('init [path]')
+    .description('Create a Sheldon vault and save it as the local default.')
     .addOption(new Option('--yes', 'accept the proposed default path'))
     .action((path: string | undefined, options: { yes?: boolean }) =>
       executeInit(path, options, context),
@@ -182,6 +185,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
 
   program
     .command('doctor')
+    .description('Check the vault, local databases, plugins, and agent tools.')
     .option('--vault <path>', 'explicit vault path')
     .action((options: VaultOption) => executeDoctor(options, context));
 
@@ -223,6 +227,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
   addBundleCommands(program, context);
   program
     .command('search <query>')
+    .description('Search approved wiki concepts in the local index.')
     .option('--topic <slug>', 'restrict results to one topic')
     .option('--project <slug>', 'restrict results to one project')
     .option('--type <type>', 'restrict results to one concept type')
@@ -241,6 +246,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .action((query: string, options: SearchCommandOptions) => searchVault(query, options, context));
   program
     .command('query <kind> <slug> <answer-id>')
+    .description('Ask an agent a cited question using approved indexed knowledge.')
     .requiredOption('--question <text>', 'question to answer from indexed wiki context')
     .requiredOption(
       '--agent <agent>',
@@ -262,9 +268,12 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .action((kind: EntityKind, slug: string, answerId: string, options: QueryCommandOptions) =>
       queryVault(kind, slug, answerId, options, context, dependencies),
     );
-  const answer = program.command('answer');
+  const answer = program
+    .command('answer')
+    .description('Turn saved query answers into reviewable knowledge proposals.');
   answer
     .command('promote <kind> <slug> <answer-id> <proposal-id>')
+    .description('Turn a saved answer into a reviewable wiki proposal.')
     .requiredOption('--prompt <text>', 'instruction for the proposed durable wiki change')
     .option('--vault <path>', 'explicit vault path')
     .action(
@@ -276,16 +285,20 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
         options: PromoteAnswerOptions,
       ) => promoteAnswer(kind, slug, answerId, proposalId, options, context, dependencies),
     );
-  const agent = program.command('agent');
-  agent.command('doctor [agent]').action((name: string | undefined) => {
-    if (name !== undefined && name !== 'codex' && name !== 'claude') {
-      throw new Error('Agent must be codex or claude.');
-    }
-    return doctorAgents(name as AgentName | undefined, context, dependencies.agentHealthProbe);
-  });
+  const agent = program.command('agent').description('Check locally installed agent integrations.');
+  agent
+    .command('doctor [agent]')
+    .description('Check whether Codex and/or Claude is installed and usable.')
+    .action((name: string | undefined) => {
+      if (name !== undefined && name !== 'codex' && name !== 'claude') {
+        throw new Error('Agent must be codex or claude.');
+      }
+      return doctorAgents(name as AgentName | undefined, context, dependencies.agentHealthProbe);
+    });
   const mcp = program.command('mcp').description('Configure local scoped MCP knowledge access.');
   mcp
     .command('configure <consumer>')
+    .description('Preview or apply scoped MCP access for a consumer project.')
     .requiredOption('--vault <path>', 'absolute Sheldon vault path')
     .requiredOption('--consumer-id <id>', 'stable identity for the consumer project')
     .requiredOption('--scope <kind:slug...>', 'authorized topic or project scope; repeat as needed')
@@ -296,6 +309,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     );
   mcp
     .command('install-skill <consumer>')
+    .description('Preview or install the Sheldon skill for Codex or Claude.')
     .option('--agent <agent>', 'codex, claude, or both', (value) => {
       if (value === 'codex' || value === 'claude' || value === 'both') return value;
       throw new InvalidArgumentError('--agent must be codex, claude, or both.');
@@ -306,33 +320,58 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     );
   mcp
     .command('doctor')
+    .description("Validate a consumer project's Sheldon MCP configuration.")
     .requiredOption('--consumer <path>', 'consumer project directory')
     .action((options: { consumer: string }) => doctorMcp(options.consumer, context));
   mcp
     .command('serve')
+    .description('Run the scoped MCP server over stdio for one consumer.')
     .requiredOption('--consumer-config <path>', 'absolute consumer MCP configuration path')
     .action((options: { consumerConfig: string }) => serveMcp(options.consumerConfig));
-  const plugin = program.command('plugin');
-  plugin.command('install <id>').action((id: string) => installPlugin(id, context));
-  plugin.command('remove <id>').action((id: string) => removePlugin(id, context));
+  const plugin = program
+    .command('plugin')
+    .description('Discover, install, test, and diagnose source plugins.');
+  plugin
+    .command('install <id>')
+    .description('Install a verified plugin from the official catalog.')
+    .action((id: string) => installPlugin(id, context));
+  plugin
+    .command('remove <id>')
+    .description('Remove an installed plugin.')
+    .action((id: string) => removePlugin(id, context));
   plugin
     .command('list')
+    .description('List installed plugins or the signed remote catalog.')
     .option('--remote', 'load the signed official catalog')
     .action((options: { remote?: boolean }) => listPlugins(context, options));
   plugin
     .command('info <id>')
+    .description('Show plugin availability, version, and installation status.')
     .option('--remote', 'load the signed official catalog')
     .action((id: string, options: { remote?: boolean }) => infoPlugin(id, context, options));
-  plugin.command('doctor <id>').action((id: string) => doctorPlugin(id, context));
-  plugin.command('test <directory>').action((directory: string) => testPlugin(directory, context));
-  const image = program.command('image');
-  const language = image.command('language');
-  language.command('list').action(() => listImageLanguageCommand(context));
+  plugin
+    .command('doctor <id>')
+    .description('Run health checks for an installed plugin.')
+    .action((id: string) => doctorPlugin(id, context));
+  plugin
+    .command('test <directory>')
+    .description('Run contract tests against a local plugin directory.')
+    .action((directory: string) => testPlugin(directory, context));
+  const image = program
+    .command('image')
+    .description('Manage local resources used by image ingestion.');
+  const language = image.command('language').description('Manage local OCR language data.');
+  language
+    .command('list')
+    .description('List installed and available OCR languages.')
+    .action(() => listImageLanguageCommand(context));
   language
     .command('install <code>')
+    .description('Install verified OCR language data.')
     .action((code: string) => installImageLanguageCommand(code, context));
   language
     .command('remove <code>')
+    .description('Remove installed OCR language data.')
     .action((code: string) => removeImageLanguageCommand(code, context));
   return program;
 }
@@ -352,6 +391,7 @@ function addBundleCommands(program: Command, context: CommandContext): void {
     .description('Create, compile, validate, and compare local portable OKF bundles.');
   bundle
     .command('create <bundle-id>')
+    .description('Create a portable bundle definition from approved concepts.')
     .requiredOption('--concept <concept-id...>', 'stable approved concept id; repeat as needed')
     .option('--title <title>', 'human-readable bundle title')
     .option('--description <description>', 'bundle purpose')
@@ -381,6 +421,7 @@ function addBundleCommands(program: Command, context: CommandContext): void {
     });
   bundle
     .command('build <bundle-id>')
+    .description('Preview or write a bundle from its definition.')
     .option('--mode <mode>', 'strict or lenient validation', 'strict')
     .option('--apply', 'write the previewed portable bundle after selection review')
     .option('--vault <path>', 'explicit vault path')
@@ -390,6 +431,7 @@ function addBundleCommands(program: Command, context: CommandContext): void {
     });
   bundle
     .command('validate <directory>')
+    .description('Validate a compiled bundle and its manifest.')
     .option('--mode <mode>', 'strict or lenient validation', 'strict')
     .action((directory: string, options: BundleValidateOptions) => {
       assertOkfMode(options.mode);
@@ -397,6 +439,7 @@ function addBundleCommands(program: Command, context: CommandContext): void {
     });
   bundle
     .command('diff <previous-directory> <next-directory>')
+    .description('Compare two compiled bundle directories.')
     .action((previousDirectory: string, nextDirectory: string) =>
       diffBundles(previousDirectory, nextDirectory, context),
     );
@@ -415,9 +458,12 @@ function addMemoryCommands(
   context: CommandContext,
   dependencies: CliDependencies,
 ): void {
-  const ingest = program.command('ingest');
+  const ingest = program
+    .command('ingest')
+    .description('Capture sources into immutable local raw records.');
   ingest
     .command('file <kind> <slug> <file>')
+    .description('Capture a supported local file through an ingestion plugin.')
     .option('--vault <path>', 'explicit vault path')
     .option('--plugin <id>', 'explicit file ingestion plugin')
     .action((kind: EntityKind, slug: string, file: string, options: FileIngestionOptions) =>
@@ -425,6 +471,7 @@ function addMemoryCommands(
     );
   ingest
     .command('url <kind> <slug> <url>')
+    .description('Capture one public URL through a compatible ingestion plugin.')
     .option('--vault <path>', 'explicit vault path')
     .option('--plugin <id>', 'explicit URL ingestion plugin')
     .option('--language <tags>', 'preferred comma-separated language tags')
@@ -440,6 +487,7 @@ function addMemoryCommands(
     );
   ingest
     .command('crawl <kind> <slug> <seed-url>')
+    .description('Capture a bounded public-site crawl from a seed URL.')
     .requiredOption(
       '--max-pages <count>',
       'maximum page attempts (1-10)',
@@ -457,6 +505,7 @@ function addMemoryCommands(
     );
   ingest
     .command('repository <kind> <slug> <directory>')
+    .description('Capture a clean local Git repository snapshot.')
     .option('--vault <path>', 'explicit vault path')
     .option('--plugin <id>', 'explicit repository ingestion plugin')
     .action(
@@ -466,6 +515,7 @@ function addMemoryCommands(
 
   program
     .command('compile <kind> <slug> <proposal-id>')
+    .description('Ask an agent to turn captured raws into a reviewable proposal.')
     .requiredOption('--agent <agent>', 'codex or claude')
     .requiredOption('--prompt <text>', 'task prompt')
     .requiredOption('--raw <path...>', 'raw source paths relative to the entity')
@@ -492,6 +542,7 @@ function addMemoryCommands(
 
   program
     .command('compile-retry <kind> <slug> <proposal-id>')
+    .description('Create a new proposal attempt linked to an earlier proposal.')
     .requiredOption('--from <proposal-id>', 'prior proposal id')
     .requiredOption('--agent <agent>', 'codex or claude')
     .requiredOption('--prompt <text>', 'task prompt')
@@ -519,15 +570,19 @@ function addMemoryCommands(
       },
     );
 
-  const review = program.command('review');
+  const review = program
+    .command('review')
+    .description('Preview, approve, reject, and lint proposed wiki changes.');
   review
     .command('preview <kind> <slug> <proposal-id>')
+    .description('Show proposed wiki changes without applying them.')
     .option('--vault <path>', 'explicit vault path')
     .action((kind: EntityKind, slug: string, proposalId: string, options: VaultOption) =>
       previewProposal(kind, slug, proposalId, options, context),
     );
   review
     .command('approve <kind> <slug> <proposal-id> <paths...>')
+    .description('Apply selected proposal paths to the approved wiki.')
     .option('--vault <path>', 'explicit vault path')
     .action(
       async (
@@ -545,6 +600,7 @@ function addMemoryCommands(
     );
   review
     .command('reject <kind> <slug> <proposal-id>')
+    .description('Reject a proposal and record the reason.')
     .requiredOption('--reason <text>', 'reason for rejecting the proposal')
     .option('--vault <path>', 'explicit vault path')
     .action(
@@ -557,6 +613,7 @@ function addMemoryCommands(
     );
   review
     .command('lint <kind> <slug>')
+    .description('Validate approved wiki structure, links, and sources.')
     .option('--vault <path>', 'explicit vault path')
     .action((kind: EntityKind, slug: string, options: VaultOption) =>
       lintWiki(kind, slug, options, context),
@@ -584,10 +641,11 @@ function parseMediaMode(value: string): 'none' | 'thumbnail' | 'images' {
 }
 
 function addEntityCommands(program: Command, kind: EntityKind, context: CommandContext): void {
-  const entity = program.command(kind);
+  const entity = program.command(kind).description(`Create and manage ${kind} knowledge spaces.`);
 
   entity
     .command('create <title>')
+    .description(`Create a ${kind} knowledge space.`)
     .option('--description <text>', 'entity description')
     .option('--vault <path>', 'explicit vault path')
     .action((title: string, options: VaultOption & { description?: string }) =>
@@ -595,20 +653,24 @@ function addEntityCommands(program: Command, kind: EntityKind, context: CommandC
     );
   entity
     .command('list')
+    .description(`List all ${kind} knowledge spaces in the vault.`)
     .option('--vault <path>', 'explicit vault path')
     .action((options: VaultOption) => listEntities(kind, options, context));
   entity
     .command('show <slug>')
+    .description(`Show one ${kind} and its metadata.`)
     .option('--vault <path>', 'explicit vault path')
     .action((slug: string, options: VaultOption) => showEntity(kind, slug, options, context));
   entity
     .command('rename <slug> <title>')
+    .description(`Rename a ${kind} and update its slug.`)
     .option('--vault <path>', 'explicit vault path')
     .action((slug: string, title: string, options: VaultOption) =>
       renameEntity(kind, slug, title, options, context),
     );
   entity
     .command('archive <slug>')
+    .description(`Archive a ${kind} without deleting its knowledge.`)
     .option('--vault <path>', 'explicit vault path')
     .action((slug: string, options: VaultOption) => archiveEntity(kind, slug, options, context));
 }

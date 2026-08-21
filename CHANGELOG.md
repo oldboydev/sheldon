@@ -26,6 +26,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- A ajuda integrada da CLI agora explica a finalidade de todos os comandos, grupos e subcomandos,
+  incluindo ingestão, revisão, plugins, bundles, MCP, agentes e gerenciamento do vault.
 - O release oficial agora inclui uma closure de dependências de produção plana, protegida contra
   ciclos e symlinks, em cada plugin. Ele assina e notariza os executáveis finais de macOS (OCR e
   `yt-dlp`) antes de recalcular e assinar o catálogo, e confirma que os ZIPs assinados substituíram
