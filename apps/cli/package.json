@@ -11,8 +11,8 @@
     "sheldon": "./dist/sheldon.js"
   },
   "dependencies": {
-    "@sheldon/core": "*",
     "@sheldon/agent-runtime": "*",
+    "@sheldon/core": "*",
     "@sheldon/ingestion": "*",
     "@sheldon/mcp": "*",
     "@sheldon/okf": "*",
@@ -25,6 +25,7 @@
     "@sheldon/vault": "*",
     "@sheldon/web": "*",
     "commander": "^15.0.0",
+    "smol-toml": "^1.7.0",
     "yaml": "^2.9.0"
   }
 }

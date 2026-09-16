@@ -314,10 +314,10 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     );
   mcp
     .command('install-skill <consumer>')
-    .description('Preview or install the Sheldon skill for Codex or Claude.')
-    .option('--agent <agent>', 'codex, claude, or both', (value) => {
-      if (value === 'codex' || value === 'claude' || value === 'both') return value;
-      throw new InvalidArgumentError('--agent must be codex, claude, or both.');
+    .description('Preview or install the Sheldon skill for Codex, Claude, or Grok.')
+    .option('--agent <agent>', 'codex, claude, grok, both, or all', (value) => {
+      if (value === 'both' || value === 'all' || isAgentKind(value)) return value;
+      throw new InvalidArgumentError('--agent must be codex, claude, grok, both, or all.');
     })
     .option('--apply', 'copy the generated skill after displaying the targets')
     .action((consumer: string, options: McpInstallSkillOptions) =>
