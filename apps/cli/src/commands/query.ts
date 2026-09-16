@@ -1,10 +1,9 @@
 import {
   JsonCommandExecutor,
   QueryAnswerStore,
-  createClaudeCommandAdapter,
-  createClaudeQueryAdapter,
-  createCodexCommandAdapter,
-  createCodexQueryAdapter,
+  createCommandAdapter,
+  createQueryCommandAdapter,
+  requireAgentProfile,
   validateQueryAnswer,
   type AgentKind,
   type CommandExecutor,
@@ -95,10 +94,7 @@ export async function promoteAnswer(
   const answer = await answers.loadPromotable(answerId);
   const executor =
     dependencies.agentExecutor ?? new JsonCommandExecutor({ environment: context.environment });
-  const adapter =
-    answer.agent === 'codex'
-      ? createCodexCommandAdapter(executor)
-      : createClaudeCommandAdapter(executor);
+  const adapter = createCommandAdapter(requireAgentProfile(answer.agent), executor);
   const execution = await adapter.execute(
     {
       proposalId,
@@ -142,10 +138,7 @@ async function answerFromAgent(
 ): Promise<QueryAnswer> {
   const executor =
     dependencies.agentExecutor ?? new JsonCommandExecutor({ environment: context.environment });
-  const adapter =
-    options.agent === 'codex'
-      ? createCodexQueryAdapter(executor)
-      : createClaudeQueryAdapter(executor);
+  const adapter = createQueryCommandAdapter(requireAgentProfile(options.agent), executor);
   const execution = await adapter.execute(
     {
       answerId,

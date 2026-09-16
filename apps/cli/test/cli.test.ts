@@ -258,7 +258,7 @@ describe('runCli', () => {
       },
       {
         arguments: ['agent', '--help'],
-        descriptions: ['Check whether Codex and/or Claude is installed and usable.'],
+        descriptions: ['Check whether Codex, Claude, and/or Grok is installed and usable.'],
       },
     ];
 

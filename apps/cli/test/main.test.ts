@@ -167,6 +167,23 @@ it.each([['999'], ['200001'], ['1.0'], ['NaN']])(
   },
 );
 
+it('rejects unknown compile agents with the registry list', async () => {
+  const result = await runCli([
+    'compile',
+    'topic',
+    'memory',
+    'p1',
+    '--agent',
+    'cursor',
+    '--prompt',
+    'x',
+    '--raw',
+    'raw/a/content.md',
+  ]);
+  expect(result.exitCode).not.toBe(0);
+  expect(`${result.stdout}${result.stderr}`).toContain('codex, claude, or grok');
+});
+
 async function cliDependencies(prefix: string): Promise<CliDependencies> {
   const root = await mkdtemp(join(tmpdir(), prefix));
   temporaryDirectories.push(root);

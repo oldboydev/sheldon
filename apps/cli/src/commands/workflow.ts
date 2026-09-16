@@ -1,7 +1,7 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { ProposalStore } from '@sheldon/agent-runtime';
+import { ProposalStore, type AgentKind } from '@sheldon/agent-runtime';
 import type { EntityKind } from '@sheldon/core';
 import { atomicWriteFile, entityDirectory, VaultService } from '@sheldon/vault';
 
@@ -63,7 +63,7 @@ export async function retryCompile(
   proposalId: string,
   retryOf: string,
   options: VaultOption & {
-    readonly agent: 'codex' | 'claude';
+    readonly agent: AgentKind;
     readonly prompt: string;
     readonly raw: readonly string[];
   },

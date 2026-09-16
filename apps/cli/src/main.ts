@@ -4,14 +4,19 @@ import { resolve } from 'node:path';
 import { createInterface } from 'node:readline/promises';
 
 import type { EntityKind } from '@sheldon/core';
-import type { CommandExecutor } from '@sheldon/agent-runtime';
+import {
+  formatAgentKindList,
+  isAgentKind,
+  type AgentKind,
+  type CommandExecutor,
+} from '@sheldon/agent-runtime';
 import { PluginHostError } from '@sheldon/plugin-host';
 import { entityDirectory, VaultError } from '@sheldon/vault';
 import { Command, CommanderError, InvalidArgumentError, Option } from 'commander';
 
 import { executeDoctor } from './commands/doctor.js';
 import { applicationPaths, migrateLegacyStateFrom, resolveVaultPath } from './config.js';
-import { doctorAgents, type AgentHealthProbe, type AgentName } from './commands/agents.js';
+import { doctorAgents, type AgentHealthProbe } from './commands/agents.js';
 import {
   archiveEntity,
   createEntity,
@@ -250,7 +255,7 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .requiredOption('--question <text>', 'question to answer from indexed wiki context')
     .requiredOption(
       '--agent <agent>',
-      'agent that writes the cited answer (codex or claude)',
+      `agent that writes the cited answer (${formatAgentKindList()})`,
       agentKind,
     )
     .option(
@@ -288,12 +293,12 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
   const agent = program.command('agent').description('Check locally installed agent integrations.');
   agent
     .command('doctor [agent]')
-    .description('Check whether Codex and/or Claude is installed and usable.')
+    .description('Check whether Codex, Claude, and/or Grok is installed and usable.')
     .action((name: string | undefined) => {
-      if (name !== undefined && name !== 'codex' && name !== 'claude') {
-        throw new Error('Agent must be codex or claude.');
+      if (name !== undefined && !isAgentKind(name)) {
+        throw new Error(`Agent must be ${formatAgentKindList()}.`);
       }
-      return doctorAgents(name as AgentName | undefined, context, dependencies.agentHealthProbe);
+      return doctorAgents(name, context, dependencies.agentHealthProbe);
     });
   const mcp = program.command('mcp').description('Configure local scoped MCP knowledge access.');
   mcp
@@ -376,9 +381,9 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
   return program;
 }
 
-function agentKind(value: string): AgentName {
-  if (value === 'codex' || value === 'claude') return value;
-  throw new InvalidArgumentError('Agent must be codex or claude.');
+function agentKind(value: string): AgentKind {
+  if (isAgentKind(value)) return value;
+  throw new InvalidArgumentError(`Agent must be ${formatAgentKindList()}.`);
 }
 
 function catalogTemporaryRoot(environment: NodeJS.ProcessEnv, homeDirectory: string): string {
@@ -516,7 +521,7 @@ function addMemoryCommands(
   program
     .command('compile <kind> <slug> <proposal-id>')
     .description('Ask an agent to turn captured raws into a reviewable proposal.')
-    .requiredOption('--agent <agent>', 'codex or claude')
+    .requiredOption('--agent <agent>', formatAgentKindList(), agentKind)
     .requiredOption('--prompt <text>', 'task prompt')
     .requiredOption('--raw <path...>', 'raw source paths relative to the entity')
     .option('--vault <path>', 'explicit vault path')
@@ -525,26 +530,15 @@ function addMemoryCommands(
         kind: EntityKind,
         slug: string,
         proposalId: string,
-        options: VaultOption & { agent: string; prompt: string; raw: string[] },
-      ) => {
-        if (options.agent !== 'codex' && options.agent !== 'claude')
-          throw new Error('Agent must be codex or claude.');
-        return compileMemory(
-          kind,
-          slug,
-          proposalId,
-          { ...options, agent: options.agent },
-          context,
-          dependencies,
-        );
-      },
+        options: VaultOption & { agent: AgentKind; prompt: string; raw: string[] },
+      ) => compileMemory(kind, slug, proposalId, options, context, dependencies),
     );
 
   program
     .command('compile-retry <kind> <slug> <proposal-id>')
     .description('Create a new proposal attempt linked to an earlier proposal.')
     .requiredOption('--from <proposal-id>', 'prior proposal id')
-    .requiredOption('--agent <agent>', 'codex or claude')
+    .requiredOption('--agent <agent>', formatAgentKindList(), agentKind)
     .requiredOption('--prompt <text>', 'task prompt')
     .requiredOption('--raw <path...>', 'raw source paths relative to the entity')
     .option('--vault <path>', 'explicit vault path')
@@ -553,21 +547,13 @@ function addMemoryCommands(
         kind: EntityKind,
         slug: string,
         proposalId: string,
-        options: VaultOption & { agent: string; from: string; prompt: string; raw: string[] },
-      ) => {
-        if (options.agent !== 'codex' && options.agent !== 'claude') {
-          throw new Error('Agent must be codex or claude.');
-        }
-        return retryCompile(
-          kind,
-          slug,
-          proposalId,
-          options.from,
-          { ...options, agent: options.agent },
-          context,
-          dependencies,
-        );
-      },
+        options: VaultOption & {
+          agent: AgentKind;
+          from: string;
+          prompt: string;
+          raw: string[];
+        },
+      ) => retryCompile(kind, slug, proposalId, options.from, options, context, dependencies),
     );
 
   const review = program
