@@ -30,15 +30,15 @@
 
 Observed 2026-09-16:
 
-| Fact | Evidence |
-|---|---|
-| Builder, inventories, SBOM, smokes, workflow exist | `scripts/release/build-npm-packages.mjs`, `smoke-npm-package.mjs`, `.github/workflows/publish-npm.yml`, tests under `scripts/release/test/` |
-| Registry has `@oldboydev/sheldon@0.1.1` | `npm view`: `os: ["win32"]`, `cpu: ["x64"]`, 5784 files, ~113 MB, published 2026-08-12 |
-| Runtime packages 404 | `npm view @oldboydev/sheldon-win32-x64` → E404 |
-| No git tags | `git tag -l 'v*'` empty |
-| README already shows `npm install --global @oldboydev/sheldon` | Over-claims the M11 model |
-| Roadmap M11 | “em implementação” |
-| Publish jobs have `id-token: write` but `setup-node` has no `registry-url` | `.github/workflows/publish-npm.yml` `publish-runtimes`, `publish-metapackage`, `promote-npm-packages` |
+| Fact                                                                       | Evidence                                                                                                                                    |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Builder, inventories, SBOM, smokes, workflow exist                         | `scripts/release/build-npm-packages.mjs`, `smoke-npm-package.mjs`, `.github/workflows/publish-npm.yml`, tests under `scripts/release/test/` |
+| Registry has `@oldboydev/sheldon@0.1.1`                                    | `npm view`: `os: ["win32"]`, `cpu: ["x64"]`, 5784 files, ~113 MB, published 2026-08-12                                                      |
+| Runtime packages 404                                                       | `npm view @oldboydev/sheldon-win32-x64` → E404                                                                                              |
+| No git tags                                                                | `git tag -l 'v*'` empty                                                                                                                     |
+| README already shows `npm install --global @oldboydev/sheldon`             | Over-claims the M11 model                                                                                                                   |
+| Roadmap M11                                                                | “em implementação”                                                                                                                          |
+| Publish jobs have `id-token: write` but `setup-node` has no `registry-url` | `.github/workflows/publish-npm.yml` `publish-runtimes`, `publish-metapackage`, `promote-npm-packages`                                       |
 
 ## File map
 
@@ -52,47 +52,22 @@ Observed 2026-09-16:
 ### Task 1: Tell the truth in docs and lock 0.2.0
 
 **Files:**
+
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
 - Modify: `docs/roadmap.md`
 - Modify: `docs/README.md`
 
 **Interfaces:**
+
 - Consumes: registry facts above.
 - Produces: user-facing copy that 0.1.1 is a Windows-only prototype; public matrix install is the upcoming 0.2.0 five-package release.
 
 - [ ] **Step 1: Rewrite the README install section** so it matches reality until 0.2.0 is `latest`. Keep the command. Add the matrix, Node 24, and that Linux/macOS/Windows ARM are not in 0.1.1.
 
-Use this block in `README.md` under `## Instalação` (replace the current three-line install):
-
-```markdown
-O pacote público requer Node.js 24 LTS ou superior.
-
-```powershell
-npm install --global @oldboydev/sheldon
-sheldon --help
-```
-
-A distribuição estável (`0.2.0` e posteriores) instala um metapacote que seleciona o runtime da
-plataforma: Windows x64, Linux x64, macOS Intel e Apple Silicon. Combinações fora dessa matriz
-falham com diagnóstico; não há fallback.
-
-`@oldboydev/sheldon@0.1.1` no npm é um protótipo somente Windows x64. Não use essa versão em
-Linux, macOS ou Windows ARM. Após `0.2.0` tornar-se `latest`, `npm update --global @oldboydev/sheldon`
-passa a instalar o modelo de cinco pacotes.
-
-Para atualizar:
-
-```powershell
-npm update --global @oldboydev/sheldon
-```
-
-Para remover:
-
-```powershell
-npm uninstall --global @oldboydev/sheldon
-```
-```
+Use this block in `README.md` under `## Instalação` (replace the current three-line install).
+Copy the same text already applied in Task 1 of this go-live: Node 24, install command, matrix for
+`0.2.0+`, warning that `0.1.1` is Windows-only, update command, uninstall command.
 
 - [ ] **Step 2: Changelog and roadmap**
 
@@ -114,10 +89,12 @@ git commit -m "docs(release): describe 0.1.1 as windows prototype ahead of 0.2.0
 ### Task 2: Give OIDC publish a registry-url
 
 **Files:**
+
 - Modify: `.github/workflows/publish-npm.yml`
 - Modify: `scripts/release/test/npm-publish-workflow.test.ts`
 
 **Interfaces:**
+
 - Consumes: existing publish jobs (`publish-runtimes`, `publish-metapackage`, `promote-npm-packages`).
 - Produces: those three jobs’ `actions/setup-node` steps set `registry-url: https://registry.npmjs.org` so `npm publish` / `npm dist-tag add` can use trusted publishing. Still no `NPM_TOKEN`.
 
@@ -179,16 +156,18 @@ git commit -m "ci(release): set npm registry-url on oidc publish jobs"
 ### Task 3: Operator runbook
 
 **Files:**
+
 - Create: `docs/product/npm-release-runbook.md`
 - Modify: `docs/README.md` (link the runbook)
 
 **Interfaces:**
+
 - Consumes: spec trusted-publisher rules; package names; version `0.2.0`.
 - Produces: a checklist a human can execute without reading the workflow YAML.
 
 - [ ] **Step 1: Write the runbook** with these sections, verbatim values:
 
-```markdown
+````markdown
 # Runbook — publicação npm do Sheldon
 
 Versão desta go-live: `0.2.0` (tag `v0.2.0`). Não reutilizar `0.1.0` / `0.1.1`.
@@ -277,7 +256,6 @@ Não unpublish.
 
 Publicação parcial (runtimes no `candidate`, metapacote ausente): não promover `latest` à mão.
 Corrigir o workflow, taguear `v0.2.1`. Dist-tag `candidate` pode ficar órfão.
-```
 
 - [ ] **Step 2: Commit**
 
@@ -293,6 +271,7 @@ git commit -m "docs(release): add npm go-live runbook for 0.2.0"
 **Files:** none committed. Uses existing scripts.
 
 **Interfaces:**
+
 - Consumes: `scripts/release/build-npm-packages.mjs`, `scripts/release/smoke-npm-package.mjs`.
 - Produces: evidence that a staged `win32-x64` tarball installs and runs `sheldon --help` / `sheldon init` from a clean prefix on this machine.
 
@@ -327,6 +306,7 @@ If smoke fails, stop. Do not tag.
 **Files:** none. Operator only.
 
 **Interfaces:**
+
 - Consumes: runbook §1–3.
 - Produces: npm org `oldboydev` trusts `oldboydev/sheldon` + `publish-npm.yml` for all five package names; a green `workflow_dispatch` dry-run.
 
@@ -342,10 +322,12 @@ This task cannot be finished by an agent without npm org admin. Status stays BLO
 ### Task 6: Tag `v0.2.0`, verify install, deprecate 0.1.1
 
 **Files:**
+
 - Modify: `CHANGELOG.md` — move publication notes under `[0.2.0] - YYYY-MM-DD` when the tag is cut.
 - Modify: `docs/roadmap.md` — M11 status “concluído” only after `npm view` shows `0.2.0` as `latest` on all five packages.
 
 **Interfaces:**
+
 - Consumes: green dry-run, trusted publishers, Tasks 1–4 merged to `main`.
 - Produces: `npm install --global @oldboydev/sheldon` on this Windows x64 machine runs the 0.2.0 launcher, which resolves `@oldboydev/sheldon-win32-x64`.
 
@@ -382,20 +364,21 @@ Expected: help from 0.2.0 (Grok appears in `--agent` help). `npm ls -g @oldboyde
 
 ## Spec coverage
 
-| Spec / PRD item | Task |
-|---|---|
-| Five packages, same SemVer, no overwrite | Global + 6 (`0.2.0`) |
-| Metapackage selects runtime; no fallback | Already in builder; Task 4 inspects manifest |
-| Runtimes published before metapackage; `latest` last | Existing workflow; Task 6 watches it |
-| OIDC, no `NPM_TOKEN` | Task 2 |
-| Trusted publisher + protected tag | Task 5 (human) |
-| Clean-prefix `--help` / `init` | Task 4 local; Task 6 after tag |
-| Docs: install, update, remove, Node 24, matrix | Task 1 + 3 |
-| 0.1.1 Windows blob vs designed model | Task 1 + deprecate in 6 |
-| Homebrew/MSI/internal `@sheldon/*` public | Out of scope |
+| Spec / PRD item                                      | Task                                         |
+| ---------------------------------------------------- | -------------------------------------------- |
+| Five packages, same SemVer, no overwrite             | Global + 6 (`0.2.0`)                         |
+| Metapackage selects runtime; no fallback             | Already in builder; Task 4 inspects manifest |
+| Runtimes published before metapackage; `latest` last | Existing workflow; Task 6 watches it         |
+| OIDC, no `NPM_TOKEN`                                 | Task 2                                       |
+| Trusted publisher + protected tag                    | Task 5 (human)                               |
+| Clean-prefix `--help` / `init`                       | Task 4 local; Task 6 after tag               |
+| Docs: install, update, remove, Node 24, matrix       | Task 1 + 3                                   |
+| 0.1.1 Windows blob vs designed model                 | Task 1 + deprecate in 6                      |
+| Homebrew/MSI/internal `@sheldon/*` public            | Out of scope                                 |
 
 ## Placeholders / decisions
 
 - Version **`0.2.0`** is the default. Override to `1.0.0` only if you want to call this the first stable; the spec does not require 1.0.0.
 - `macos-15-intel` is required by the existing workflow matrix. If GitHub retired it, that is a Task 5 dry-run failure, not a reason to drop darwin-x64.
 - Creating the four runtime package names on npm is part of Task 5 (first OIDC publish or manual provision). Not guessed here beyond “trusted publisher must exist for each name”.
+````
