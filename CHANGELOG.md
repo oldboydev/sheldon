@@ -13,7 +13,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Distribuição npm preparada para a CLI: metapacote público `@oldboydev/sheldon`, runtimes fechados
   para Windows x64, Linux x64, macOS Intel e Apple Silicon, seleção fail-closed, closure física de
   produção, inventário/SBOM e smoke de tarball instalado em prefixo limpo. O workflow de publicação
-  por tag usa npm trusted publishing/OIDC e não contém token npm de escrita.
+  por tag usa npm trusted publishing/OIDC e não contém token npm de escrita. A próxima publicação
+  pública é `0.2.0`; `@oldboydev/sheldon@0.1.1` no registry permanece um protótipo somente Windows
+  x64 até essa tag promover `latest`.
 - Suporte operacional para Windows x64, Ubuntu x64 e macOS Intel/Apple Silicon, com diretórios
   XDG separados para configuração e estado, encerramento de árvore POSIX e gates nativos por
   plataforma.
