@@ -77,6 +77,7 @@ describe('npm package model', () => {
     expect(createRuntimePackageManifest(target, VERSION)).toMatchObject({
       name: target.packageName,
       version: VERSION,
+      license: 'MIT',
       repository: { type: 'git', url: NPM_PACKAGE_REPOSITORY },
       os: [target.os],
       cpu: [target.cpu],
@@ -88,6 +89,7 @@ describe('npm package model', () => {
     expect(createMetapackageManifest(VERSION)).toMatchObject({
       name: NPM_METAPACKAGE_NAME,
       version: VERSION,
+      license: 'MIT',
       repository: { type: 'git', url: NPM_PACKAGE_REPOSITORY },
       bin: { sheldon: 'bin/sheldon.mjs' },
       optionalDependencies: Object.fromEntries(

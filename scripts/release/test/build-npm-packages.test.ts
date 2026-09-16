@@ -36,6 +36,7 @@ describe('npm package staging', () => {
         'node_modules/@sheldon/cli/node_modules/@sheldon/core/dist/index.js',
         'node_modules/@sheldon/cli/node_modules/external-production/index.js',
         'node_modules/@sheldon/cli/node_modules/external-production/deps/encoding/base64.js',
+        'LICENSE',
         'inventory.json',
         'sbom.spdx.json',
         'SHA256SUMS',
@@ -85,6 +86,10 @@ describe('npm package staging', () => {
     await expect(readFile(join(fixture.output, 'metapackage', 'README.md'), 'utf8')).resolves.toBe(
       '# Sheldon fixture',
     );
+    await expect(readFile(join(fixture.output, 'metapackage', 'LICENSE'), 'utf8')).resolves.toBe(
+      'MIT fixture license',
+    );
+    await expect(readFile(join(runtime, 'LICENSE'), 'utf8')).resolves.toBe('MIT fixture license');
     expect(metaManifest.optionalDependencies).toEqual({
       '@oldboydev/sheldon-win32-x64': VERSION,
       '@oldboydev/sheldon-linux-x64': VERSION,
@@ -97,6 +102,15 @@ describe('npm package staging', () => {
     await expect(readFile(join(runtime, 'SHA256SUMS'), 'utf8')).resolves.toMatch(
       /^[a-f0-9]{64} {2}package\.json$/m,
     );
+  });
+
+  it('refuses to stage packages when the repository LICENSE is missing', async () => {
+    await using fixture = await createFixture();
+    await rm(join(fixture.root, 'LICENSE'));
+
+    await expect(
+      buildNpmPackages({ root: fixture.root, output: fixture.output, version: VERSION }),
+    ).rejects.toThrow('NPM_PACKAGE_LICENSE_MISSING');
   });
 
   it('includes the Windows addon only in the Windows runtime', async () => {
@@ -578,6 +592,7 @@ async function createFixture(root?: string, cleanupRoot?: string): Promise<Fixtu
   cleanupRoot ??= root;
   const output = join(root, 'output');
   await write(join(root, 'README.md'), '# Sheldon fixture');
+  await write(join(root, 'LICENSE'), 'MIT fixture license');
   await writeJson(join(root, 'apps', 'cli', 'package.json'), {
     name: '@sheldon/cli',
     type: 'module',
