@@ -137,7 +137,8 @@ interface local têm o mesmo contrato operacional e de diagnóstico na matriz pu
 
 **PRD:** 013
 
-**Status:** em implementação.
+**Status:** código no repositório; go-live bloqueado por trusted publisher npm e primeira tag
+`v0.2.0`.
 
 Entrega: um único comando instala a CLI pública em Windows x64, Linux x64, macOS Intel e Apple
 Silicon, com pacote selecionado pela plataforma, artefatos verificáveis, versão SemVer e publicação

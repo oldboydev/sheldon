@@ -7,6 +7,7 @@
 - [Modelo de conhecimento](product/knowledge-model.md)
 - [Decisões arquiteturais](product/decisions.md)
 - [Roadmap](roadmap.md)
+- [Runbook de publicação npm](product/npm-release-runbook.md)
 
 ## PRDs
 
@@ -30,6 +31,7 @@
 - [Design da plataforma de plugins](superpowers/specs/2026-07-18-plugin-platform-design.md)
 - [Plataforma de plugins](superpowers/plans/2026-07-18-plugin-platform.md)
 - [Distribuição pública pelo npm](superpowers/plans/2026-08-06-npm-publication-and-installation.md)
+- [Go-live da instalação pública npm 0.2.0](superpowers/plans/2026-09-16-npm-public-install.md)
 - [Registro de agentes e Grok CLI](superpowers/specs/2026-09-16-agent-registry-and-grok-design.md)
 - [Plano: registro de agentes e Grok CLI](superpowers/plans/2026-09-16-agent-registry-and-grok.md)
 
