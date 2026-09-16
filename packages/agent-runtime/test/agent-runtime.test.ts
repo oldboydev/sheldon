@@ -17,13 +17,14 @@ import {
   createClaudeQueryAdapter,
   createCodexQueryAdapter,
   createCodexCommandAdapter,
+  createGrokCommandAdapter,
+  createGrokQueryAdapter,
   requireAgentProfile,
   summarizeProposal,
   validateProposal,
   validateQueryAnswer,
   queryAnswerJsonSchema,
   structuredProposalJsonSchema,
-  type AgentAdapter,
   type AgentTask,
   type AgentCommand,
   type CommandExecutor,
@@ -353,20 +354,7 @@ describe('command adapters and runtime', () => {
         SECRET_TOKEN: 'must-not-be-forwarded',
       },
     });
-    const grokAdapter: AgentAdapter = {
-      kind: 'grok',
-      execute: (current, options) =>
-        executor.execute(
-          {
-            executable: 'grok',
-            arguments: requireAgentProfile('grok').arguments,
-            prompt: current.prompt,
-            input: current,
-            outputSchema: structuredProposalJsonSchema,
-          },
-          options,
-        ),
-    };
+    const grokAdapter = createGrokCommandAdapter(executor);
 
     await expect(grokAdapter.execute(task)).resolves.toMatchObject({
       status: 'proposal',
@@ -419,11 +407,39 @@ describe('command adapters and runtime', () => {
       expect.arrayContaining(['exec', '--json', '--output-schema', '{sheldon-output-schema-file}']),
     );
     expect(commands[1].arguments).toEqual(
-      expect.arrayContaining(['--print', '--output-format', 'json', '--json-schema']),
+      expect.arrayContaining([
+        '--print',
+        '--output-format',
+        'json',
+        '--json-schema',
+        '{sheldon-output-schema-json}',
+      ]),
     );
     expect(commands[0].prompt).toContain('raw/source-001/content.md');
     expect(commands[0].prompt).toContain(task.prompt);
     expect(commands[0].outputSchema).toMatchObject({ $id: 'sheldon-proposal/v1' });
+  });
+
+  it('builds grok compile and query commands from the grok profile', async () => {
+    const commands: AgentCommand[] = [];
+    const queryCommands: QueryAgentCommand[] = [];
+    const executor: CommandExecutor = {
+      execute: async (command) => {
+        commands.push(command);
+        return { status: 'proposal', proposal: proposal(), agentVersion: 'fixture-1.0' };
+      },
+      executeQuery: async (command) => {
+        queryCommands.push(command);
+        return { status: 'answer', answer: answer({ agent: 'grok' }), agentVersion: 'fixture-1.0' };
+      },
+    };
+
+    await createGrokCommandAdapter(executor).execute(task);
+    await createGrokQueryAdapter(executor).execute(queryTask);
+    expect(commands[0]?.executable).toBe('grok');
+    expect(commands[0]?.arguments).toEqual(requireAgentProfile('grok').arguments);
+    expect(queryCommands[0]?.arguments).toEqual(requireAgentProfile('grok').arguments);
+    expect(commands[0]?.arguments).not.toContain('--');
   });
 
   it('builds Codex and Claude query commands with the query-answer schema', async () => {
@@ -452,7 +468,7 @@ describe('command adapters and runtime', () => {
         '--output-format',
         'json',
         '--json-schema',
-        JSON.stringify(queryAnswerJsonSchema),
+        '{sheldon-output-schema-json}',
       ]),
     );
     expect(commands).toEqual(
