@@ -12,9 +12,9 @@ import type {
   QueryCommandExecution,
 } from './adapters.js';
 import type { StructuredProposal } from './proposal.js';
+import { requireAgentProfile } from './profiles.js';
 import type { QueryAnswer } from './query-answer.js';
 
-const defaultTimeoutMilliseconds = 120_000;
 const defaultOutputBytes = 1_048_576;
 const errorMessage = 'The agent command did not produce a valid proposal.';
 const queryErrorMessage = 'The agent command did not produce a valid cited query answer.';
@@ -28,6 +28,7 @@ export interface JsonCommandExecutorOptions {
   readonly environment?: NodeJS.ProcessEnv;
   /** Overrides the entity directory supplied with a task. */
   readonly workingDirectory?: string;
+  /** Overrides the profile timeout when set. */
   readonly timeoutMilliseconds?: number;
   readonly outputBytes?: number;
 }
@@ -37,14 +38,14 @@ export class JsonCommandExecutor implements CommandExecutor {
   private readonly executables: JsonCommandExecutorOptions['executables'];
   private readonly environment: NodeJS.ProcessEnv;
   private readonly workingDirectory: string | undefined;
-  private readonly timeoutMilliseconds: number;
+  private readonly timeoutMilliseconds: number | undefined;
   private readonly outputBytes: number;
 
   public constructor(options: JsonCommandExecutorOptions = {}) {
     this.executables = options.executables;
-    this.environment = sanitizedEnvironment(options.environment ?? process.env);
+    this.environment = options.environment ?? process.env;
     this.workingDirectory = options.workingDirectory;
-    this.timeoutMilliseconds = options.timeoutMilliseconds ?? defaultTimeoutMilliseconds;
+    this.timeoutMilliseconds = options.timeoutMilliseconds;
     this.outputBytes = options.outputBytes ?? defaultOutputBytes;
   }
 
@@ -108,12 +109,13 @@ export class JsonCommandExecutor implements CommandExecutor {
     options: { readonly signal?: AbortSignal },
     output: 'query',
   ): Promise<QueryCommandExecution>;
-  private executeCommand(
+  private async executeCommand(
     command: AgentCommand | QueryAgentCommand,
     temporaryDirectory: string,
     options: { readonly signal?: AbortSignal },
     output: 'proposal' | 'query',
   ): Promise<CommandExecution | QueryCommandExecution> {
+    const profile = requireAgentProfile(command.executable);
     const override = this.executables?.[command.executable];
     const executable = override?.executable ?? command.executable;
     const schemaFile = join(
@@ -121,18 +123,29 @@ export class JsonCommandExecutor implements CommandExecutor {
       output === 'proposal' ? 'proposal-schema.json' : 'query-answer-schema.json',
     );
     const lastMessageFile = join(temporaryDirectory, 'last-message.txt');
-    const arguments_ = [
+    const promptFile = join(temporaryDirectory, 'prompt.txt');
+    if (command.arguments.includes('{sheldon-prompt-file}')) {
+      await writeFile(promptFile, command.prompt, 'utf8');
+    }
+    const mappedArguments = [
       ...(override?.arguments ?? []),
       ...command.arguments.map((argument) =>
         argument === '{sheldon-output-schema-file}'
           ? schemaFile
           : argument === '{sheldon-last-message-file}'
             ? lastMessageFile
-            : argument,
+            : argument === '{sheldon-output-schema-json}'
+              ? JSON.stringify(command.outputSchema)
+              : argument === '{sheldon-prompt-file}'
+                ? promptFile
+                : argument,
       ),
-      '--',
-      command.prompt,
     ];
+    const arguments_ = profile.appendPrompt
+      ? [...mappedArguments, '--', command.prompt]
+      : mappedArguments;
+    const timeoutMilliseconds = this.timeoutMilliseconds ?? profile.timeoutMilliseconds;
+    const childEnvironment = buildChildEnvironment(this.environment, profile.envAllowlist);
     return new Promise((resolve) => {
       let stdout = Buffer.alloc(0);
       let aborted = false;
@@ -141,7 +154,7 @@ export class JsonCommandExecutor implements CommandExecutor {
       let settled = false;
       const child = spawn(executable, arguments_, {
         shell: false,
-        env: this.environment,
+        env: childEnvironment,
         ...((this.workingDirectory ?? command.input.workingDirectory)
           ? { cwd: this.workingDirectory ?? command.input.workingDirectory }
           : {}),
@@ -150,7 +163,7 @@ export class JsonCommandExecutor implements CommandExecutor {
       const timeout = setTimeout(() => {
         timedOut = true;
         terminate(child);
-      }, this.timeoutMilliseconds);
+      }, timeoutMilliseconds);
       const abort = (): void => {
         aborted = true;
         terminate(child);
@@ -190,7 +203,7 @@ export class JsonCommandExecutor implements CommandExecutor {
           });
         }
         const lastMessage =
-          command.executable === 'codex' ? await readTextIfPresent(lastMessageFile) : undefined;
+          profile.parser === 'codex-jsonl' ? await readTextIfPresent(lastMessageFile) : undefined;
         return complete(
           output === 'proposal'
             ? parseExecution(command.executable, stdout, lastMessage)
@@ -208,10 +221,7 @@ function parseExecution(
   lastMessage: string | undefined,
 ): CommandExecution {
   try {
-    const proposal =
-      kind === 'codex'
-        ? (parseProposal(lastMessage) ?? parseCodexJsonLines(bytes.toString('utf8'), parseProposal))
-        : parseClaudeResponse(bytes.toString('utf8'), parseProposal);
+    const proposal = parseAgentOutput(kind, bytes.toString('utf8'), lastMessage, parseProposal);
     if (proposal !== undefined) return { status: 'proposal', proposal, agentVersion: 'unknown' };
   } catch {
     // Agent output is untrusted and intentionally not returned to callers.
@@ -225,15 +235,28 @@ function parseQueryExecution(
   lastMessage: string | undefined,
 ): QueryCommandExecution {
   try {
-    const answer =
-      kind === 'codex'
-        ? (parseAnswer(lastMessage) ?? parseCodexJsonLines(bytes.toString('utf8'), parseAnswer))
-        : parseClaudeResponse(bytes.toString('utf8'), parseAnswer);
+    const answer = parseAgentOutput(kind, bytes.toString('utf8'), lastMessage, parseAnswer);
     if (answer !== undefined) return { status: 'answer', answer, agentVersion: 'unknown' };
   } catch {
     // Agent output is untrusted and intentionally not returned to callers.
   }
   return { status: 'error', message: queryErrorMessage };
+}
+
+function parseAgentOutput<T>(
+  kind: AgentKind,
+  output: string,
+  lastMessage: string | undefined,
+  parse: (value: unknown) => T | undefined,
+): T | undefined {
+  const parser = requireAgentProfile(kind).parser;
+  if (parser === 'codex-jsonl') {
+    return parse(lastMessage) ?? parseCodexJsonLines(output, parse);
+  }
+  if (parser === 'grok-json') {
+    return parseGrokResponse(output, parse);
+  }
+  return parseClaudeResponse(output, parse);
 }
 
 function parseClaudeResponse<T>(
@@ -243,6 +266,18 @@ function parseClaudeResponse<T>(
   const result = parseJsonObject(output);
   if (result === undefined) return undefined;
   return parse(result.structured_output) ?? parse(result.result) ?? parse(result);
+}
+
+function parseGrokResponse<T>(
+  output: string,
+  parse: (value: unknown) => T | undefined,
+): T | undefined {
+  const result = parseJsonObject(output);
+  if (result === undefined) return undefined;
+  if (isRecord(result.structuredOutput)) return parse(result.structuredOutput);
+  if (isRecord(result.structured_output)) return parse(result.structured_output);
+  if (typeof result.text === 'string') return parse(result.text);
+  return undefined;
 }
 
 function parseCodexJsonLines<T>(
@@ -283,6 +318,10 @@ function asObject(value: unknown): Readonly<Record<string, unknown>> | undefined
     : undefined;
 }
 
+function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
+  return asObject(value) !== undefined;
+}
+
 async function readTextIfPresent(path: string): Promise<string | undefined> {
   try {
     return await readFile(path, 'utf8');
@@ -294,6 +333,22 @@ async function readTextIfPresent(path: string): Promise<string | undefined> {
 
 function terminate(child: ReturnType<typeof spawn>): void {
   if (!child.killed) child.kill('SIGKILL');
+}
+
+function buildChildEnvironment(
+  source: NodeJS.ProcessEnv,
+  allowlist: readonly string[],
+): NodeJS.ProcessEnv {
+  const environment = sanitizedEnvironment(source);
+  for (const key of ['HOME', 'USERPROFILE', 'HOMEDRIVE', 'HOMEPATH', 'TMP', 'TEMP']) {
+    const value = source[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  for (const key of allowlist) {
+    const value = source[key];
+    if (value !== undefined) environment[key] = value;
+  }
+  return environment;
 }
 
 function sanitizedEnvironment(source: NodeJS.ProcessEnv): NodeJS.ProcessEnv {

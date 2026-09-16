@@ -17,11 +17,13 @@ import {
   createClaudeQueryAdapter,
   createCodexQueryAdapter,
   createCodexCommandAdapter,
+  requireAgentProfile,
   summarizeProposal,
   validateProposal,
   validateQueryAnswer,
   queryAnswerJsonSchema,
   structuredProposalJsonSchema,
+  type AgentAdapter,
   type AgentTask,
   type AgentCommand,
   type CommandExecutor,
@@ -34,6 +36,9 @@ import {
 const temporaryDirectories: string[] = [];
 const commandExecutorFixture = fileURLToPath(
   new URL('./fixtures/command-executor-fixture.mjs', import.meta.url),
+);
+const grokExecutorFixture = fileURLToPath(
+  new URL('./fixtures/grok-executor-fixture.mjs', import.meta.url),
 );
 
 const task: AgentTask = {
@@ -332,6 +337,50 @@ describe('command adapters and runtime', () => {
       proposal: { files: [{ content: 'schema-file-used' }] },
     });
     await expect(adapter.execute({ ...task, prompt: 'invalid-json' })).resolves.toEqual({
+      status: 'error',
+      message: 'The agent command did not produce a valid proposal.',
+    });
+  });
+
+  it('runs grok through prompt-file, inline schema, and structuredOutput without leaking secrets', async () => {
+    const executor = new JsonCommandExecutor({
+      executables: { grok: { executable: process.execPath, arguments: [grokExecutorFixture] } },
+      environment: {
+        PATH: process.env.PATH,
+        USERPROFILE: process.env.USERPROFILE ?? 'C:\\Users\\sheldon',
+        HOME: process.env.HOME ?? '/home/sheldon',
+        XAI_API_KEY: 'xai-test',
+        SECRET_TOKEN: 'must-not-be-forwarded',
+      },
+    });
+    const grokAdapter: AgentAdapter = {
+      kind: 'grok',
+      execute: (current, options) =>
+        executor.execute(
+          {
+            executable: 'grok',
+            arguments: requireAgentProfile('grok').arguments,
+            prompt: current.prompt,
+            input: current,
+            outputSchema: structuredProposalJsonSchema,
+          },
+          options,
+        ),
+    };
+
+    await expect(grokAdapter.execute(task)).resolves.toMatchObject({
+      status: 'proposal',
+      proposal: {
+        files: [{ content: expect.stringContaining('xai-forwarded') }],
+      },
+    });
+    await expect(grokAdapter.execute(task)).resolves.toMatchObject({
+      proposal: { files: [{ content: expect.stringContaining('home-forwarded') }] },
+    });
+    await expect(grokAdapter.execute(task)).resolves.toMatchObject({
+      proposal: { files: [{ content: expect.stringContaining('prompt-file-used') }] },
+    });
+    await expect(grokAdapter.execute({ ...task, prompt: 'missing-payload' })).resolves.toEqual({
       status: 'error',
       message: 'The agent command did not produce a valid proposal.',
     });
