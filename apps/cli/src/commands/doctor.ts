@@ -33,6 +33,7 @@ export async function executeDoctor(options: VaultOption, context: CommandContex
   }
   const codexAvailable = await context.commandAvailable('codex');
   const claudeAvailable = await context.commandAvailable('claude');
+  const grokAvailable = await context.commandAvailable('grok');
 
   context.write(`Node.js: ${process.version}`);
   context.write('Vault: healthy');
@@ -43,6 +44,7 @@ export async function executeDoctor(options: VaultOption, context: CommandContex
   );
   context.write(`Codex CLI: ${codexAvailable ? 'available' : 'not found (warning)'}`);
   context.write(`Claude Code: ${claudeAvailable ? 'available' : 'not found (warning)'}`);
+  context.write(`Grok CLI: ${grokAvailable ? 'available' : 'not found (warning)'}`);
 }
 
 async function exists(path: string): Promise<boolean> {

@@ -1,11 +1,11 @@
-import type { StructuredProposal } from './proposal.js';
-import { queryAnswerJsonSchema } from './query-answer-schema.js';
 import type { QueryAnswer } from './query-answer.js';
+import { queryAnswerJsonSchema } from './query-answer-schema.js';
+import type { StructuredProposal } from './proposal.js';
 import { structuredProposalJsonSchema } from './proposal-schema.js';
+import { requireAgentProfile, type AgentKind, type AgentProfile } from './profiles.js';
 
 export { AGENT_PROMPT_VERSION } from './proposal-schema.js';
-
-export type AgentKind = 'codex' | 'claude';
+export type { AgentKind } from './profiles.js';
 
 export interface AgentTask {
   readonly proposalId: string;
@@ -17,7 +17,7 @@ export interface AgentTask {
 }
 
 export interface AgentCommand {
-  readonly executable: 'codex' | 'claude';
+  readonly executable: AgentKind;
   readonly arguments: readonly string[];
   readonly prompt: string;
   readonly input: AgentTask;
@@ -68,7 +68,7 @@ export interface QueryAgentTask {
 }
 
 export interface QueryAgentCommand {
-  readonly executable: 'codex' | 'claude';
+  readonly executable: AgentKind;
   readonly arguments: readonly string[];
   readonly prompt: string;
   readonly input: QueryAgentTask;
@@ -88,30 +88,17 @@ export interface QueryAgentAdapter {
   ): Promise<QueryCommandExecution>;
 }
 
-export function createCodexCommandAdapter(executor: CommandExecutor): AgentAdapter {
-  return createCommandAdapter('codex', executor);
-}
-
-export function createClaudeCommandAdapter(executor: CommandExecutor): AgentAdapter {
-  return createCommandAdapter('claude', executor);
-}
-
-export function createCodexQueryAdapter(executor: CommandExecutor): QueryAgentAdapter {
-  return createQueryCommandAdapter('codex', executor);
-}
-
-export function createClaudeQueryAdapter(executor: CommandExecutor): QueryAgentAdapter {
-  return createQueryCommandAdapter('claude', executor);
-}
-
-function createCommandAdapter(kind: AgentKind, executor: CommandExecutor): AgentAdapter {
+export function createCommandAdapter(
+  profile: AgentProfile,
+  executor: CommandExecutor,
+): AgentAdapter {
   return {
-    kind,
+    kind: profile.id,
     execute: (task, options) =>
       executor.execute(
         {
-          executable: kind,
-          arguments: commandArguments(kind, structuredProposalJsonSchema),
+          executable: profile.executable,
+          arguments: profile.arguments,
           prompt: renderPrompt(task),
           input: task,
           outputSchema: structuredProposalJsonSchema,
@@ -121,9 +108,12 @@ function createCommandAdapter(kind: AgentKind, executor: CommandExecutor): Agent
   };
 }
 
-function createQueryCommandAdapter(kind: AgentKind, executor: CommandExecutor): QueryAgentAdapter {
+export function createQueryCommandAdapter(
+  profile: AgentProfile,
+  executor: CommandExecutor,
+): QueryAgentAdapter {
   return {
-    kind,
+    kind: profile.id,
     execute: (task, options) => {
       if (executor.executeQuery === undefined) {
         return Promise.resolve({
@@ -133,8 +123,8 @@ function createQueryCommandAdapter(kind: AgentKind, executor: CommandExecutor): 
       }
       return executor.executeQuery(
         {
-          executable: kind,
-          arguments: commandArguments(kind, queryAnswerJsonSchema),
+          executable: profile.executable,
+          arguments: profile.arguments,
           prompt: renderQueryPrompt(task),
           input: task,
           outputSchema: queryAnswerJsonSchema,
@@ -145,30 +135,28 @@ function createQueryCommandAdapter(kind: AgentKind, executor: CommandExecutor): 
   };
 }
 
-function commandArguments(
-  kind: AgentKind,
-  outputSchema: Readonly<Record<string, unknown>>,
-): readonly string[] {
-  return kind === 'codex'
-    ? [
-        'exec',
-        '--json',
-        '--sandbox',
-        'read-only',
-        '--output-schema',
-        '{sheldon-output-schema-file}',
-        '--output-last-message',
-        '{sheldon-last-message-file}',
-      ]
-    : [
-        '--print',
-        '--permission-mode',
-        'plan',
-        '--output-format',
-        'json',
-        '--json-schema',
-        JSON.stringify(outputSchema),
-      ];
+export function createCodexCommandAdapter(executor: CommandExecutor): AgentAdapter {
+  return createCommandAdapter(requireAgentProfile('codex'), executor);
+}
+
+export function createClaudeCommandAdapter(executor: CommandExecutor): AgentAdapter {
+  return createCommandAdapter(requireAgentProfile('claude'), executor);
+}
+
+export function createGrokCommandAdapter(executor: CommandExecutor): AgentAdapter {
+  return createCommandAdapter(requireAgentProfile('grok'), executor);
+}
+
+export function createCodexQueryAdapter(executor: CommandExecutor): QueryAgentAdapter {
+  return createQueryCommandAdapter(requireAgentProfile('codex'), executor);
+}
+
+export function createClaudeQueryAdapter(executor: CommandExecutor): QueryAgentAdapter {
+  return createQueryCommandAdapter(requireAgentProfile('claude'), executor);
+}
+
+export function createGrokQueryAdapter(executor: CommandExecutor): QueryAgentAdapter {
+  return createQueryCommandAdapter(requireAgentProfile('grok'), executor);
 }
 
 function renderPrompt(task: AgentTask): string {

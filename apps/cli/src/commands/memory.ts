@@ -6,10 +6,10 @@ import { pathToFileURL } from 'node:url';
 import {
   AgentRuntime,
   AGENT_PROMPT_VERSION,
-  createClaudeCommandAdapter,
-  createCodexCommandAdapter,
+  createCommandAdapter,
   JsonCommandExecutor,
   ProposalStore,
+  requireAgentProfile,
   type AgentKind,
   type CommandExecutor,
 } from '@sheldon/agent-runtime';
@@ -447,10 +447,7 @@ export async function compileMemory(
   await Promise.all(options.raw.map((source) => assertRawSource(entity, source)));
   const executor =
     dependencies.agentExecutor ?? new JsonCommandExecutor({ environment: context.environment });
-  const adapter =
-    options.agent === 'codex'
-      ? createCodexCommandAdapter(executor)
-      : createClaudeCommandAdapter(executor);
+  const adapter = createCommandAdapter(requireAgentProfile(options.agent), executor);
   const result = await new AgentRuntime(new ProposalStore(entity)).run(
     adapter,
     {

@@ -83,3 +83,11 @@
 **Decisão:** mudanças de comportamento, instalação, comandos, configuração, contratos públicos ou arquitetura atualizam o README correspondente no mesmo commit.
 
 **Razão:** documentação separada do código perde confiabilidade rapidamente e prejudica humanos e agentes consumidores.
+
+## ADR-015 — Built-in agent profiles
+
+**Decisão:** registro fechado em código; Grok é uma linha de perfil; sem adapter genérico de CLI definido pelo usuário neste slice.
+
+**Razão:** `'codex' | 'claude'` já estava copiado em runtime, CLI, web e MCP; um terceiro agente não deve repetir essa cópia.
+
+**Alternativa rejeitada:** acrescentar `'grok'` a cada união; rejeitada porque o quarto agente repetiria o mesmo imposto.

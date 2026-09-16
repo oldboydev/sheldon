@@ -168,6 +168,81 @@ describe('cited query and answer promotion CLI', () => {
     ).resolves.toBe(originalWiki);
   });
 
+  it('saves a cited grok answer without modifying wiki files', async () => {
+    const { root, vaultPath } = await createVault();
+    await writeRaw(vaultPath, 'raw/study/retrieval.md', 'Retrieval evidence.');
+    await writeConcept(vaultPath, 'recall.md', {
+      id: 'recall',
+      title: 'Retrieval practice',
+      sources: ['raw/study/retrieval.md'],
+      body: 'Practice recall.',
+    });
+    const originalWiki = await readFile(
+      join(vaultPath, 'topics', 'memory', 'wiki', 'recall.md'),
+      'utf8',
+    );
+    const dependencies = cliDependencies(root, {
+      executeQuery: async (command) => ({
+        status: 'answer',
+        agentVersion: 'test',
+        answer: {
+          schemaVersion: 1,
+          id: command.input.answerId,
+          question: command.input.question,
+          agent: 'grok',
+          truncated: command.input.truncated,
+          concepts: command.input.concepts.map((concept) => ({
+            path: concept.path,
+            citation: concept.title,
+          })),
+          raws: command.input.rawSources.map((path) => ({ path, citation: 'verified raw' })),
+          createdAt: '2026-07-28T12:00:00.000Z',
+          text: [
+            '## Wiki facts',
+            '- Retrieval practice is documented in wiki/recall.md.',
+            '',
+            '## Inferences',
+            '- None.',
+            '',
+            '## Gaps',
+            '- None.',
+          ].join('\n'),
+        },
+      }),
+    });
+
+    const queried = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-grok',
+        '--question',
+        'retrieval practice',
+        '--agent',
+        'grok',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(queried).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(JSON.parse(queried.stdout)).toMatchObject({
+      id: 'answer-grok',
+      agent: 'grok',
+    });
+    await expect(
+      readFile(
+        join(vaultPath, 'topics', 'memory', 'outputs', 'answers', 'answer-grok', 'answer.json'),
+        'utf8',
+      ),
+    ).resolves.toContain('"agent": "grok"');
+    await expect(
+      readFile(join(vaultPath, 'topics', 'memory', 'wiki', 'recall.md'), 'utf8'),
+    ).resolves.toBe(originalWiki);
+  });
+
   it('persists an explicit coverage gap without invoking an agent', async () => {
     const { root, vaultPath } = await createVault();
     let calls = 0;

@@ -55,6 +55,9 @@ describe('mcp consumer setup', () => {
       'mcp_servers.sheldon',
     );
     expect(await readFile(join(consumer, '.mcp.json'), 'utf8')).toContain('"sheldon"');
+    expect(await readFile(join(consumer, '.grok', 'config.toml'), 'utf8')).toContain(
+      'mcp_servers.sheldon',
+    );
   });
 
   it('installs byte-equivalent generated skill copies and doctors local scope/index state', async () => {
@@ -81,6 +84,9 @@ describe('mcp consumer setup', () => {
     );
     expect(codex).toBe(claude);
     expect(codex).not.toMatch(/\bkb\b/u);
+    await expect(
+      access(join(consumer, '.grok', 'skills', 'sheldon', 'SKILL.md')),
+    ).rejects.toThrow();
 
     const index = await SearchIndex.rebuild(vault);
     index.close();
@@ -88,8 +94,129 @@ describe('mcp consumer setup', () => {
     expect(doctor).toMatchObject({ exitCode: 0, stderr: '' });
     expect(doctor.stdout).toContain('MCP transport: stdio (local only)');
     expect(doctor.stdout).toContain('MCP tools: list_scopes, search_knowledge, read_concept');
+    expect(doctor.stdout).toContain('Grok project config: matches expected');
+    expect(doctor.stdout).toContain('Grok skill: not installed (warning)');
   });
 
+  it('previews and applies a grok MCP config without touching an unrelated toml key', async () => {
+    const { vault, consumer } = await fixture();
+    await mkdir(join(consumer, '.grok'), { recursive: true });
+    await writeFile(join(consumer, '.grok', 'config.toml'), 'theme = "dark"\n', 'utf8');
+    const args = [
+      'mcp',
+      'configure',
+      consumer,
+      '--vault',
+      vault,
+      '--consumer-id',
+      'consumer-a',
+      '--scope',
+      'project:alpha',
+    ];
+    const preview = await runCli(args);
+    expect(preview.exitCode).toBe(0);
+    expect(preview.stdout).toContain('.grok');
+    expect(await readFile(join(consumer, '.grok', 'config.toml'), 'utf8')).toBe('theme = "dark"\n');
+
+    const applied = await runCli([...args, '--apply']);
+    expect(applied.exitCode).toBe(0);
+    const grok = await readFile(join(consumer, '.grok', 'config.toml'), 'utf8');
+    expect(grok).toContain('theme');
+    expect(grok).toContain('mcp_servers');
+    expect(grok).toContain('sheldon');
+    expect(grok).toContain('mcp');
+    expect(grok).toContain('serve');
+  });
+
+  it('refuses a conflicting grok sheldon MCP server and leaves consumer yaml unwritten', async () => {
+    const { vault, consumer } = await fixture();
+    await mkdir(join(consumer, '.grok'), { recursive: true });
+    await writeFile(
+      join(consumer, '.grok', 'config.toml'),
+      '[mcp_servers.sheldon]\ncommand = "other"\n',
+      'utf8',
+    );
+    const result = await runCli([
+      'mcp',
+      'configure',
+      consumer,
+      '--vault',
+      vault,
+      '--consumer-id',
+      'consumer-a',
+      '--scope',
+      'project:alpha',
+      '--apply',
+    ]);
+    expect(result.exitCode).toBe(1);
+    await expect(access(join(consumer, '.sheldon', 'mcp.yaml'))).rejects.toThrow();
+  });
+
+  it('installs the sheldon skill for grok and for all agents', async () => {
+    const { vault, consumer } = await fixture();
+    await runCli([
+      'mcp',
+      'configure',
+      consumer,
+      '--vault',
+      vault,
+      '--consumer-id',
+      'consumer-a',
+      '--scope',
+      'project:alpha',
+      '--apply',
+    ]);
+    const grokOnly = await runCli(['mcp', 'install-skill', consumer, '--agent', 'grok', '--apply']);
+    expect(grokOnly.exitCode).toBe(0);
+    await access(join(consumer, '.grok', 'skills', 'sheldon', 'SKILL.md'));
+    await expect(
+      access(join(consumer, '.codex', 'skills', 'sheldon', 'SKILL.md')),
+    ).rejects.toThrow();
+
+    const { consumer: other } = await fixture();
+    await runCli([
+      'mcp',
+      'configure',
+      other,
+      '--vault',
+      vault,
+      '--consumer-id',
+      'consumer-b',
+      '--scope',
+      'project:alpha',
+      '--apply',
+    ]);
+    const all = await runCli(['mcp', 'install-skill', other, '--agent', 'all', '--apply']);
+    expect(all.exitCode).toBe(0);
+    await access(join(other, '.codex', 'skills', 'sheldon', 'SKILL.md'));
+    await access(join(other, '.claude', 'skills', 'sheldon', 'SKILL.md'));
+    await access(join(other, '.grok', 'skills', 'sheldon', 'SKILL.md'));
+  });
+
+  it('restores an existing Grok configuration when a later setup write fails', async () => {
+    const { vault, consumer } = await fixture();
+    await mkdir(join(consumer, '.grok'), { recursive: true });
+    const originalGrok = 'theme = "dark"\n';
+    await writeFile(join(consumer, '.grok', 'config.toml'), originalGrok, 'utf8');
+    await writeFile(join(consumer, '.codex'), 'not a directory', 'utf8');
+
+    const result = await runCli([
+      'mcp',
+      'configure',
+      consumer,
+      '--vault',
+      vault,
+      '--consumer-id',
+      'consumer-a',
+      '--scope',
+      'project:alpha',
+      '--apply',
+    ]);
+
+    expect(result.exitCode).toBe(1);
+    expect(await readFile(join(consumer, '.grok', 'config.toml'), 'utf8')).toBe(originalGrok);
+    await expect(access(join(consumer, '.sheldon', 'mcp.yaml'))).rejects.toThrow();
+  });
   it('rejects an empty or malformed scope before writing configuration', async () => {
     const { vault, consumer } = await fixture();
     const result = await runCli([

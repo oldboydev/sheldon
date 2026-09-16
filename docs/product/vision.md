@@ -4,11 +4,11 @@
 
 Sheldon é um segundo cérebro pessoal, local-first, inspirado no padrão LLM Wiki. Ele transforma fontes dispersas em uma wiki Markdown cumulativa, revisável e utilizável por agentes de desenvolvimento.
 
-O produto não é um chat com documentos. Fontes são capturadas uma vez, normalizadas por ferramentas determinísticas e compiladas em conhecimento durável por Codex CLI ou Claude Code. Consultas úteis retornam ao corpus, fazendo a base melhorar com o uso.
+O produto não é um chat com documentos. Fontes são capturadas uma vez, normalizadas por ferramentas determinísticas e compiladas em conhecimento durável por Codex CLI, Claude Code ou Grok CLI. Consultas úteis retornam ao corpus, fazendo a base melhorar com o uso.
 
 ## Público inicial
 
-Uma pessoa técnica trabalhando no Windows, com Codex CLI e Claude Code já instalados e autenticados. A arquitetura deve permitir suporte posterior a Linux e macOS sem alterar o modelo de conhecimento.
+Uma pessoa técnica trabalhando no Windows, com Codex CLI e Claude Code já instalados e autenticados. Grok CLI é opcional. A arquitetura deve permitir suporte posterior a Linux e macOS sem alterar o modelo de conhecimento.
 
 ## Promessa central
 
@@ -18,7 +18,7 @@ Uma pessoa técnica trabalhando no Windows, com Codex CLI e Claude Code já inst
 
 1. **Arquivos são a fonte de verdade.** Raw, wiki e bundles são legíveis sem Sheldon.
 2. **Ingestão não exige LLM.** Captura, extração e normalização usam ferramentas locais por padrão.
-3. **LLM é compilador, não banco de dados.** Codex e Claude sintetizam, reconciliam e propõem mudanças.
+3. **LLM é compilador, não banco de dados.** Codex, Claude ou Grok CLI (opcional) sintetizam, reconciliam e propõem mudanças; o Sheldon não chama a API xAI.
 4. **Revisão antes de autoridade.** Mudanças semânticas entram na wiki somente após aprovação.
 5. **Conhecimento deve acumular.** Consultas relevantes podem gerar novas propostas para a wiki.
 6. **Sem API paga obrigatória.** O Sheldon não chama APIs de modelos nem depende de SaaS pago.
@@ -33,7 +33,7 @@ Uma pessoa técnica trabalhando no Windows, com Codex CLI e Claude Code já inst
 - Uma wiki que se torna mais coerente e útil à medida que novas fontes entram.
 - Respostas rastreáveis até raws imutáveis.
 - Pacotes de conhecimento pequenos e relevantes para cada projeto.
-- Liberdade para trocar Codex, Claude, plugins ou visualizadores sem migrar o conhecimento.
+- Liberdade para trocar Codex, Claude, Grok, plugins ou visualizadores sem migrar o conhecimento.
 
 ## Fora da visão inicial
 

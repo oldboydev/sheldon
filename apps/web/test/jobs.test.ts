@@ -59,6 +59,33 @@ describe('web jobs', () => {
     const jobs = new WebJobService(root, async () => undefined);
     expect(() => jobs.enqueue({ type: 'invented' })).toThrow('não segue o contrato');
   });
+
+  it('accepts grok compile jobs and rejects unknown agents', async () => {
+    const root = await vault();
+    const jobs = new WebJobService(root, async () => undefined);
+    expect(
+      jobs.enqueue({
+        type: 'compile',
+        kind: 'topic',
+        slug: 'memory',
+        proposalId: 'p1',
+        agent: 'grok',
+        prompt: 'compile',
+        raw: ['raw/a/content.md'],
+      }).payload,
+    ).toMatchObject({ agent: 'grok' });
+    expect(() =>
+      jobs.enqueue({
+        type: 'compile',
+        kind: 'topic',
+        slug: 'memory',
+        proposalId: 'p1',
+        agent: 'cursor',
+        prompt: 'compile',
+        raw: ['raw/a/content.md'],
+      }),
+    ).toThrow('não segue o contrato');
+  });
 });
 
 async function vault(): Promise<string> {

@@ -3,6 +3,10 @@ export {
   createClaudeQueryAdapter,
   createCodexCommandAdapter,
   createCodexQueryAdapter,
+  createCommandAdapter,
+  createGrokCommandAdapter,
+  createGrokQueryAdapter,
+  createQueryCommandAdapter,
   type AgentAdapter,
   type AgentCommand,
   type AgentKind,
@@ -30,6 +34,15 @@ export {
   type StructuredProposal,
 } from './proposal.js';
 export { ProposalStore, type ProposalMetadata, type StoredProposal } from './proposal-store.js';
+export {
+  AGENT_PROFILE_IDS,
+  formatAgentKindList,
+  isAgentKind,
+  listAgentProfiles,
+  requireAgentProfile,
+  type AgentOutputParser,
+  type AgentProfile,
+} from './profiles.js';
 export {
   isAnswerId,
   QUERY_ANSWER_SCHEMA_VERSION,

@@ -81,6 +81,6 @@ describe('SWC build', () => {
     expect(pluginHostPackage.exports['.']).toBe('./dist/index.js');
 
     const cli = await execFileAsync(process.execPath, ['apps/cli/dist/sheldon.js', '--help']);
-    expect(cli.stdout).toContain('Local-first personal knowledge vault.');
+    expect(cli.stdout).toContain('Build and use a local, reviewable knowledge vault.');
   }, 15_000);
 });

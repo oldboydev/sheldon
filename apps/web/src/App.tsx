@@ -1,4 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
+import type { AgentKind } from '@sheldon/agent-runtime';
 
 import { client, type Dashboard, type Job } from './client.generated.js';
 import './styles.css';
@@ -373,7 +374,7 @@ function QueryView({
 }) {
   const [slug, setSlug] = useState(topics[0]?.slug ?? '');
   const [question, setQuestion] = useState('');
-  const [agent, setAgent] = useState<'codex' | 'claude'>('codex');
+  const [agent, setAgent] = useState<AgentKind>('codex');
   const [message, setMessage] = useState<string>();
   return (
     <div className="page narrow">
@@ -413,12 +414,10 @@ function QueryView({
         </label>
         <label>
           Agente
-          <select
-            value={agent}
-            onChange={(event) => setAgent(event.target.value as 'codex' | 'claude')}
-          >
+          <select value={agent} onChange={(event) => setAgent(event.target.value as AgentKind)}>
             <option value="codex">Codex</option>
             <option value="claude">Claude</option>
+            <option value="grok">Grok</option>
           </select>
         </label>
         <button className="primary" disabled={!slug || !question.trim()}>

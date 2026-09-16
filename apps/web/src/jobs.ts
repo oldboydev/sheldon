@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { isAgentKind, type AgentKind } from '@sheldon/agent-runtime';
 import type { EntityKind } from '@sheldon/core';
 import {
   OperationsDatabase,
@@ -46,7 +47,7 @@ export type WebJobRequest =
       readonly kind: EntityKind;
       readonly slug: string;
       readonly proposalId: string;
-      readonly agent: 'codex' | 'claude';
+      readonly agent: AgentKind;
       readonly prompt: string;
       readonly raw: readonly string[];
     }
@@ -55,7 +56,7 @@ export type WebJobRequest =
       readonly kind: EntityKind;
       readonly slug: string;
       readonly answerId: string;
-      readonly agent: 'codex' | 'claude';
+      readonly agent: AgentKind;
       readonly question: string;
     }
   | { readonly type: 'plugin-health'; readonly pluginId: string }
@@ -378,8 +379,8 @@ function requiredString(value: Record<string, unknown>, field: string): string {
   return candidate;
 }
 
-function validAgent(value: unknown): value is 'codex' | 'claude' {
-  return value === 'codex' || value === 'claude';
+function validAgent(value: unknown): value is AgentKind {
+  return typeof value === 'string' && isAgentKind(value);
 }
 
 function invalidJob(): never {

@@ -13,6 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
+import { AGENT_PROFILE_IDS, requireAgentProfile, type AgentKind } from '@sheldon/agent-runtime';
 import {
   createMcpRequestHandler,
   ScopedKnowledgeFacade,
@@ -24,6 +25,7 @@ import {
 } from '@sheldon/mcp';
 import { SearchIndex } from '@sheldon/search';
 import { atomicWriteFile, entityDirectory, VaultService } from '@sheldon/vault';
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import { parse, stringify } from 'yaml';
 import { markdownBody } from '@sheldon/core';
 
@@ -44,7 +46,7 @@ export interface McpConfigureOptions {
 }
 
 export interface McpInstallSkillOptions {
-  readonly agent?: 'codex' | 'claude' | 'both';
+  readonly agent?: AgentKind | 'both' | 'all';
   readonly apply?: boolean;
 }
 
@@ -58,14 +60,18 @@ export async function configureMcpConsumer(
   const mcpPath = consumerMcpConfigPath(root);
   const codexPath = join(root, '.codex', 'config.toml');
   const claudePath = join(root, '.mcp.json');
+  const grokPath = join(root, requireAgentProfile('grok').consumer.mcpConfigRelativePath);
   const codexDirectoryExisted = await exists(dirname(codexPath));
   await assertConfigurationTargetsWritable(mcpPath, codexPath);
   const originalClaude = await existingFileContents(claudePath);
+  const originalGrok = await existingFileContents(grokPath);
   const claudeContent = await projectedClaudeConfig(claudePath, root);
+  const grokContent = await projectedGrokConfig(grokPath, root);
   const changes = [
     { path: mcpPath, content: stringify(configuration) },
     { path: codexPath, content: codexConfig(root) },
     { path: claudePath, content: claudeContent },
+    { path: grokPath, content: grokContent },
   ];
   writePreview(context, changes);
   if (!options.apply) {
@@ -74,6 +80,7 @@ export async function configureMcpConsumer(
   }
   try {
     await writeConsumerMcpConfiguration(root, configuration);
+    await atomicWriteFile(grokPath, grokContent);
     await writeNewFile(codexPath, codexConfig(root));
     await atomicWriteFile(claudePath, claudeContent);
   } catch (error) {
@@ -81,7 +88,9 @@ export async function configureMcpConsumer(
       mcpPath,
       codexPath,
       claudePath,
+      grokPath,
       originalClaude,
+      originalGrok,
       codexDirectoryExisted,
     );
     for (const warning of rollbackWarnings) context.write(`Warning: ${warning}`);
@@ -150,9 +159,14 @@ export async function doctorMcp(consumer: string, context: CommandContext): Prom
   }
   const codex = await hasExpectedCodexConfig(join(root, '.codex', 'config.toml'), root);
   const claude = await hasExpectedClaudeConfig(join(root, '.mcp.json'), root);
+  const grok = await hasExpectedGrokConfig(
+    join(root, requireAgentProfile('grok').consumer.mcpConfigRelativePath),
+    root,
+  );
   const executable = await context.commandAvailable('sheldon');
   const skillCodex = await exists(join(root, '.codex', 'skills', 'sheldon', 'SKILL.md'));
   const skillClaude = await exists(join(root, '.claude', 'skills', 'sheldon', 'SKILL.md'));
+  const skillGrok = await exists(join(root, '.grok', 'skills', 'sheldon', 'SKILL.md'));
   context.write('MCP transport: stdio (local only)');
   context.write(
     'MCP tools: list_scopes, search_knowledge, read_concept, read_source_excerpt, get_project_context, list_related, file_feedback',
@@ -166,9 +180,11 @@ export async function doctorMcp(consumer: string, context: CommandContext): Prom
   context.write(
     `Claude project config: ${claude ? 'matches expected' : 'not configured (warning)'}`,
   );
+  context.write(`Grok project config: ${grok ? 'matches expected' : 'not configured (warning)'}`);
   context.write(`Sheldon executable: ${executable ? 'available' : 'not found (warning)'}`);
   context.write(`Codex skill: ${skillCodex ? 'installed' : 'not installed (warning)'}`);
   context.write(`Claude skill: ${skillClaude ? 'installed' : 'not installed (warning)'}`);
+  context.write(`Grok skill: ${skillGrok ? 'installed' : 'not installed (warning)'}`);
 }
 
 /** Starts the local-only stdio server used by Codex and Claude configurations. */
@@ -278,11 +294,12 @@ function claudeConfigObject(consumer: string): Record<string, unknown> {
   };
 }
 
-function skillTargets(consumer: string, agent: 'codex' | 'claude' | 'both'): readonly string[] {
-  return [
-    ...(agent === 'claude' ? [] : [join(consumer, '.codex', 'skills', 'sheldon')]),
-    ...(agent === 'codex' ? [] : [join(consumer, '.claude', 'skills', 'sheldon')]),
-  ];
+function skillTargets(consumer: string, agent: AgentKind | 'both' | 'all'): readonly string[] {
+  const pathFor = (id: AgentKind) =>
+    join(consumer, requireAgentProfile(id).consumer.skillDirectory);
+  if (agent === 'all') return AGENT_PROFILE_IDS.map(pathFor);
+  if (agent === 'both') return [pathFor('codex'), pathFor('claude')];
+  return [pathFor(agent)];
 }
 
 function writePreview(
@@ -329,6 +346,64 @@ async function projectedClaudeConfig(path: string, consumer: string): Promise<st
     },
   };
   return `${JSON.stringify(merged, null, 2)}\n`;
+}
+
+function expectedSheldonServer(consumer: string): {
+  readonly command: string;
+  readonly args: readonly string[];
+} {
+  return {
+    command: 'sheldon',
+    args: ['mcp', 'serve', '--consumer-config', consumerMcpConfigPath(consumer)],
+  };
+}
+
+function sameSheldonServer(
+  server: Record<string, unknown>,
+  expected: { readonly command: string; readonly args: readonly string[] },
+): boolean {
+  return (
+    server.command === expected.command &&
+    Array.isArray(server.args) &&
+    server.args.length === expected.args.length &&
+    server.args.every((value, index) => value === expected.args[index])
+  );
+}
+
+async function projectedGrokConfig(path: string, consumer: string): Promise<string> {
+  const expected = expectedSheldonServer(consumer);
+  let existing: Record<string, unknown> = {};
+  if (await exists(path)) {
+    try {
+      const parsed = parseToml(await readFile(path, 'utf8'));
+      if (!isRecord(parsed)) throw new Error('not a table');
+      existing = parsed;
+      if (existing.mcp_servers !== undefined && !isRecord(existing.mcp_servers)) {
+        throw new Error('mcp_servers is not a table');
+      }
+      if (isRecord(existing.mcp_servers) && 'sheldon' in existing.mcp_servers) {
+        const server = existing.mcp_servers.sheldon;
+        if (!isRecord(server) || !sameSheldonServer(server, expected)) {
+          throw new Error(`Refusing to overwrite conflicting Grok MCP server: ${path}`);
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith('Refusing to overwrite conflicting')) {
+        throw error;
+      }
+      throw new Error(`Refusing to overwrite unreadable Grok configuration: ${path}`, {
+        cause: error,
+      });
+    }
+  }
+  const merged = {
+    ...existing,
+    mcp_servers: {
+      ...(isRecord(existing.mcp_servers) ? existing.mcp_servers : {}),
+      sheldon: expected,
+    },
+  };
+  return stringifyToml(merged);
 }
 
 async function assertConfigurationTargetsWritable(
@@ -382,7 +457,9 @@ async function rollbackConfigure(
   mcpPath: string,
   codexPath: string,
   claudePath: string,
+  grokPath: string,
   originalClaude: string | undefined,
+  originalGrok: string | undefined,
   codexDirectoryExisted: boolean,
 ): Promise<readonly string[]> {
   const warnings: string[] = [];
@@ -397,6 +474,10 @@ async function rollbackConfigure(
   await attempt('could not restore the existing Claude MCP configuration.', async () => {
     if (originalClaude === undefined) await rm(claudePath, { force: true });
     else await atomicWriteFile(claudePath, originalClaude);
+  });
+  await attempt('could not restore the existing Grok MCP configuration.', async () => {
+    if (originalGrok === undefined) await rm(grokPath, { force: true });
+    else await atomicWriteFile(grokPath, originalGrok);
   });
   await attempt('could not remove the partial Sheldon MCP configuration.', () =>
     rm(mcpPath, { force: true }),
@@ -426,14 +507,23 @@ async function hasExpectedClaudeConfig(path: string, consumer: string): Promise<
     if (!isRecord(parsed) || !isRecord(parsed.mcpServers) || !isRecord(parsed.mcpServers.sheldon)) {
       return false;
     }
-    const server = parsed.mcpServers.sheldon;
-    const expected = ['mcp', 'serve', '--consumer-config', consumerMcpConfigPath(consumer)];
-    return (
-      server.command === 'sheldon' &&
-      Array.isArray(server.args) &&
-      server.args.length === expected.length &&
-      server.args.every((value, index) => value === expected[index])
-    );
+    return sameSheldonServer(parsed.mcpServers.sheldon, expectedSheldonServer(consumer));
+  } catch {
+    return false;
+  }
+}
+
+async function hasExpectedGrokConfig(path: string, consumer: string): Promise<boolean> {
+  try {
+    const parsed = parseToml(await readFile(path, 'utf8'));
+    if (
+      !isRecord(parsed) ||
+      !isRecord(parsed.mcp_servers) ||
+      !isRecord(parsed.mcp_servers.sheldon)
+    ) {
+      return false;
+    }
+    return sameSheldonServer(parsed.mcp_servers.sheldon, expectedSheldonServer(consumer));
   } catch {
     return false;
   }

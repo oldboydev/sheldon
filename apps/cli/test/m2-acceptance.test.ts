@@ -26,7 +26,12 @@ function fakeExecutor(): CommandExecutor {
   return {
     execute: async (command) => {
       const source = command.input.rawSources[0]!;
-      const title = command.executable === 'codex' ? 'Codex concept' : 'Claude concept';
+      const title =
+        command.executable === 'grok'
+          ? 'Grok concept'
+          : command.executable === 'codex'
+            ? 'Codex concept'
+            : 'Claude concept';
       return {
         status: 'proposal',
         agentVersion: 'fixture/1',
@@ -109,13 +114,34 @@ describe('M2 vertical flow', () => {
       ],
       dependencies,
     );
+    const grok = await runCli(
+      [
+        'compile',
+        'topic',
+        'memory',
+        'grok-proposal',
+        '--agent',
+        'grok',
+        '--prompt',
+        'compile',
+        '--raw',
+        source,
+        '--vault',
+        vault,
+      ],
+      dependencies,
+    );
     expect(codex.exitCode).toBe(0);
     expect(claude.exitCode).toBe(0);
+    expect(grok.exitCode).toBe(0);
     expect(JSON.parse(codex.stdout)).toMatchObject({
       metadata: { status: 'pending', agent: 'codex' },
     });
     expect(JSON.parse(claude.stdout)).toMatchObject({
       metadata: { status: 'pending', agent: 'claude' },
+    });
+    expect(JSON.parse(grok.stdout)).toMatchObject({
+      metadata: { status: 'pending', agent: 'grok' },
     });
     await expect(
       readFile(join(vault, 'topics', 'memory', 'wiki', 'codex-proposal.md'), 'utf8'),

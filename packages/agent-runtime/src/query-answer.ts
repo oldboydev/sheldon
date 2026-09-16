@@ -1,6 +1,7 @@
 import { isoTimestampEpoch } from '@sheldon/core';
 
 import { ProposalValidationError } from './errors.js';
+import { isAgentKind, type AgentKind } from './profiles.js';
 
 export const QUERY_ANSWER_SCHEMA_VERSION = 1;
 
@@ -14,7 +15,7 @@ export interface QueryAnswer {
   readonly schemaVersion: typeof QUERY_ANSWER_SCHEMA_VERSION;
   readonly id: string;
   readonly question: string;
-  readonly agent: 'codex' | 'claude';
+  readonly agent: AgentKind;
   readonly concepts: readonly QueryCitation[];
   readonly raws: readonly QueryCitation[];
   readonly createdAt: string;
@@ -48,7 +49,7 @@ export function validateQueryAnswer(candidate: unknown): QueryAnswerValidationRe
   if (typeof answer.question !== 'string' || answer.question.trim().length === 0) {
     issues.push('A query answer must include a question.');
   }
-  if (answer.agent !== 'codex' && answer.agent !== 'claude') {
+  if (!isAgentKind(answer.agent)) {
     issues.push('The query answer agent is unsupported.');
   }
   if (!isTimestamp(answer.createdAt)) {

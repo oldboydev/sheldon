@@ -1,8 +1,18 @@
 import { spawn } from 'node:child_process';
+import { access } from 'node:fs/promises';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+
+import {
+  listAgentProfiles,
+  requireAgentProfile,
+  type AgentKind,
+  type AgentProfile,
+} from '@sheldon/agent-runtime';
 
 import type { CommandContext } from '../runtime.js';
 
-export type AgentName = 'codex' | 'claude';
+export type { AgentKind };
 
 export interface AgentHealth {
   readonly available: boolean;
@@ -12,35 +22,46 @@ export interface AgentHealth {
 
 /** Injectable boundary for checks that call locally installed agent CLIs. */
 export interface AgentHealthProbe {
-  check(agent: AgentName, environment: NodeJS.ProcessEnv): Promise<AgentHealth>;
+  check(agent: AgentKind, environment: NodeJS.ProcessEnv): Promise<AgentHealth>;
 }
 
 export async function doctorAgents(
-  agent: AgentName | undefined,
+  agent: AgentKind | undefined,
   context: CommandContext,
   probe: AgentHealthProbe = new LocalAgentHealthProbe(),
 ): Promise<void> {
-  const agents: readonly AgentName[] = agent === undefined ? ['codex', 'claude'] : [agent];
+  const profiles = agent === undefined ? listAgentProfiles() : [requireAgentProfile(agent)];
   const results = await Promise.all(
-    agents.map(async (name) => ({ name, health: await probe.check(name, context.environment) })),
+    profiles.map(async (profile) => ({
+      profile,
+      health: await probe.check(profile.id, context.environment),
+    })),
   );
 
-  for (const { name, health } of results) {
-    const label = name === 'codex' ? 'Codex CLI' : 'Claude Code';
+  for (const { profile, health } of results) {
     if (!health.available) {
-      context.write(`${label}: not found`);
-      context.write(`  Recovery: install ${name} and run sheldon agent doctor ${name}.`);
+      context.write(`${profile.label}: not found`);
+      context.write(`  Recovery: ${missingBinaryRecovery(profile)}`);
       continue;
     }
     context.write(
-      `${label}: available${health.version === undefined ? '' : ` (${health.version})`}`,
+      `${profile.label}: available${health.version === undefined ? '' : ` (${health.version})`}`,
     );
     context.write(
       `  Authentication: ${health.authenticated ? 'usable' : 'unavailable'}${
-        health.authenticated ? '' : `; sign in with ${name} and retry.`
+        health.authenticated ? '' : `; sign in with ${profile.executable} and retry.`
       }`,
     );
   }
+}
+
+function missingBinaryRecovery(profile: AgentProfile): string {
+  const install = `install ${profile.executable}`;
+  const pathHint =
+    profile.id === 'grok' && process.platform === 'win32'
+      ? ' and ensure %USERPROFILE%\\.grok\\bin is on PATH'
+      : '';
+  return `${install}${pathHint} and run sheldon agent doctor ${profile.executable}.`;
 }
 
 /**
@@ -48,21 +69,62 @@ export async function doctorAgents(
  * intentionally discarded so credentials and tokens cannot reach CLI output.
  */
 export class LocalAgentHealthProbe implements AgentHealthProbe {
-  public async check(agent: AgentName, environment: NodeJS.ProcessEnv): Promise<AgentHealth> {
-    const version = await invoke(agent, ['--version'], environment, true);
+  public async check(agent: AgentKind, environment: NodeJS.ProcessEnv): Promise<AgentHealth> {
+    const profile = requireAgentProfile(agent);
+    const version = await invoke(
+      profile.executable,
+      profile.health.versionArguments,
+      environment,
+      true,
+    );
     if (version.exitCode !== 0) return { available: false, authenticated: false };
 
-    const authentication = await invoke(
-      agent,
-      agent === 'codex' ? ['login', 'status'] : ['auth', 'status'],
-      environment,
-      false,
-    );
     return {
       available: true,
       ...(version.output === undefined ? {} : { version: version.output }),
-      authenticated: authentication.exitCode === 0,
+      authenticated: await checkAuthentication(profile, environment),
     };
+  }
+}
+
+async function checkAuthentication(
+  profile: AgentProfile,
+  environment: NodeJS.ProcessEnv,
+): Promise<boolean> {
+  switch (profile.health.authentication) {
+    case 'codex-login-status': {
+      const authentication = await invoke(
+        profile.executable,
+        ['login', 'status'],
+        environment,
+        false,
+      );
+      return authentication.exitCode === 0;
+    }
+    case 'claude-auth-status': {
+      const authentication = await invoke(
+        profile.executable,
+        ['auth', 'status'],
+        environment,
+        false,
+      );
+      return authentication.exitCode === 0;
+    }
+    case 'grok-auth-store': {
+      const grokHome = environment.GROK_HOME ?? join(homedir(), '.grok');
+      const hasKey = (environment.XAI_API_KEY ?? '').trim().length > 0;
+      const hasStore = await pathExists(join(grokHome, 'auth.json'));
+      return hasKey || hasStore;
+    }
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
   }
 }
 

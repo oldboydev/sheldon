@@ -6,16 +6,16 @@ Conhecimento central só ajuda projetos quando agentes conseguem descobri-lo e c
 
 ## Objetivo
 
-Oferecer um servidor MCP local e um skill próprio do Sheldon para Codex e Claude Code.
+Oferecer um servidor MCP local e um skill próprio do Sheldon para Codex, Claude Code e Grok CLI.
 
 ## Escopo
 
 - Servidor MCP somente local.
 - Ferramentas de descoberta, busca, leitura e feedback.
 - Skill Sheldon independente do skill usado como referência de pesquisa.
-- Configuração de projetos consumidores.
+- Configuração de projetos consumidores, incluindo `.grok/config.toml` e `.grok/skills/sheldon`.
 - Escopo por projeto, tópicos e conceitos permitidos.
-- Instalação e healthcheck para Codex e Claude.
+- Instalação e healthcheck para Codex, Claude e Grok (`--agent both` permanece Codex + Claude; `all` inclui Grok).
 
 ## Fora de escopo
 
@@ -38,7 +38,7 @@ Oferecer um servidor MCP local e um skill próprio do Sheldon para Codex e Claud
 
 O skill contém `SKILL.md`, referências de ingestão, compilação, consulta, revisão e OKF, além de healthcheck. Ele ensina quando buscar conhecimento, como citar conceitos, como reportar lacunas e como evitar tratar a wiki como verdade sem proveniência.
 
-Um único pacote fonte deve gerar instalações compatíveis com Codex e Claude sem duplicar o conteúdo conceitual.
+Um único pacote fonte deve gerar instalações compatíveis com Codex, Claude e Grok sem duplicar o conteúdo conceitual.
 
 ## Requisitos funcionais
 
@@ -55,7 +55,7 @@ Um único pacote fonte deve gerar instalações compatíveis com Codex e Claude 
 
 ## Critérios de aceitação
 
-- Codex e Claude descobrem as mesmas ferramentas e recebem resultados semanticamente equivalentes.
+- Codex, Claude e Grok descobrem as mesmas ferramentas e recebem resultados semanticamente equivalentes.
 - Projeto A não consegue consultar conceito exclusivo do projeto B.
 - Um agente encontra conceito relevante sem carregar o vault completo.
 - `file_feedback` não modifica wiki nem raw.

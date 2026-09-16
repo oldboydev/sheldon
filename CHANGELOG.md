@@ -8,6 +8,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Grok CLI as a third local agent for compile/query and as an MCP/skill consumer, via a built-in
+  profile registry.
 - Distribuição npm preparada para a CLI: metapacote público `@oldboydev/sheldon`, runtimes fechados
   para Windows x64, Linux x64, macOS Intel e Apple Silicon, seleção fail-closed, closure física de
   produção, inventário/SBOM e smoke de tarball instalado em prefixo limpo. O workflow de publicação
@@ -26,6 +28,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Changed
 
+- A ajuda integrada da CLI agora explica a finalidade de todos os comandos, grupos e subcomandos,
+  incluindo ingestão, revisão, plugins, bundles, MCP, agentes e gerenciamento do vault.
 - O release oficial agora inclui uma closure de dependências de produção plana, protegida contra
   ciclos e symlinks, em cada plugin. Ele assina e notariza os executáveis finais de macOS (OCR e
   `yt-dlp`) antes de recalcular e assinar o catálogo, e confirma que os ZIPs assinados substituíram
