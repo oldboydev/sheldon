@@ -15,7 +15,7 @@ Sheldon separa captura, síntese e aprovação:
 
 1. Você captura uma fonte e conserva o original.
 2. A ferramenta normaliza o conteúdo para Markdown e registra a proveniência.
-3. Codex CLI ou Claude Code podem gerar uma proposta de conhecimento.
+3. Codex CLI, Claude Code ou Grok CLI podem gerar uma proposta de conhecimento.
 4. Você revisa e aprova, arquivo a arquivo, antes de a wiki mudar.
 
 O resultado é uma base de conhecimento legível sem Sheldon, rastreável até suas fontes e pronta
@@ -28,7 +28,7 @@ para servir de contexto a outros projetos.
   posts públicos do Instagram e LinkedIn e snapshots de repositórios Git locais.
 - Oferece busca local, consultas com referências, revisão de propostas e bundles portáteis de
   conhecimento.
-- Expõe conteúdo aprovado para Codex e Claude por MCP local, com escopo explícito por projeto
+- Expõe conteúdo aprovado para Codex, Claude e Grok por MCP local, com escopo explícito por projeto
   consumidor.
 - Inclui uma interface web local para acompanhar o vault e os trabalhos em execução.
 
@@ -113,7 +113,7 @@ sheldon compile topic aprendizado proposta-artigo `
   --vault C:\knowledge\sheldon
 ```
 
-Substitua `codex` por `claude` se preferir. Use `sheldon agent doctor` para diagnosticar a
+Substitua codex por claude ou grok se preferir. Use `sheldon agent doctor` para diagnosticar a
 disponibilidade dos agentes.
 
 ### 3. Revise antes de publicar
@@ -145,8 +145,18 @@ sheldon mcp configure C:\src\app-consumidor `
   --scope topic:aprendizado
 ```
 
-O comando mostra uma prévia antes de escrever configurações do cliente. Acrescente `--apply` após
-revisar essa prévia.
+O comando mostra uma prévia antes de escrever configurações do cliente, inclusive `.grok/config.toml`
+além das configs Codex/Claude. Acrescente `--apply` após revisar essa prévia.
+
+Para instalar o skill Sheldon no consumidor Grok (ou em todos os agentes suportados):
+
+```powershell
+sheldon mcp install-skill C:\src\app-consumidor --agent grok --apply
+sheldon mcp install-skill C:\src\app-consumidor --agent all --apply
+```
+
+`--agent both` continua instalando apenas Codex e Claude; `--agent all` inclui Grok
+(`.grok/skills/sheldon`).
 
 ## Privacidade e controle
 
@@ -155,8 +165,8 @@ permanecem sob seu controle. SQLite é usado apenas para estado operacional e í
 reconstruíveis, não como fonte de verdade do conhecimento.
 
 A interface web usa loopback (`127.0.0.1`) e o MCP usa `stdio`; nenhum deles abre acesso na rede.
-Sheldon não chama APIs de modelos diretamente. Codex CLI e Claude Code são integrações opcionais e
-só recebem contexto quando você inicia uma operação que pede um agente.
+Sheldon não chama APIs de modelos diretamente. Codex CLI, Claude Code e Grok CLI são integrações
+opcionais e só recebem contexto quando você inicia uma operação que pede um agente.
 
 ## Referência e documentação
 

@@ -2,15 +2,15 @@
 
 ## Problema
 
-Codex CLI e Claude Code oferecem interfaces diferentes. Permitir que escrevam diretamente no vault reduziria rastreabilidade e transformaria erros de síntese em conhecimento oficial.
+Codex CLI, Claude Code e Grok CLI oferecem interfaces diferentes. Permitir que escrevam diretamente no vault reduziria rastreabilidade e transformaria erros de síntese em conhecimento oficial.
 
 ## Objetivo
 
-Normalizar os dois CLIs como workers substituíveis e criar um fluxo obrigatório de propostas revisáveis.
+Normalizar esses CLIs como workers substituíveis e criar um fluxo obrigatório de propostas revisáveis.
 
 ## Escopo
 
-- Detecção e healthcheck de Codex CLI e Claude Code.
+- Detecção e healthcheck de Codex CLI, Claude Code e Grok CLI.
 - Execução não interativa com diretórios e permissões mínimas.
 - Prompts versionados e saída estruturada.
 - Eventos normalizados, cancelamento e logs.
@@ -19,16 +19,16 @@ Normalizar os dois CLIs como workers substituíveis e criar um fluxo obrigatóri
 
 ## Fora de escopo
 
-- Chamada direta às APIs OpenAI ou Anthropic.
+- Chamada direta às APIs de modelos (OpenAI, Anthropic, xAI ou outras).
 - Gerenciamento de assinatura ou autenticação dos CLIs.
 - Escolha automática baseada em preço de tokens.
 - Escrita direta do agente na wiki aprovada.
 
 ## Requisitos funcionais
 
-1. O usuário escolhe Codex ou Claude por execução e pode definir preferência por operação.
+1. O usuário escolhe Codex, Claude ou Grok por execução e pode definir preferência por operação.
 2. O runtime verifica disponibilidade e autenticação utilizável sem registrar credenciais.
-3. Cada execução usa schema de saída equivalente nos dois adapters.
+3. Cada execução usa schema de saída equivalente nos adapters.
 4. O agente recebe somente raws, índices e conceitos necessários para a tarefa.
 5. A saída é rejeitada quando viola schema, referencia arquivo fora do escopo ou omite fontes obrigatórias.
 6. Propostas registram agente, versão detectada, prompt, entradas, timestamps e resultado.
@@ -39,8 +39,8 @@ Normalizar os dois CLIs como workers substituíveis e criar um fluxo obrigatóri
 
 ## Critérios de aceitação
 
-- A mesma fixture de tarefa produz propostas válidas por adapters falsos de ambos os CLIs.
-- Execuções reais opcionais confirmam que Codex e Claude aceitam o schema escolhido.
+- A mesma fixture de tarefa produz propostas válidas por adapters falsos dos CLIs suportados.
+- Execuções reais opcionais confirmam que Codex, Claude e Grok aceitam o schema escolhido.
 - Saída que tenta alterar `raw/` ou `system/` é bloqueada.
 - Falha do CLI preserva logs sanitizados e permite retry.
 - Aprovar um arquivo e rejeitar outro aplica somente o aprovado.

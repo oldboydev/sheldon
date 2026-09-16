@@ -66,12 +66,7 @@ export class AgentRuntime {
   }
 }
 
-function metadata(
-  task: AgentTask,
-  agent: AgentKind,
-  createdAt: string,
-  agentVersion?: string,
-) {
+function metadata(task: AgentTask, agent: AgentKind, createdAt: string, agentVersion?: string) {
   return {
     id: task.proposalId,
     agent,

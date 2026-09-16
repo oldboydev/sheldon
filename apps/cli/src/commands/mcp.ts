@@ -13,11 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
-import {
-  AGENT_PROFILE_IDS,
-  requireAgentProfile,
-  type AgentKind,
-} from '@sheldon/agent-runtime';
+import { AGENT_PROFILE_IDS, requireAgentProfile, type AgentKind } from '@sheldon/agent-runtime';
 import {
   createMcpRequestHandler,
   ScopedKnowledgeFacade,
@@ -299,7 +295,8 @@ function claudeConfigObject(consumer: string): Record<string, unknown> {
 }
 
 function skillTargets(consumer: string, agent: AgentKind | 'both' | 'all'): readonly string[] {
-  const pathFor = (id: AgentKind) => join(consumer, requireAgentProfile(id).consumer.skillDirectory);
+  const pathFor = (id: AgentKind) =>
+    join(consumer, requireAgentProfile(id).consumer.skillDirectory);
   if (agent === 'all') return AGENT_PROFILE_IDS.map(pathFor);
   if (agent === 'both') return [pathFor('codex'), pathFor('claude')];
   return [pathFor(agent)];
@@ -519,7 +516,11 @@ async function hasExpectedClaudeConfig(path: string, consumer: string): Promise<
 async function hasExpectedGrokConfig(path: string, consumer: string): Promise<boolean> {
   try {
     const parsed = parseToml(await readFile(path, 'utf8'));
-    if (!isRecord(parsed) || !isRecord(parsed.mcp_servers) || !isRecord(parsed.mcp_servers.sheldon)) {
+    if (
+      !isRecord(parsed) ||
+      !isRecord(parsed.mcp_servers) ||
+      !isRecord(parsed.mcp_servers.sheldon)
+    ) {
       return false;
     }
     return sameSheldonServer(parsed.mcp_servers.sheldon, expectedSheldonServer(consumer));

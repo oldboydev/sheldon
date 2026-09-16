@@ -30,6 +30,8 @@
 - [Design da plataforma de plugins](superpowers/specs/2026-07-18-plugin-platform-design.md)
 - [Plataforma de plugins](superpowers/plans/2026-07-18-plugin-platform.md)
 - [Distribuição pública pelo npm](superpowers/plans/2026-08-06-npm-publication-and-installation.md)
+- [Registro de agentes e Grok CLI](superpowers/specs/2026-09-16-agent-registry-and-grok-design.md)
+- [Plano: registro de agentes e Grok CLI](superpowers/plans/2026-09-16-agent-registry-and-grok.md)
 
 ## Pesquisa
 

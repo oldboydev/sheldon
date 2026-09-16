@@ -12,7 +12,7 @@ Bibliotecas especializadas permanecem atrás do protocolo de plugins. Um plugin 
 Entrada
   -> Plugin determinístico
   -> Raw imutável + Markdown normalizado
-  -> Codex CLI ou Claude Code
+  -> Codex CLI, Claude Code ou Grok CLI
   -> Proposta estruturada
   -> Revisão humana
   -> Wiki Markdown aprovada
@@ -31,7 +31,7 @@ packages/
   persistence/          Estado operacional em SQLite
   plugin-sdk/           Contratos públicos de plugins
   plugin-host/          Descoberta e execução isolada
-  agent-runtime/        Adapters Codex e Claude
+  agent-runtime/        Adapters Codex, Claude e Grok via tabela de perfis
   review/               Propostas, diffs e decisões
   search/               Busca lexical, metadados e links
   wiki/                 Compilação e validação da wiki
@@ -60,7 +60,7 @@ Cada tópico ou projeto contém raws, wiki, outputs e histórico próprios. Conc
 ## Limites de confiança
 
 - Plugins não escrevem no vault. Eles recebem uma área temporária e retornam artefatos declarativos.
-- Codex e Claude não alteram a wiki oficial. Eles retornam propostas validadas contra JSON Schema.
+- Codex, Claude e Grok não alteram a wiki oficial. Eles retornam propostas validadas contra JSON Schema.
 - O módulo de revisão é o único caminho para promover mudanças semânticas.
 - O compilador OKF só lê conteúdo aprovado.
 - SQLite não é fonte de verdade do conhecimento. Ele armazena fila, configurações, cache e decisões de revisão.
@@ -83,9 +83,9 @@ O registro local continua sendo a fonte do inventário instalado. Quando um cat�
 
 ## Agent runtime
 
-O runtime possui adapters equivalentes para Codex CLI e Claude Code. Cada execução recebe diretórios permitidos, prompt versionado, schema de saída e orçamento operacional configurável. O Sheldon não armazena chaves de modelos e não chama APIs diretamente.
+O runtime possui três adapters equivalentes de CLI a partir de uma tabela de perfis (Codex CLI, Claude Code e Grok CLI). Cada execução recebe diretórios permitidos, prompt versionado, schema de saída e orçamento operacional configurável. O Sheldon não armazena chaves de modelos e não chama APIs diretamente.
 
-O adapter normaliza eventos dos dois CLIs em estados comuns: iniciado, progresso, proposta produzida, falha, cancelado e concluído.
+O adapter normaliza eventos desses CLIs em estados comuns: iniciado, progresso, proposta produzida, falha, cancelado e concluído.
 
 ## Busca
 

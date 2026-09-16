@@ -235,7 +235,7 @@ describe('runCli', () => {
         arguments: ['mcp', '--help'],
         descriptions: [
           'Preview or apply scoped MCP access for a consumer project.',
-          'Preview or install the Sheldon skill for Codex or Claude.',
+          'Preview or install the Sheldon skill for Codex, Claude, or Grok.',
           "Validate a consumer project's Sheldon MCP configuration.",
           'Run the scoped MCP server over stdio for one consumer.',
         ],

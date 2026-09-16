@@ -84,7 +84,9 @@ describe('mcp consumer setup', () => {
     );
     expect(codex).toBe(claude);
     expect(codex).not.toMatch(/\bkb\b/u);
-    await expect(access(join(consumer, '.grok', 'skills', 'sheldon', 'SKILL.md'))).rejects.toThrow();
+    await expect(
+      access(join(consumer, '.grok', 'skills', 'sheldon', 'SKILL.md')),
+    ).rejects.toThrow();
 
     const index = await SearchIndex.rebuild(vault);
     index.close();
@@ -167,7 +169,9 @@ describe('mcp consumer setup', () => {
     const grokOnly = await runCli(['mcp', 'install-skill', consumer, '--agent', 'grok', '--apply']);
     expect(grokOnly.exitCode).toBe(0);
     await access(join(consumer, '.grok', 'skills', 'sheldon', 'SKILL.md'));
-    await expect(access(join(consumer, '.codex', 'skills', 'sheldon', 'SKILL.md'))).rejects.toThrow();
+    await expect(
+      access(join(consumer, '.codex', 'skills', 'sheldon', 'SKILL.md')),
+    ).rejects.toThrow();
 
     const { consumer: other } = await fixture();
     await runCli([
