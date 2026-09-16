@@ -163,6 +163,22 @@ describe('npm publication workflow', () => {
     );
   });
 
+  it('configures npm registry-url on every OIDC publish and dist-tag job', async () => {
+    const { source, workflow } = await readWorkflow();
+    const jobs = workflow.jobs ?? {};
+    for (const name of ['publish-runtimes', 'publish-metapackage', 'promote-npm-packages']) {
+      const setup = (jobs[name]?.steps ?? []).filter((step) =>
+        step.uses?.startsWith('actions/setup-node@'),
+      );
+      expect(setup, name).not.toHaveLength(0);
+      for (const step of setup) {
+        expect(step.with?.['registry-url'], name).toBe('https://registry.npmjs.org');
+        expect(step.with?.['node-version']).toBe('24.13.0');
+      }
+    }
+    expect(source).not.toContain('NPM_TOKEN');
+  });
+
   it('uses pinned actions, Node 24.13, the package-model interface, and no token secret', async () => {
     const { source, workflow } = await readWorkflow();
     const packageModel = await readFile('scripts/release/npm-package-model.mjs', 'utf8');
