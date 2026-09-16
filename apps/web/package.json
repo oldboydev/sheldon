@@ -9,6 +9,7 @@
   "dependencies": {
     "@fastify/multipart": "^10.1.0",
     "@fastify/static": "^10.1.2",
+    "@sheldon/agent-runtime": "*",
     "fastify": "^5.11.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"

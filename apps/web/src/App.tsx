@@ -373,7 +373,7 @@ function QueryView({
 }) {
   const [slug, setSlug] = useState(topics[0]?.slug ?? '');
   const [question, setQuestion] = useState('');
-  const [agent, setAgent] = useState<'codex' | 'claude'>('codex');
+  const [agent, setAgent] = useState<'codex' | 'claude' | 'grok'>('codex');
   const [message, setMessage] = useState<string>();
   return (
     <div className="page narrow">
@@ -415,10 +415,11 @@ function QueryView({
           Agente
           <select
             value={agent}
-            onChange={(event) => setAgent(event.target.value as 'codex' | 'claude')}
+            onChange={(event) => setAgent(event.target.value as 'codex' | 'claude' | 'grok')}
           >
             <option value="codex">Codex</option>
             <option value="claude">Claude</option>
+            <option value="grok">Grok</option>
           </select>
         </label>
         <button className="primary" disabled={!slug || !question.trim()}>
