@@ -7,6 +7,7 @@
 - [Modelo de conhecimento](product/knowledge-model.md)
 - [Decisões arquiteturais](product/decisions.md)
 - [Roadmap](roadmap.md)
+- [Runbook de publicação npm](product/npm-release-runbook.md)
 
 ## PRDs
 
