@@ -11,11 +11,12 @@ import {
   type FileDiffSummary,
   type StructuredProposal,
 } from './proposal.js';
+import type { AgentKind } from './profiles.js';
 
 export interface ProposalMetadata {
   readonly id: string;
   readonly status: ProposalStatus;
-  readonly agent: 'codex' | 'claude';
+  readonly agent: AgentKind;
   readonly agentVersion?: string;
   readonly prompt: string;
   readonly promptVersion: string;

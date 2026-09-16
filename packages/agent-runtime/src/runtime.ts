@@ -1,4 +1,4 @@
-import type { AgentAdapter, AgentTask } from './adapters.js';
+import type { AgentAdapter, AgentKind, AgentTask } from './adapters.js';
 import { ProposalValidationError } from './errors.js';
 import { validateProposal } from './proposal.js';
 import { ProposalStore, type StoredProposal } from './proposal-store.js';
@@ -68,7 +68,7 @@ export class AgentRuntime {
 
 function metadata(
   task: AgentTask,
-  agent: 'codex' | 'claude',
+  agent: AgentKind,
   createdAt: string,
   agentVersion?: string,
 ) {

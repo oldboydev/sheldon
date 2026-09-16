@@ -2,10 +2,10 @@ import type { StructuredProposal } from './proposal.js';
 import { queryAnswerJsonSchema } from './query-answer-schema.js';
 import type { QueryAnswer } from './query-answer.js';
 import { structuredProposalJsonSchema } from './proposal-schema.js';
+import type { AgentKind } from './profiles.js';
 
 export { AGENT_PROMPT_VERSION } from './proposal-schema.js';
-
-export type AgentKind = 'codex' | 'claude';
+export type { AgentKind } from './profiles.js';
 
 export interface AgentTask {
   readonly proposalId: string;
@@ -17,7 +17,7 @@ export interface AgentTask {
 }
 
 export interface AgentCommand {
-  readonly executable: 'codex' | 'claude';
+  readonly executable: AgentKind;
   readonly arguments: readonly string[];
   readonly prompt: string;
   readonly input: AgentTask;
@@ -68,7 +68,7 @@ export interface QueryAgentTask {
 }
 
 export interface QueryAgentCommand {
-  readonly executable: 'codex' | 'claude';
+  readonly executable: AgentKind;
   readonly arguments: readonly string[];
   readonly prompt: string;
   readonly input: QueryAgentTask;

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import type {
   AgentCommand,
+  AgentKind,
   CommandExecution,
   CommandExecutor,
   QueryAgentCommand,
@@ -21,10 +22,7 @@ const queryErrorMessage = 'The agent command did not produce a valid cited query
 export interface JsonCommandExecutorOptions {
   readonly executables?: Readonly<
     Partial<
-      Record<
-        'codex' | 'claude',
-        { readonly executable: string; readonly arguments?: readonly string[] }
-      >
+      Record<AgentKind, { readonly executable: string; readonly arguments?: readonly string[] }>
     >
   >;
   readonly environment?: NodeJS.ProcessEnv;

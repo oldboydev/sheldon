@@ -1,3 +1,4 @@
+import { AGENT_PROFILE_IDS } from './profiles.js';
 import { QUERY_ANSWER_SCHEMA_VERSION } from './query-answer.js';
 
 export const QUERY_ANSWER_SCHEMA_ID = 'sheldon-query-answer/v1';
@@ -23,7 +24,7 @@ export const queryAnswerJsonSchema = {
     schemaVersion: { const: QUERY_ANSWER_SCHEMA_VERSION },
     id: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$' },
     question: { type: 'string', minLength: 1 },
-    agent: { enum: ['codex', 'claude'] },
+    agent: { enum: [...AGENT_PROFILE_IDS] },
     concepts: { $ref: '#/$defs/citations' },
     raws: { $ref: '#/$defs/citations' },
     createdAt: { type: 'string', format: 'date-time' },

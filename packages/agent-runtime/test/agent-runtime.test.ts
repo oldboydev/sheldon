@@ -21,6 +21,7 @@ import {
   validateProposal,
   validateQueryAnswer,
   queryAnswerJsonSchema,
+  structuredProposalJsonSchema,
   type AgentTask,
   type AgentCommand,
   type CommandExecutor,
@@ -167,6 +168,21 @@ describe('query answer persistence and promotion', () => {
         'text',
       ]),
     });
+  });
+
+  it('accepts grok query answers and rejects agents outside the registry', () => {
+    expect(validateQueryAnswer(answer({ agent: 'grok' })).answer.agent).toBe('grok');
+    expect(() => validateQueryAnswer(answer({ agent: 'cursor' as 'codex' }))).toThrow(
+      'unsupported',
+    );
+  });
+
+  it('publishes the registry agent enum without exceeding the Windows argv budget', () => {
+    expect(queryAnswerJsonSchema.properties.agent).toEqual({
+      enum: ['codex', 'claude', 'grok'],
+    });
+    expect(JSON.stringify(queryAnswerJsonSchema).length).toBeLessThanOrEqual(4000);
+    expect(JSON.stringify(structuredProposalJsonSchema).length).toBeLessThanOrEqual(4000);
   });
 
   it('persists a cited query answer independently from wiki content', async () => {
