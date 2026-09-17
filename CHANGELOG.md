@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- O workflow de publicação npm empacota e fumaça `release/npm/<platform>` (o diretório que o
+  builder realmente escreve), não `release/npm/sheldon-<platform>`.
+
 ### Added
 
 - Licença MIT no repositório (`LICENSE`), no manifesto raiz e nos tarballs npm empacotados.

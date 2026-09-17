@@ -96,13 +96,13 @@ jobs:
           --version ${{ needs.release-context.outputs.version }}
           --output release/npm
       - name: Audit the npm package content without publishing
-        run: npm pack --dry-run --json ./release/npm/sheldon-${{ matrix.platform }}
+        run: npm pack --dry-run --json ./release/npm/${{ matrix.platform }}
       - name: Create a tarball checksum for the release inventory
         shell: bash
         run: |
           provenance_directory="release/npm-provenance/sheldon-${{ matrix.platform }}"
           mkdir -p "$provenance_directory"
-          npm pack --json --pack-destination "$provenance_directory" "./release/npm/sheldon-${{ matrix.platform }}" > "$provenance_directory/pack.json"
+          npm pack --json --pack-destination "$provenance_directory" "./release/npm/${{ matrix.platform }}" > "$provenance_directory/pack.json"
           node --input-type=module --eval '
             import { createHash } from "node:crypto";
             import { readdir, readFile, writeFile } from "node:fs/promises";
@@ -116,13 +116,13 @@ jobs:
       - name: Smoke the packed runtime in a clean prefix
         run: >-
           node scripts/release/smoke-npm-package.mjs
-          --package release/npm/sheldon-${{ matrix.platform }}
+          --package release/npm/${{ matrix.platform }}
           --platform ${{ matrix.platform }}
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: npm-runtime-${{ matrix.platform }}
           path: |
-            release/npm/sheldon-${{ matrix.platform }}
+            release/npm/${{ matrix.platform }}
             release/npm-provenance/sheldon-${{ matrix.platform }}
           if-no-files-found: error
 
@@ -196,7 +196,7 @@ jobs:
           registry-url: https://registry.npmjs.org
       - name: Publish the verified runtime through npm OIDC
         run: >-
-          npm publish release/npm/sheldon-${{ matrix.platform }}
+          npm publish release/npm/${{ matrix.platform }}
           --provenance
           --tag ${{ needs.release-context.outputs.candidate-dist-tag }}
 
@@ -256,15 +256,22 @@ jobs:
         shell: bash
         run: |
           mkdir -p release/npm-attachments
-          for package in sheldon-win32-x64 sheldon-linux-x64 sheldon-darwin-arm64 sheldon-darwin-x64 sheldon; do
-            stage_directory="$package"
-            test "$package" != sheldon || stage_directory=metapackage
-            directory="$(find release/npm-artifacts -path "*/npm/$stage_directory" -type d -print -quit)"
-            provenance="$(find release/npm-artifacts -path "*/npm-provenance/$package" -type d -print -quit)"
-            test -n "$directory" && test -n "$provenance"
+          for spec in win32-x64 linux-x64 darwin-arm64 darwin-x64 metapackage; do
+            if [ "$spec" = metapackage ]; then
+              package=sheldon
+              stage=metapackage
+              provenance=sheldon
+            else
+              package="sheldon-$spec"
+              stage="$spec"
+              provenance="sheldon-$spec"
+            fi
+            directory="$(find release/npm-artifacts -path "*/npm/$stage" -type d -print -quit)"
+            provenance_dir="$(find release/npm-artifacts -path "*/npm-provenance/$provenance" -type d -print -quit)"
+            test -n "$directory" && test -n "$provenance_dir"
             cp "$directory/inventory.json" "release/npm-attachments/$package.inventory.json"
             cp "$directory/sbom.spdx.json" "release/npm-attachments/$package.sbom.spdx.json"
-            cp "$provenance"/*.tgz.sha256 release/npm-attachments/
+            cp "$provenance_dir"/*.tgz.sha256 release/npm-attachments/
           done
       - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.3.3
         with:
