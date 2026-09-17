@@ -46,8 +46,8 @@ Não instale `@oldboydev/sheldon-win32-x64`, `@oldboydev/sheldon-linux-x64`,
 escolhe o runtime da máquina (Windows x64, Linux x64, macOS Intel ou Apple Silicon). Fora dessa
 matriz a instalação falha com diagnóstico; não há fallback.
 
-A distribuição estável desse modelo é `0.2.0` e posteriores. `@oldboydev/sheldon@0.1.1` no npm é um
-protótipo somente Windows x64.
+A distribuição estável desse modelo é `0.2.0` e posteriores. `@oldboydev/sheldon@0.1.1` no npm ficou
+depreciado (protótipo somente Windows x64).
 
 Para atualizar:
 
