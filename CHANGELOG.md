@@ -10,6 +10,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 - O smoke npm no Windows dá 10 minutos para `npm pack`/`npm install` do tarball de runtime; 4
   minutos não bastavam no GitHub Actions.
+- O harness do watchdog OCR no Windows aceita até 20s de wall clock (startup de `pwsh` no
+  runner); o timeout do processo observado continua 1s.
 - O workflow de publicação npm empacota e fumaça `release/npm/<platform>` (o diretório que o
   builder realmente escreve), não `release/npm/sheldon-<platform>`.
 

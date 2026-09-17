@@ -13,11 +13,11 @@ import { OCR_RUNTIME_SOURCES } from '../ocr-runtime-sources.mjs';
 
 const temporaryRoots: string[] = [];
 const execFileAsync = promisify(execFile);
-// The harness itself enforces an eight-second deadline. These outer limits only
-// include cold PowerShell startup on a contended Windows hosted runner; they do
-// not weaken the watchdog contract once the harness is executing.
-const windowsWatchdogHarnessProcessTimeoutMs = 30_000;
-const windowsWatchdogTestTimeoutMs = 35_000;
+// The harness itself enforces a 20-second wall deadline around a 1-second
+// watchdog. Hosted Windows runners can spend most of that starting a nested
+// pwsh; the inner TimeoutSeconds=1 contract is unchanged.
+const windowsWatchdogHarnessProcessTimeoutMs = 45_000;
+const windowsWatchdogTestTimeoutMs = 50_000;
 const canRunWindowsWatchdogHarness = canRunPowerShellWatchdogHarness(
   process.platform,
   isPowerShellAvailable(),
@@ -626,7 +626,7 @@ try {
   throw 'The watchdog unexpectedly completed.'
 } catch {
   if ($_.Exception.Message -ne $expected) { throw }
-  if ($watch.Elapsed.TotalSeconds -gt 8) { throw 'The watchdog exceeded the harness deadline.' }
+  if ($watch.Elapsed.TotalSeconds -gt 20) { throw 'The watchdog exceeded the harness deadline.' }
   Write-Output $_.Exception.Message
 }
 `,
