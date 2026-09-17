@@ -16,11 +16,11 @@ describe('installed npm package smoke', () => {
     expect(
       parseSmokeNpmPackageArguments([
         '--package',
-        'release/npm/sheldon-linux-x64',
+        'release/npm/linux-x64',
         '--platform',
         'linux-x64',
       ]),
-    ).toEqual({ packageDirectory: 'release/npm/sheldon-linux-x64', platform: 'linux-x64' });
+    ).toEqual({ packageDirectory: 'release/npm/linux-x64', platform: 'linux-x64' });
 
     expect(() => parseSmokeNpmPackageArguments(['--package', 'runtime'])).toThrow(
       'NPM_PACKAGE_SMOKE_ARGUMENTS_INVALID',

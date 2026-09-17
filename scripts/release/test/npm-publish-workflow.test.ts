@@ -116,10 +116,10 @@ describe('npm publication workflow', () => {
     expect(runtimeSteps).toContain('--target ${{ matrix.platform }}');
     expect(runtimeSteps).toContain('--output release/npm');
     expect(runtimeSteps).toContain(
-      'npm pack --dry-run --json ./release/npm/sheldon-${{ matrix.platform }}',
+      'npm pack --dry-run --json ./release/npm/${{ matrix.platform }}',
     );
     expect(runtimeSteps).toContain('node scripts/release/smoke-npm-package.mjs');
-    expect(runtimeSteps).toContain('--package release/npm/sheldon-${{ matrix.platform }}');
+    expect(runtimeSteps).toContain('--package release/npm/${{ matrix.platform }}');
     expect(runtimeSteps).toContain('--platform ${{ matrix.platform }}');
     expect(jobs['build-metapackage']?.needs).toEqual([
       'release-context',
@@ -138,7 +138,7 @@ describe('npm publication workflow', () => {
     const metapackagePublish = runSteps(jobs['publish-metapackage']).join('\n');
     const attachmentSteps = runSteps(jobs['attach-package-provenance']).join('\n');
 
-    expect(runtimePublish).toContain('npm publish release/npm/sheldon-${{ matrix.platform }}');
+    expect(runtimePublish).toContain('npm publish release/npm/${{ matrix.platform }}');
     expect(metapackagePublish).toContain('npm publish release/npm/metapackage');
     expect(runSteps(jobs['build-and-verify-runtimes']).join('\n')).toContain(
       'release/npm-provenance/sheldon-${{ matrix.platform }}',
@@ -147,7 +147,7 @@ describe('npm publication workflow', () => {
       "provenance_directory='release/npm-provenance/sheldon'",
     );
     expect(attachmentSteps).toContain('release/npm-attachments/$package.inventory.json');
-    expect(attachmentSteps).toContain('stage_directory=metapackage');
+    expect(attachmentSteps).toContain('stage="$spec"');
     expect(attachmentSteps).toContain('release/npm-attachments/$package.sbom.spdx.json');
     expect(attachmentSteps).toContain('*.tgz.sha256');
     expect(jobs['attach-package-provenance']?.steps).toContainEqual(
