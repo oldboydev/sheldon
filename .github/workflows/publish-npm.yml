@@ -235,8 +235,11 @@ jobs:
           node-version: 24.13.0
           registry-url: https://registry.npmjs.org
       - name: Promote the complete release only after every package is published
+        env:
+          NODE_AUTH_TOKEN: ''
         shell: bash
         run: |
+          unset NODE_AUTH_TOKEN
           for package in sheldon-win32-x64 sheldon-linux-x64 sheldon-darwin-arm64 sheldon-darwin-x64 sheldon; do
             npm dist-tag add "@oldboydev/$package@${{ needs.release-context.outputs.version }}" "${{ needs.release-context.outputs.dist-tag }}"
           done

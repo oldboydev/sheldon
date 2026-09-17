@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- `npm dist-tag add` no job de promote não usa o `NODE_AUTH_TOKEN` dummy do `setup-node` (OIDC).
 - O smoke npm no Windows dá 10 minutos para `npm pack`/`npm install` do tarball de runtime; 4
   minutos não bastavam no GitHub Actions.
 - O harness do watchdog OCR no Windows aceita até 20s de wall clock (startup de `pwsh` no
