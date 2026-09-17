@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { getNpmRuntimeTarget } from './npm-package-model.mjs';
 
 const COMMAND_TIMEOUT_MS = 60_000;
-const PACKAGE_OPERATION_TIMEOUT_MS = 240_000;
+const PACKAGE_OPERATION_TIMEOUT_MS = 600_000;
 
 /**
  * Pack one staged native runtime, install that tarball in an isolated prefix,
@@ -244,7 +244,7 @@ async function runCommand(command, arguments_, options) {
       reject(
         smokeError(
           'NPM_PACKAGE_SMOKE_COMMAND_FAILED',
-          `${command} exited with ${signal ? `signal ${signal}` : `code ${code}`}: ${stderr.trim()}`,
+          `${command} exited with ${signal ? `signal ${signal}` : `code ${code}`} after ${options.timeout}ms: ${stderr.trim()}`,
         ),
       );
     });

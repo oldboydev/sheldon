@@ -160,13 +160,13 @@ describe('installed npm package smoke', () => {
       1,
       process.execPath,
       [npmCli, 'pack', '--json', '--pack-destination', join(root, 'packed tarballs')],
-      expect.objectContaining({ cwd: packageDirectory, timeout: 240_000 }),
+      expect.objectContaining({ cwd: packageDirectory, timeout: 600_000 }),
     );
     expect(run).toHaveBeenNthCalledWith(
       2,
       process.execPath,
       [npmCli, 'install', '--global', '--prefix', prefix, packedTarball],
-      expect.objectContaining({ cwd: root, timeout: 240_000 }),
+      expect.objectContaining({ cwd: root, timeout: 600_000 }),
     );
     expect(run).toHaveBeenNthCalledWith(
       3,

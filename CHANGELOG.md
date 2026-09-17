@@ -8,6 +8,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- O smoke npm no Windows dá 10 minutos para `npm pack`/`npm install` do tarball de runtime; 4
+  minutos não bastavam no GitHub Actions.
 - O workflow de publicação npm empacota e fumaça `release/npm/<platform>` (o diretório que o
   builder realmente escreve), não `release/npm/sheldon-<platform>`.
 
