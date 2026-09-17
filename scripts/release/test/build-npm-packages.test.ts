@@ -37,6 +37,7 @@ describe('npm package staging', () => {
         'node_modules/@sheldon/cli/node_modules/external-production/index.js',
         'node_modules/@sheldon/cli/node_modules/external-production/deps/encoding/base64.js',
         'LICENSE',
+        'README.md',
         'inventory.json',
         'sbom.spdx.json',
         'SHA256SUMS',
@@ -90,6 +91,10 @@ describe('npm package staging', () => {
       'MIT fixture license',
     );
     await expect(readFile(join(runtime, 'LICENSE'), 'utf8')).resolves.toBe('MIT fixture license');
+    await expect(readFile(join(runtime, 'README.md'), 'utf8')).resolves.toContain(
+      'npm install --global @oldboydev/sheldon',
+    );
+    await expect(readFile(join(runtime, 'README.md'), 'utf8')).resolves.toContain('Linux x64');
     expect(metaManifest.optionalDependencies).toEqual({
       '@oldboydev/sheldon-win32-x64': VERSION,
       '@oldboydev/sheldon-linux-x64': VERSION,

@@ -42,6 +42,14 @@ export const NPM_RUNTIME_TARGETS = Object.freeze([
 
 const SUPPORTED_TARGETS = NPM_RUNTIME_TARGETS.map((target) => target.id).join(', ');
 
+/** @type {Readonly<Record<NpmRuntimeTargetId, string>>} */
+export const NPM_RUNTIME_LABELS = Object.freeze({
+  'win32-x64': 'Windows x64',
+  'linux-x64': 'Linux x64',
+  'darwin-x64': 'macOS Intel (x64)',
+  'darwin-arm64': 'macOS Apple Silicon (arm64)',
+});
+
 /**
  * Resolve the only runtime npm may install for a Node platform/architecture pair.
  * The launcher must surface this error as-is; it must never choose another target.
@@ -78,6 +86,30 @@ export function getNpmRuntimeTarget(id) {
 }
 
 /**
+ * README published on each runtime package. Direct install is not the product path.
+ *
+ * @param {NpmRuntimeTarget | NpmRuntimeTargetId} target
+ * @returns {string}
+ */
+export function createRuntimePackageReadme(target) {
+  const runtime = canonicalRuntimeTarget(target);
+  const label = NPM_RUNTIME_LABELS[runtime.id];
+  return `# ${runtime.packageName}
+
+Runtime do Sheldon para **${label}**.
+
+Não instale este pacote diretamente. Instale o metapacote:
+
+\`\`\`sh
+npm install --global @oldboydev/sheldon
+\`\`\`
+
+O npm escolhe este runtime automaticamente neste sistema. Código e documentação:
+https://github.com/oldboydev/sheldon
+`;
+}
+
+/**
  * Create the manifest for one platform-restricted implementation package.
  *
  * @param {NpmRuntimeTarget | NpmRuntimeTargetId} target
@@ -91,7 +123,7 @@ export function createRuntimePackageManifest(target, version) {
     version,
     private: false,
     type: 'module',
-    description: `Sheldon CLI runtime for ${runtime.id}.`,
+    description: `Sheldon CLI runtime for ${NPM_RUNTIME_LABELS[runtime.id]}. Install @oldboydev/sheldon.`,
     license: 'MIT',
     repository: repository(),
     engines: { node: NPM_PACKAGE_NODE_ENGINE },

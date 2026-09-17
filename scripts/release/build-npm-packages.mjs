@@ -8,6 +8,7 @@ import {
   NPM_PACKAGE_REPOSITORY,
   createMetapackageManifest,
   createRuntimePackageManifest,
+  createRuntimePackageReadme,
   getNpmRuntimeTarget,
 } from './npm-package-model.mjs';
 
@@ -152,6 +153,7 @@ async function stageRuntime(root, directory, target, version, workspaces) {
   };
   await writeJson(join(directory, 'package.json'), manifest);
   await writeFile(join(directory, 'bin', 'sheldon.mjs'), runtimeLauncherSource(), 'utf8');
+  await writeFile(join(directory, 'README.md'), createRuntimePackageReadme(target), 'utf8');
   await copyLicense(root, directory);
   await writeInventories(directory, target.id, packages);
   return [...packages.values()].map((entry) => entry.destination).sort();
