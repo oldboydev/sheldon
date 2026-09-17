@@ -41,7 +41,8 @@ npm install --global @oldboydev/sheldon
 sheldon --help
 ```
 
-Não instale `@oldboydev/sheldon-win32-x64`, `linux-x64`, `darwin-x64` ou `darwin-arm64` direto. O npm
+Não instale `@oldboydev/sheldon-win32-x64`, `@oldboydev/sheldon-linux-x64`,
+`@oldboydev/sheldon-darwin-x64` ou `@oldboydev/sheldon-darwin-arm64` direto. O npm
 escolhe o runtime da máquina (Windows x64, Linux x64, macOS Intel ou Apple Silicon). Fora dessa
 matriz a instalação falha com diagnóstico; não há fallback.
 
