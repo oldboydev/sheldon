@@ -181,6 +181,10 @@ A interface web usa loopback (`127.0.0.1`) e o MCP usa `stdio`; nenhum deles abr
 Sheldon não chama APIs de modelos diretamente. Codex CLI, Claude Code e Grok CLI são integrações
 opcionais e só recebem contexto quando você inicia uma operação que pede um agente.
 
+## Licença
+
+Sheldon é distribuído sob a licença MIT. O texto completo está em `LICENSE`.
+
 ## Referência e documentação
 
 - Use `sheldon --help` para ver o propósito de cada comando principal e

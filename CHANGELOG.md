@@ -8,6 +8,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Licença MIT no repositório (`LICENSE`), no manifesto raiz e nos tarballs npm empacotados.
 - Grok CLI as a third local agent for compile/query and as an MCP/skill consumer, via a built-in
   profile registry.
 - Distribuição npm preparada para a CLI: metapacote público `@oldboydev/sheldon`, runtimes fechados

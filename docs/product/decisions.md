@@ -91,3 +91,11 @@
 **Razão:** `'codex' | 'claude'` já estava copiado em runtime, CLI, web e MCP; um terceiro agente não deve repetir essa cópia.
 
 **Alternativa rejeitada:** acrescentar `'grok'` a cada união; rejeitada porque o quarto agente repetiria o mesmo imposto.
+
+## ADR-016 — Licença MIT
+
+**Decisão:** o Sheldon é licenciado como MIT. O arquivo `LICENSE` na raiz é a fonte do texto; os
+pacotes npm públicos copiam esse arquivo e declaram `"license": "MIT"`.
+
+**Razão:** MIT é permissiva, compatível com as dependências obrigatórias (ADR-010) e com a
+distribuição pública no npm.

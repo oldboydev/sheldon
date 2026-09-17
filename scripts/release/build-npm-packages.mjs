@@ -111,6 +111,7 @@ async function stageMetapackage(root, directory, version) {
   await writeJson(join(directory, 'package.json'), createMetapackageManifest(version));
   await writeFile(join(directory, 'bin', 'sheldon.mjs'), launcherSource(), 'utf8');
   await cp(join(root, 'README.md'), join(directory, 'README.md'));
+  await copyLicense(root, directory);
   await writeInventories(directory, 'metapackage', new Map());
 }
 
@@ -151,6 +152,7 @@ async function stageRuntime(root, directory, target, version, workspaces) {
   };
   await writeJson(join(directory, 'package.json'), manifest);
   await writeFile(join(directory, 'bin', 'sheldon.mjs'), runtimeLauncherSource(), 'utf8');
+  await copyLicense(root, directory);
   await writeInventories(directory, target.id, packages);
   return [...packages.values()].map((entry) => entry.destination).sort();
 }
@@ -822,6 +824,19 @@ async function exists(path) {
   } catch {
     return false;
   }
+}
+
+async function copyLicense(root, directory) {
+  const license = join(root, 'LICENSE');
+  try {
+    await lstat(license);
+  } catch {
+    throw stageError(
+      'NPM_PACKAGE_LICENSE_MISSING',
+      'Npm packages require LICENSE at the repository root.',
+    );
+  }
+  await cp(license, join(directory, 'LICENSE'));
 }
 
 function writeJson(path, value) {
