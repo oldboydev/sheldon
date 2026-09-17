@@ -9,6 +9,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 ### Added
 
 - Licença MIT no repositório (`LICENSE`), no manifesto raiz e nos tarballs npm empacotados.
+- README do metapacote e dos runtimes npm deixa explícito que a instalação pública é
+  `npm install --global @oldboydev/sheldon`; os pacotes `*-win32-x64`, `*-linux-x64`,
+  `*-darwin-x64` e `*-darwin-arm64` são escolhidos pelo npm, não instalados à mão.
 - Grok CLI as a third local agent for compile/query and as an MCP/skill consumer, via a built-in
   profile registry.
 - Distribuição npm preparada para a CLI: metapacote público `@oldboydev/sheldon`, runtimes fechados

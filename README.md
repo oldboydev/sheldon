@@ -34,20 +34,20 @@ para servir de contexto a outros projetos.
 
 ## Instalação
 
-O pacote público requer Node.js 24 LTS ou superior.
+O pacote público requer Node.js 24 LTS ou superior. Instale **somente** o metapacote:
 
 ```powershell
 npm install --global @oldboydev/sheldon
 sheldon --help
 ```
 
-A distribuição estável (`0.2.0` e posteriores) instala um metapacote que seleciona o runtime da
-plataforma: Windows x64, Linux x64, macOS Intel e Apple Silicon. Combinações fora dessa matriz
-falham com diagnóstico; não há fallback.
+Não instale `@oldboydev/sheldon-win32-x64`, `@oldboydev/sheldon-linux-x64`,
+`@oldboydev/sheldon-darwin-x64` ou `@oldboydev/sheldon-darwin-arm64` direto. O npm
+escolhe o runtime da máquina (Windows x64, Linux x64, macOS Intel ou Apple Silicon). Fora dessa
+matriz a instalação falha com diagnóstico; não há fallback.
 
-`@oldboydev/sheldon@0.1.1` no npm é um protótipo somente Windows x64. Não use essa versão em
-Linux, macOS ou Windows ARM. Após `0.2.0` tornar-se `latest`, `npm update --global @oldboydev/sheldon`
-passa a instalar o modelo de cinco pacotes.
+A distribuição estável desse modelo é `0.2.0` e posteriores. `@oldboydev/sheldon@0.1.1` no npm é um
+protótipo somente Windows x64.
 
 Para atualizar:
 

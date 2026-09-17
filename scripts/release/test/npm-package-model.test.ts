@@ -7,6 +7,7 @@ import {
   createMetapackageManifest,
   createNpmPackageManifests,
   createRuntimePackageManifest,
+  createRuntimePackageReadme,
   getNpmRuntimeTarget,
   selectNpmRuntimeTarget,
 } from '../npm-package-model.mjs';
@@ -78,11 +79,19 @@ describe('npm package model', () => {
       name: target.packageName,
       version: VERSION,
       license: 'MIT',
+      description: expect.stringContaining('Install @oldboydev/sheldon'),
       repository: { type: 'git', url: NPM_PACKAGE_REPOSITORY },
       os: [target.os],
       cpu: [target.cpu],
       bin: { sheldon: 'bin/sheldon.mjs' },
     });
+  });
+
+  it.each(NPM_RUNTIME_TARGETS)('tells $id installers to use the metapackage', (target) => {
+    const readme = createRuntimePackageReadme(target);
+    expect(readme).toContain(`# ${target.packageName}`);
+    expect(readme).toContain('npm install --global @oldboydev/sheldon');
+    expect(readme).not.toContain('Placeholder');
   });
 
   it('creates the metapackage with every runtime as an exact optional dependency', () => {
