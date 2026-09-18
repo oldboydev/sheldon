@@ -10,6 +10,36 @@
       "commands": ["init"]
     },
     {
+      "id": "doctor",
+      "title": "doctor",
+      "file": "pages/doctor.md",
+      "commands": ["doctor"]
+    },
+    {
+      "id": "migrate-state",
+      "title": "migrate-state",
+      "file": "pages/migrate-state.md",
+      "commands": ["migrate-state"]
+    },
+    {
+      "id": "web",
+      "title": "web",
+      "file": "pages/web.md",
+      "commands": ["web"]
+    },
+    {
+      "id": "topic",
+      "title": "topic",
+      "file": "pages/topic.md",
+      "commands": ["topic"]
+    },
+    {
+      "id": "project",
+      "title": "project",
+      "file": "pages/project.md",
+      "commands": ["project"]
+    },
+    {
       "id": "ingest",
       "title": "ingest",
       "file": "pages/ingest.md",
@@ -26,6 +56,12 @@
       "title": "review",
       "file": "pages/review.md",
       "commands": ["review"]
+    },
+    {
+      "id": "bundle",
+      "title": "bundle",
+      "file": "pages/bundle.md",
+      "commands": ["bundle"]
     },
     {
       "id": "search",
@@ -46,10 +82,40 @@
       "commands": ["answer"]
     },
     {
+      "id": "agent",
+      "title": "agent",
+      "file": "pages/agent.md",
+      "commands": ["agent"]
+    },
+    {
+      "id": "mcp",
+      "title": "mcp",
+      "file": "pages/mcp.md",
+      "commands": ["mcp"]
+    },
+    {
+      "id": "plugin",
+      "title": "plugin",
+      "file": "pages/plugin.md",
+      "commands": ["plugin"]
+    },
+    {
+      "id": "image",
+      "title": "image",
+      "file": "pages/image.md",
+      "commands": ["image"]
+    },
+    {
       "id": "flow-compile-review",
       "title": "Compile then review",
       "file": "pages/flow-compile-review.md",
       "commands": ["ingest", "compile", "compile-retry", "review"]
+    },
+    {
+      "id": "flow-end-to-end",
+      "title": "End-to-end",
+      "file": "pages/flow-end-to-end.md",
+      "commands": ["init", "ingest", "compile", "review", "search", "query"]
     }
   ]
 }
