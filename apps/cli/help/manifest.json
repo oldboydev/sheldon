@@ -8,6 +8,48 @@
       "title": "First vault",
       "file": "pages/flow-first-vault.md",
       "commands": ["init"]
+    },
+    {
+      "id": "ingest",
+      "title": "ingest",
+      "file": "pages/ingest.md",
+      "commands": ["ingest"]
+    },
+    {
+      "id": "compile",
+      "title": "compile",
+      "file": "pages/compile.md",
+      "commands": ["compile", "compile-retry"]
+    },
+    {
+      "id": "review",
+      "title": "review",
+      "file": "pages/review.md",
+      "commands": ["review"]
+    },
+    {
+      "id": "search",
+      "title": "search",
+      "file": "pages/search.md",
+      "commands": ["search"]
+    },
+    {
+      "id": "query",
+      "title": "query",
+      "file": "pages/query.md",
+      "commands": ["query"]
+    },
+    {
+      "id": "answer",
+      "title": "answer",
+      "file": "pages/answer.md",
+      "commands": ["answer"]
+    },
+    {
+      "id": "flow-compile-review",
+      "title": "Compile then review",
+      "file": "pages/flow-compile-review.md",
+      "commands": ["ingest", "compile", "compile-retry", "review"]
     }
   ]
 }
