@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "pages": [
+    { "id": "index", "title": "Sheldon help", "file": "pages/index.md", "commands": [] },
+    { "id": "init", "title": "init", "file": "pages/init.md", "commands": ["init"] },
+    {
+      "id": "flow-first-vault",
+      "title": "First vault",
+      "file": "pages/flow-first-vault.md",
+      "commands": ["init"]
+    }
+  ]
+}

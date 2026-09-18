@@ -81,3 +81,4 @@ await execFileAsync(process.execPath, [
 await rm(join('apps', 'cli', 'dist', 'plugins'), { recursive: true, force: true });
 await cp('release/official-catalog-public.pem', 'apps/cli/dist/official-catalog-public.pem');
 await cp('packages/skill', 'apps/cli/dist/skill', { recursive: true });
+await execFileAsync(process.execPath, [join('scripts', 'build-cli-help.mjs')]);
