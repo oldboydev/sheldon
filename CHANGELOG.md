@@ -9,6 +9,14 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 ### Fixed
 
 - `npm dist-tag add` no job de promote não usa o `NODE_AUTH_TOKEN` dummy do `setup-node` (OIDC).
+
+## [0.2.0] - 2026-09-17
+
+Primeira distribuição pública no modelo de cinco pacotes (`@oldboydev/sheldon` + runtimes
+win32-x64, linux-x64, darwin-x64, darwin-arm64). Tag `v0.2.0`.
+
+### Fixed
+
 - O smoke npm no Windows dá 10 minutos para `npm pack`/`npm install` do tarball de runtime; 4
   minutos não bastavam no GitHub Actions.
 - O harness do watchdog OCR no Windows aceita até 20s de wall clock (startup de `pwsh` no
@@ -24,12 +32,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
   `*-darwin-x64` e `*-darwin-arm64` são escolhidos pelo npm, não instalados à mão.
 - Grok CLI as a third local agent for compile/query and as an MCP/skill consumer, via a built-in
   profile registry.
-- Distribuição npm preparada para a CLI: metapacote público `@oldboydev/sheldon`, runtimes fechados
-  para Windows x64, Linux x64, macOS Intel e Apple Silicon, seleção fail-closed, closure física de
-  produção, inventário/SBOM e smoke de tarball instalado em prefixo limpo. O workflow de publicação
-  por tag usa npm trusted publishing/OIDC e não contém token npm de escrita. A próxima publicação
-  pública é `0.2.0`; `@oldboydev/sheldon@0.1.1` no registry permanece um protótipo somente Windows
-  x64 até essa tag promover `latest`.
+- Distribuição npm da CLI: metapacote público `@oldboydev/sheldon`, runtimes fechados para
+  Windows x64, Linux x64, macOS Intel e Apple Silicon, seleção fail-closed, closure física de
+  produção, inventário/SBOM e smoke de tarball instalado em prefixo limpo. Publicação por tag com
+  npm trusted publishing/OIDC, sem token npm de escrita. `@oldboydev/sheldon@0.1.1` ficou
+  depreciado no registry após `0.2.0` tornar-se `latest`.
 - Suporte operacional para Windows x64, Ubuntu x64 e macOS Intel/Apple Silicon, com diretórios
   XDG separados para configuração e estado, encerramento de árvore POSIX e gates nativos por
   plataforma.
