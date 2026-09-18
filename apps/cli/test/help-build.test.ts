@@ -25,7 +25,11 @@ describe('buildCliHelp', () => {
       }),
       'utf8',
     );
-    await writeFile(join(sourceDir, 'pages', 'index.md'), '# Sheldon help\n\nHello `init`.\n', 'utf8');
+    await writeFile(
+      join(sourceDir, 'pages', 'index.md'),
+      '# Sheldon help\n\nHello `init`.\n\n1. First\n2. Second\n',
+      'utf8',
+    );
     await writeFile(join(sourceDir, 'styles.css'), 'body{font-family:sans-serif}', 'utf8');
 
     await buildCliHelp({ sourceDir, outputDir });
@@ -33,6 +37,9 @@ describe('buildCliHelp', () => {
     const html = await readFile(join(outputDir, 'index.html'), 'utf8');
     expect(html).toContain('<h1>Sheldon help</h1>');
     expect(html).toContain('<code>init</code>');
+    expect(html).toContain('<ol>');
+    expect(html).toContain('<li>First</li>');
+    expect(html).toContain('<li>Second</li>');
     expect(html).toContain('styles.css');
     await expect(readFile(join(outputDir, 'styles.css'), 'utf8')).resolves.toContain('sans-serif');
   });

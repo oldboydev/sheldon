@@ -1,6 +1,6 @@
 import { access, cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 
 const DEFAULT_SOURCE_DIR = join('apps', 'cli', 'help');
 const DEFAULT_OUTPUT_DIR = join('apps', 'cli', 'dist', 'help');
@@ -129,13 +129,24 @@ export function renderMarkdown(markdown) {
       continue;
     }
 
+    if (/^\d+\.\s+/.test(line)) {
+      const items = [];
+      while (index < lines.length && /^\d+\.\s+/.test(lines[index])) {
+        items.push(`<li>${renderInline(lines[index].replace(/^\d+\.\s+/, ''))}</li>`);
+        index += 1;
+      }
+      blocks.push(`<ol>\n${items.join('\n')}\n</ol>`);
+      continue;
+    }
+
     const paragraphLines = [];
     while (
       index < lines.length &&
       lines[index].trim() !== '' &&
       !lines[index].startsWith('```') &&
       !/^(#{1,3})\s+/.test(lines[index]) &&
-      !/^-\s+/.test(lines[index])
+      !/^-\s+/.test(lines[index]) &&
+      !/^\d+\.\s+/.test(lines[index])
     ) {
       paragraphLines.push(lines[index].trim());
       index += 1;
@@ -205,6 +216,7 @@ async function main() {
   await buildCliHelp({ sourceDir, outputDir });
 }
 
-if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+const entry = process.argv[1];
+if (entry && import.meta.url === pathToFileURL(entry).href) {
   await main();
 }
