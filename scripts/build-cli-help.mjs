@@ -172,9 +172,12 @@ function renderInline(text) {
   result = result.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, label, href) =>
     stash(`<a href="${escapeHtml(href)}">${escapeHtml(label)}</a>`),
   );
-  result = result.replace(/\*\*([^*]+)\*\*/g, (_, bold) => stash(`<strong>${escapeHtml(bold)}</strong>`));
+  result = result.replace(/\*\*([^*]+)\*\*/g, (_, bold) =>
+    stash(`<strong>${escapeHtml(bold)}</strong>`),
+  );
   result = escapeHtml(result);
-  result = result.replace(/\u0000(\d+)\u0000/g, (_, index) => placeholders[Number(index)]);
+  const placeholderPattern = new RegExp(`\u0000(\\d+)\u0000`, 'g');
+  result = result.replace(placeholderPattern, (_, index) => placeholders[Number(index)]);
   return result;
 }
 

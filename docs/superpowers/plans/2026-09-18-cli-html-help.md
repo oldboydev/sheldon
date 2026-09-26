@@ -8,13 +8,13 @@
 
 **Tech Stack:** TypeScript, Commander 15, Node 24, Vitest, existing `scripts/build.mjs` (SWC). Constrained Markdown→HTML converter in `scripts/build-cli-help.mjs` (headings, paragraphs, lists, fenced code, inline code, links, bold) — no new npm dependency.
 
-**Spec:** GitHub issue [#26](https://github.com/oldboydev/sheldon/issues/26) — *Add detailed HTML help with examples for the CLI*.
+**Spec:** GitHub issue [#26](https://github.com/oldboydev/sheldon/issues/26) — _Add detailed HTML help with examples for the CLI_.
 
 ## Global Constraints
 
 - Keep Commander `--help` / `sheldon help <command>` text help unchanged in behavior for the no-flag case.
 - Offline only: help must not fetch the network.
-- No second drift-prone catalog of command *names*: `manifest.json` is the inventory; Commander descriptions stay short; HTML pages expand with examples.
+- No second drift-prone catalog of command _names_: `manifest.json` is the inventory; Commander descriptions stay short; HTML pages expand with examples.
 - Windows PowerShell and Unix examples where flags/paths differ; otherwise one block labeled for both.
 - Do not build a tutorial web app; this is static HTML opened in the system browser.
 - Do not invent a vault-list feature; document default vault + `--vault` clearly.
@@ -42,6 +42,7 @@
 ### Task 1: Help inventory, converter, and first pages
 
 **Files:**
+
 - Create: `apps/cli/help/manifest.json`
 - Create: `apps/cli/help/styles.css`
 - Create: `apps/cli/help/pages/index.md`
@@ -52,6 +53,7 @@
 - Modify: `scripts/build.mjs`
 
 **Interfaces:**
+
 - Consumes: Markdown pages + `manifest.json`.
 - Produces: `apps/cli/dist/help/index.html`, `apps/cli/dist/help/pages/*.html`, `apps/cli/dist/help/styles.css`, `apps/cli/dist/help/manifest.json`.
 - Produces: `buildCliHelp({ sourceDir, outputDir })` export for tests.
@@ -86,7 +88,11 @@ describe('buildCliHelp', () => {
       }),
       'utf8',
     );
-    await writeFile(join(sourceDir, 'pages', 'index.md'), '# Sheldon help\n\nHello `init`.\n', 'utf8');
+    await writeFile(
+      join(sourceDir, 'pages', 'index.md'),
+      '# Sheldon help\n\nHello `init`.\n',
+      'utf8',
+    );
     await writeFile(join(sourceDir, 'styles.css'), 'body{font-family:sans-serif}', 'utf8');
 
     await buildCliHelp({ sourceDir, outputDir });
@@ -161,11 +167,13 @@ git commit -m "feat(cli): build offline html help from curated markdown"
 ### Task 2: CLI `help --html` / `--path`
 
 **Files:**
+
 - Create: `apps/cli/src/help.ts`
 - Create: `apps/cli/test/help.test.ts`
 - Modify: `apps/cli/src/main.ts`
 
 **Interfaces:**
+
 - Consumes: `apps/cli/dist/help/` next to `sheldon.js` (via `import.meta.url`).
 - Produces:
   - `resolveHelpRoot(): string`
@@ -200,7 +208,7 @@ describe('html help', () => {
 
   it('prints the help root for --path and opens html for --html', async () => {
     const open = vi.fn(async () => undefined);
-    const pathResult = await runCli(['help', '--path'], { /* inject help root + open */ });
+    const pathResult = await runCli(['help', '--path'], {/* inject help root + open */});
     expect(pathResult.exitCode).toBe(0);
     expect(pathResult.stdout).toContain('help');
 
@@ -305,12 +313,14 @@ git commit -m "feat(cli): open offline html help with sheldon help --html"
 ### Task 3: Ingest, compile/review, and search/query pages
 
 **Files:**
+
 - Create/modify: `apps/cli/help/pages/ingest.md`
 - Create: `apps/cli/help/pages/compile.md`, `review.md`, `search.md`, `query.md`, `answer.md`
 - Create: `apps/cli/help/pages/flow-compile-review.md`
 - Modify: `apps/cli/help/manifest.json`, `apps/cli/help/pages/index.md`
 
 **Interfaces:**
+
 - Consumes: Task 1 builder.
 - Produces: HTML pages covering commands `ingest`, `compile`, `compile-retry`, `review`, `search`, `query`, `answer`.
 
@@ -321,15 +331,7 @@ Extend `apps/cli/test/help-build.test.ts` (or add `help-manifest.test.ts`):
 ```ts
 import manifest from '../../help/manifest.json';
 
-const required = [
-  'ingest',
-  'compile',
-  'compile-retry',
-  'review',
-  'search',
-  'query',
-  'answer',
-];
+const required = ['ingest', 'compile', 'compile-retry', 'review', 'search', 'query', 'answer'];
 
 it('covers ingest through answer commands in the manifest', () => {
   const covered = new Set(manifest.pages.flatMap((page) => page.commands));
@@ -374,12 +376,14 @@ git commit -m "docs(cli): add html help for ingest compile review and query"
 ### Task 4: Remaining command groups + full E2E flow + full coverage gate
 
 **Files:**
+
 - Create: `apps/cli/help/pages/topic.md`, `project.md`, `doctor.md`, `migrate-state.md`, `web.md`, `plugin.md`, `agent.md`, `mcp.md`, `bundle.md`, `image.md`
 - Create: `apps/cli/help/pages/flow-end-to-end.md`
 - Modify: `apps/cli/help/manifest.json`, `apps/cli/help/pages/index.md`
 - Modify: `apps/cli/test/help-manifest.test.ts`
 
 **Interfaces:**
+
 - Consumes: Tasks 1–3.
 - Produces: every top-level command in the Global Constraints inventory covered by ≥1 manifest page; one E2E flow from `init` → ingest → compile → approve → `search`/`query`.
 
@@ -387,9 +391,24 @@ git commit -m "docs(cli): add html help for ingest compile review and query"
 
 ```ts
 const TOP_LEVEL = [
-  'init', 'doctor', 'migrate-state', 'web', 'topic', 'project', 'ingest',
-  'compile', 'compile-retry', 'review', 'bundle', 'search', 'query', 'answer',
-  'agent', 'mcp', 'plugin', 'image',
+  'init',
+  'doctor',
+  'migrate-state',
+  'web',
+  'topic',
+  'project',
+  'ingest',
+  'compile',
+  'compile-retry',
+  'review',
+  'bundle',
+  'search',
+  'query',
+  'answer',
+  'agent',
+  'mcp',
+  'plugin',
+  'image',
 ] as const;
 
 it('covers every top-level sheldon command group', () => {
@@ -439,11 +458,13 @@ git commit -m "docs(cli): complete offline html help for all command groups"
 ### Task 5: User-facing docs and verify
 
 **Files:**
+
 - Modify: `README.md`
 - Modify: `CHANGELOG.md`
 - Modify: `docs/README.md`
 
 **Interfaces:**
+
 - Consumes: Tasks 1–4.
 - Produces: users discover `sheldon help --html` from the README; changelog Unreleased notes the feature.
 
@@ -451,7 +472,7 @@ git commit -m "docs(cli): complete offline html help for all command groups"
 
 After the install block, add:
 
-```markdown
+````markdown
 ### Ajuda detalhada (HTML, offline)
 
 ```powershell
@@ -461,7 +482,7 @@ sheldon help --path
 ```
 
 Abre o guia HTML instalado com a CLI (sem rede). O `--help` do terminal continua curto.
-```
+````
 
 Link the plan from `docs/README.md`.
 
@@ -500,17 +521,17 @@ git commit -m "docs(cli): advertise offline html help"
 
 ## Spec coverage (issue #26)
 
-| Requirement | Task |
-|---|---|
-| HTML more detailed than `--help` | 1, 3, 4 |
-| Example-heavy (PowerShell + Unix) | 3, 4 |
-| Flows: first vault, ingest, compile/review, search/query, plugins/agents, MCP, bundles | 1, 3, 4 |
-| Offline after install | 1 (dist/help) + npm closure |
-| Discoverable (`sheldon help --html`) | 2, 5 |
-| Do not replace Commander help | 2 |
-| Avoid drift: stubs/inventory from manifest | 1, 4 coverage gate |
-| Document no vault list / `--vault` | 1 (`index` + `init`), 4 (E2E) |
-| Not a web tutorial app | Global + static HTML only |
+| Requirement                                                                            | Task                          |
+| -------------------------------------------------------------------------------------- | ----------------------------- |
+| HTML more detailed than `--help`                                                       | 1, 3, 4                       |
+| Example-heavy (PowerShell + Unix)                                                      | 3, 4                          |
+| Flows: first vault, ingest, compile/review, search/query, plugins/agents, MCP, bundles | 1, 3, 4                       |
+| Offline after install                                                                  | 1 (dist/help) + npm closure   |
+| Discoverable (`sheldon help --html`)                                                   | 2, 5                          |
+| Do not replace Commander help                                                          | 2                             |
+| Avoid drift: stubs/inventory from manifest                                             | 1, 4 coverage gate            |
+| Document no vault list / `--vault`                                                     | 1 (`index` + `init`), 4 (E2E) |
+| Not a web tutorial app                                                                 | Global + static HTML only     |
 
 ## Placeholders / decisions locked
 

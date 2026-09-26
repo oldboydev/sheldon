@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import manifest from '../help/manifest.json';
+import manifest from '../help/manifest.json' with { type: 'json' };
 
 const TOP_LEVEL = [
   'init',

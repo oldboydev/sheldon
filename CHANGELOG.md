@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Added
+
+- Ajuda HTML offline com exemplos e fluxos (`sheldon help --html`), gerada a partir de
+  Markdown em `apps/cli/help/` e empacotada em `apps/cli/dist/help/`.
+
 ### Fixed
 
 - `npm dist-tag add` no job de promote não usa o `NODE_AUTH_TOKEN` dummy do `setup-node` (OIDC).
