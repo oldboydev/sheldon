@@ -21,8 +21,8 @@ sheldon ingest repository <kind> <slug> <directory> [--plugin <id>] [--vault <pa
 - `--language <tags>` — preferred comma-separated language tags for URL capture.
 - `--cookies <path>` — optional local cookie file for URL ingest (never stored in the vault).
 - `--media <mode>` — social media capture: `none`, `thumbnail`, or `images`.
-- `--ocr` — derive local OCR from explicitly downloaded image assets.
-- `--stt` — allow an already-installed local speech-to-text runtime (may download temporary audio).
+- `--ocr` — (`ingest url` only) derive local OCR from downloaded image assets; requires `--media images` and installed `source.image`. `ingest file` has no `--ocr` flag.
+- `--stt` — (`ingest url` only) allow an already-installed local speech-to-text runtime (may download temporary audio).
 - `--vault <path>` — explicit vault path when the saved default is wrong or missing.
 
 ## Examples
@@ -33,6 +33,9 @@ List and install connectors first:
 sheldon plugin list
 sheldon plugin list --remote
 sheldon plugin install source.file
+sheldon plugin install source.image
+sheldon plugin install source.youtube
+sheldon plugin install source.instagram
 ```
 
 PowerShell — local file:
@@ -47,10 +50,52 @@ Unix — local file:
 sheldon ingest file topic learning ~/inbox/article.pdf --vault ~/knowledge/sheldon
 ```
 
-Public URL (portable):
+PowerShell — local image file (OCR via `source.image`):
+
+```powershell
+sheldon ingest file topic learning C:\inbox\scan.png --plugin source.image --vault C:\knowledge\sheldon
+```
+
+Unix — local image file (OCR via `source.image`):
+
+```sh
+sheldon ingest file topic learning ~/inbox/scan.png --plugin source.image --vault ~/knowledge/sheldon
+```
+
+PowerShell — public URL:
+
+```powershell
+sheldon ingest url topic learning https://example.com/article --vault C:\knowledge\sheldon
+```
+
+Unix — public URL:
 
 ```sh
 sheldon ingest url topic learning https://example.com/article --vault ~/knowledge/sheldon
+```
+
+PowerShell — YouTube video (`source.youtube`, caption language preference):
+
+```powershell
+sheldon ingest url topic learning https://www.youtube.com/watch?v=xxxxxxxxxxx --plugin source.youtube --language pt,en --vault C:\knowledge\sheldon
+```
+
+Unix — YouTube video:
+
+```sh
+sheldon ingest url topic learning https://www.youtube.com/watch?v=xxxxxxxxxxx --plugin source.youtube --language pt,en --vault ~/knowledge/sheldon
+```
+
+PowerShell — Instagram Reel (`source.instagram`; cookies, media, optional STT):
+
+```powershell
+sheldon ingest url topic learning https://www.instagram.com/reel/SHORTCODE/ --plugin source.instagram --cookies C:\secrets\instagram-cookies.txt --media thumbnail --stt --vault C:\knowledge\sheldon
+```
+
+Unix — Instagram Reel:
+
+```sh
+sheldon ingest url topic learning https://www.instagram.com/reel/SHORTCODE/ --plugin source.instagram --cookies ~/secrets/instagram-cookies.txt --media thumbnail --stt --vault ~/knowledge/sheldon
 ```
 
 Bounded crawl (portable):
@@ -81,7 +126,7 @@ sheldon ingest repository topic learning ~/src/my-repo --vault ~/knowledge/sheld
 
 ## Common failures
 
-- Required plugin not installed — run `sheldon plugin list --remote`, then `sheldon plugin install <id>` (for example `source.file` or `source.url`).
+- Required plugin not installed — run `sheldon plugin list --remote`, then `sheldon plugin install <id>` (for example `source.file`, `source.image`, `source.youtube`, or `source.instagram`).
 - Ambiguous plugin selection — retry with `--plugin <id>` using one of the listed candidates.
 - No configured vault — pass `--vault <path>` or run `sheldon init`.
 - Unreadable input path / invalid URL / dirty Git working tree (repository) — fix the input and retry.

@@ -1,6 +1,6 @@
 # doctor
 
-Check the vault layout, local databases, installed plugins, and agent tool availability. Doctor is a read-only health report for the current environment; it does not repair or migrate state by itself.
+Check vault layout, operational SQLite, and whether Codex, Claude, and Grok CLIs are on `PATH`. Doctor is a read-only health report; it does not repair or migrate state. Plugin health is `sheldon plugin doctor`; agent login detail is `sheldon agent doctor`.
 
 ## Synopsis
 
@@ -34,15 +34,17 @@ sheldon doctor
 
 ## Expected outputs / artifacts
 
-- Prints a structured health report (vault path, databases, plugins, agent CLIs).
-- Exit status is non-zero when required checks fail.
+- Prints Node.js version, `Vault: healthy`, SQLite healthy or missing (rebuildable without losing vault files), and Codex/Claude/Grok available or `not found (warning)`.
+- Does not print the vault path or any plugin inventory.
+- Exit status is non-zero when required checks fail (vault discovery or unreadable operational SQLite). Missing agent CLIs are warnings, not failures.
 - Does not modify vault files or install missing tools.
 
 ## Common failures
 
 - No configured vault — pass `--vault <path>` or run `sheldon init`. Sheldon does **not** list vaults.
-- Missing or unhealthy plugin — install or diagnose with `sheldon plugin install` / `sheldon plugin doctor <id>`.
-- Agent CLI missing or not logged in — run `sheldon agent doctor` and complete that agent’s auth flow.
+- Unreadable operational SQLite — follow the printed recovery; vault knowledge files are preserved.
+- Agent CLI missing or not logged in — `sheldon doctor` only warns about `PATH`; run `sheldon agent doctor` for install/auth detail.
+- Plugin issues — use `sheldon plugin doctor <id>` / `sheldon plugin install <id>`; they are not part of this report.
 - Corrupt or incomplete vault layout — re-init into a clean directory or restore from backup; do not invent a vault list.
 
 Related: [agent](agent.html), [plugin](plugin.html), [migrate-state](migrate-state.html).

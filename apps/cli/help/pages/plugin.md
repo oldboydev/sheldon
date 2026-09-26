@@ -60,13 +60,13 @@ sheldon plugin remove source.file
 - `install` — downloads a verified catalog entry into the application plugin store.
 - `doctor` — healthcheck result for one installed plugin (exit non-zero when unhealthy).
 - `test` — contract-test report for a local plugin directory.
-- `remove` — uninstalls a non-official local plugin when allowed.
+- `remove` — uninstalls an installed plugin id.
 
 ## Common failures
 
 - Catalog signature or network failure on `--remote` / `install` — retry when online; do not bypass signature checks.
 - Plugin not installed when ingesting — `plugin list --remote`, then `plugin install <id>`.
 - Unhealthy doctor — follow the printed remediation (missing runtime, language pack, etc.).
-- Removing an official/embedded plugin — official plugins cannot be removed; install overlays only as documented.
+- Plugin not installed when removing — `plugin list`, then retry with an installed id.
 
 Related: [ingest](ingest.html), [image](image.html), [doctor](doctor.html).

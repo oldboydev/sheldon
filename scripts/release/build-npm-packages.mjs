@@ -715,6 +715,7 @@ async function validateRequiredRuntimeResources(root, target, workspaces) {
     join(cli.directory, 'dist', 'sheldon.js'),
     join(cli.directory, 'dist', 'official-catalog-public.pem'),
     join(cli.directory, 'dist', 'skill', 'SKILL.md'),
+    join(cli.directory, 'dist', 'help', 'index.html'),
     join(web.directory, 'dist', 'server.js'),
     join(web.directory, 'dist', 'client', 'index.html'),
   ]) {

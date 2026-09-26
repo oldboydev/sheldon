@@ -32,8 +32,9 @@ sheldon agent doctor grok
 
 ## Expected outputs / artifacts
 
-- Prints install/login readiness for each probed agent.
-- Exit status is non-zero when a requested agent is missing or unusable.
+- Prints a report for each probed agent: `not found` (with recovery) or `available` (version when known), plus Authentication `usable` or `unavailable`.
+- Doctor is a report: exit status stays zero even when an agent is missing or unusable.
+- `compile` and `query` still need `--agent` plus a usable CLI; a green or empty doctor line does not substitute for that.
 - Does not install agents or write vault files.
 
 ## Common failures

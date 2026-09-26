@@ -18,16 +18,16 @@ sheldon migrate-state --from <directory>
 PowerShell:
 
 ```powershell
-sheldon migrate-state --from "$env:LOCALAPPDATA\Sheldon"
+sheldon migrate-state --from "$env:APPDATA\Sheldon"
 ```
 
 Unix:
 
 ```sh
-sheldon migrate-state --from ~/.local/share/Sheldon
+sheldon migrate-state --from "${XDG_STATE_HOME:-$HOME/.local/state}/sheldon"
 ```
 
-Adjust `--from` to the actual legacy state directory on your machine.
+`--from` is the actual legacy directory on your machine (not a vault path). Adjust it if your previous install used a different location. Typical current state roots are `%APPDATA%\Sheldon` on Windows and `$XDG_STATE_HOME/sheldon` or `~/.local/state/sheldon` on POSIX.
 
 ## Expected outputs / artifacts
 

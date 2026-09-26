@@ -53,7 +53,14 @@ sheldon mcp configure ~/src/app-consumer \
   --apply
 ```
 
-Install the Sheldon skill and validate (portable):
+PowerShell — install the Sheldon skill and validate:
+
+```powershell
+sheldon mcp install-skill C:\src\app-consumer --agent all --apply
+sheldon mcp doctor --consumer C:\src\app-consumer
+```
+
+Unix:
 
 ```sh
 sheldon mcp install-skill ~/src/app-consumer --agent all --apply

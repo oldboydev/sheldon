@@ -1,6 +1,6 @@
 # image
 
-Manage local OCR language data used by image ingestion. Language packs are verified from the official catalog and stored outside the vault; missing languages block OCR until installed.
+Manage extra OCR language data used by `source.image`. Install that plugin first. Base packs `por` and `eng` ship with the plugin and cannot be removed. Extra codes such as `deu` come from the official catalog and are stored outside the vault.
 
 ## Synopsis
 
@@ -12,36 +12,41 @@ sheldon image language remove <code>
 
 ## Important flags / arguments
 
-- `code` — OCR language code to install or remove (for example `deu`, `eng`). Use `list` to see installed and available codes.
+- Install `source.image` first — `list`, `install`, and `remove` all look up that installed plugin.
+- `code` — extra OCR language code to install or remove (for example `deu`). Never pass `eng` or `por` to `remove`.
+- `list` is local: base `por` / `eng` plus extras already on the installed plugin root. It does not print the remote catalog.
 
 ## Examples
 
-List languages (portable):
+Install the plugin, then list local languages (portable):
 
 ```sh
+sheldon plugin install source.image
 sheldon image language list
 ```
 
-Install and remove a language pack (portable):
+Install and remove an extra language pack (portable):
 
 ```sh
 sheldon image language install deu
 sheldon image language remove deu
 ```
 
-After languages are installed, OCR-capable ingest uses them via the image source plugin (for example with `sheldon ingest … --ocr` when that connector is installed).
+Local image files use `sheldon ingest file … --plugin source.image` (the plugin runs OCR). `ingest file` has no `--ocr` flag. URL ingest can add `--media images --ocr` when `source.image` is installed.
 
 ## Expected outputs / artifacts
 
-- `list` — installed and catalog-available OCR language codes.
-- `install` — downloads verified language data into the local image/OCR store.
-- `remove` — deletes an installed language pack from that local store.
+- `list` — local codes only: `por` and `eng` as `base`, plus extras from the installed plugin root (not the remote catalog).
+- `install` — downloads a catalog extra language into the local image/OCR store.
+- `remove` — deletes an extra installed language pack from that store (`deu`; not `eng` or `por`).
 - Does not modify vault `raw/` or `wiki/` contents by itself.
 
 ## Common failures
 
+- `source.image` not installed — `sheldon plugin install source.image`, then retry.
 - Language not in catalog / signature failure — retry when online; do not bypass catalog verification.
-- OCR ingest fails with language-not-installed — run `sheldon image language install <code>` for every required code.
+- Removing `eng` or `por` — those are base packs; use an extra code such as `deu`.
+- OCR ingest fails with language-not-installed — run `sheldon image language install <code>` for every extra required code.
 - `source.image` unhealthy — run `sheldon plugin doctor source.image` after installing the plugin.
 - Confusing language packs with vaults — language data is application state; knowledge still lives in the vault from `init` / `--vault`. Sheldon does **not** list vaults.
 

@@ -13,6 +13,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- Exemplos da ajuda HTML: estado em `%APPDATA%\Sheldon` / `~/.local/state/sheldon`, páginas
+  alinhadas ao CLI, ingestão `source.image` / `source.youtube` / `source.instagram`, e o gate npm
+  exige `apps/cli/dist/help/index.html`.
 - `npm dist-tag add` no job de promote não usa o `NODE_AUTH_TOKEN` dummy do `setup-node` (OIDC).
 
 ## [0.2.0] - 2026-09-17
