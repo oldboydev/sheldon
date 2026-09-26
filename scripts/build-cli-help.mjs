@@ -21,7 +21,13 @@ export async function buildCliHelp({ sourceDir, outputDir }) {
     const body = renderMarkdown(markdown);
     const isIndex = page.id === 'index';
     const stylesheetHref = isIndex ? 'styles.css' : '../styles.css';
-    const html = wrapHtml({ title: page.title, stylesheetHref, body });
+    const html = wrapHtml({
+      title: page.title,
+      stylesheetHref,
+      body,
+      pages: manifest.pages,
+      currentId: page.id,
+    });
     const outputPath = isIndex
       ? join(outputDir, 'index.html')
       : join(outputDir, 'pages', `${page.id}.html`);
@@ -31,6 +37,13 @@ export async function buildCliHelp({ sourceDir, outputDir }) {
 
   await cp(join(sourceDir, 'styles.css'), join(outputDir, 'styles.css'));
   await cp(manifestPath, join(outputDir, 'manifest.json'));
+  const fontsDir = join(sourceDir, 'fonts');
+  try {
+    await access(fontsDir);
+    await cp(fontsDir, join(outputDir, 'fonts'), { recursive: true });
+  } catch {
+    // Fonts are optional in fixtures; production help ships Nunito Sans locally.
+  }
 }
 
 /**
@@ -193,9 +206,16 @@ function escapeHtml(value) {
 }
 
 /**
- * @param {{ title: string, stylesheetHref: string, body: string }} options
+ * @param {{
+ *   title: string,
+ *   stylesheetHref: string,
+ *   body: string,
+ *   pages: { id: string, title: string }[],
+ *   currentId: string,
+ * }} options
  */
-function wrapHtml({ title, stylesheetHref, body }) {
+function wrapHtml({ title, stylesheetHref, body, pages, currentId }) {
+  const fromIndex = currentId === 'index';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -205,12 +225,82 @@ function wrapHtml({ title, stylesheetHref, body }) {
 <link rel="stylesheet" href="${escapeHtml(stylesheetHref)}">
 </head>
 <body>
-<main>
+<div class="win">
+<header class="titlebar">
+  <div class="titlebar__brand">
+    ${equalizerSvg()}
+    <span class="titlebar__title">sheldon</span>
+  </div>
+  <span class="titlebar__sep"></span>
+  <span class="titlebar__meta">Ajuda offline</span>
+</header>
+<div class="appbody">
+<aside class="sidebar">
+${renderNav(pages, currentId, fromIndex)}
+</aside>
+<div class="content">
+<div class="content__inner">
+<article class="card card__pad prose">
 ${body}
-</main>
+</article>
+</div>
+</div>
+</div>
+</div>
 </body>
 </html>
 `;
+}
+
+/**
+ * @param {{ id: string, title: string }[]} pages
+ * @param {string} currentId
+ * @param {boolean} fromIndex
+ */
+function renderNav(pages, currentId, fromIndex) {
+  const groups = [
+    { label: 'Início', items: pages.filter((page) => page.id === 'index') },
+    { label: 'Fluxos', items: pages.filter((page) => page.id.startsWith('flow-')) },
+    {
+      label: 'Comandos',
+      items: pages.filter((page) => page.id !== 'index' && !page.id.startsWith('flow-')),
+    },
+  ];
+  const sections = groups
+    .filter((group) => group.items.length > 0)
+    .map((group) => {
+      const items = group.items
+        .map((page) => {
+          const href = pageHref(page.id, fromIndex);
+          const active = page.id === currentId;
+          const label = page.id === 'index' ? 'Ajuda' : page.title;
+          const current = active ? ' aria-current="page"' : '';
+          const className = active ? 'navitem is-active' : 'navitem';
+          return `    <a class="${className}" href="${escapeHtml(href)}"${current}>${escapeHtml(label)}</a>`;
+        })
+        .join('\n');
+      return `  <p class="sidebar__label">${escapeHtml(group.label)}</p>\n  <nav class="sidebar__nav">\n${items}\n  </nav>`;
+    });
+  return sections.join('\n');
+}
+
+/**
+ * @param {string} id
+ * @param {boolean} fromIndex
+ */
+function pageHref(id, fromIndex) {
+  if (id === 'index') return fromIndex ? 'index.html' : '../index.html';
+  return fromIndex ? `pages/${id}.html` : `${id}.html`;
+}
+
+function equalizerSvg() {
+  return `<svg class="eq-logo" viewBox="0 0 28 18" width="28" height="18" aria-hidden="true">
+    <rect x="0" y="6" width="3.2" height="12" rx="1.6" fill="var(--eq-1)"/>
+    <rect x="6" y="2" width="3.2" height="16" rx="1.6" fill="var(--eq-2)"/>
+    <rect x="12" y="4" width="3.2" height="14" rx="1.6" fill="var(--eq-3)"/>
+    <rect x="18" y="0" width="3.2" height="18" rx="1.6" fill="var(--eq-4)"/>
+    <rect x="24" y="7" width="3.2" height="11" rx="1.6" fill="var(--eq-5)"/>
+  </svg>`;
 }
 
 async function main() {

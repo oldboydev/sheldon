@@ -10,6 +10,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 - Ajuda HTML offline com exemplos e fluxos (`sheldon help --html`), gerada a partir de
   Markdown em `apps/cli/help/` e empacotada em `apps/cli/dist/help/`.
+- Visual da ajuda HTML com o design system Stix (navy/magenta, Nunito Sans local, barra e
+  navegação lateral), ainda 100% offline.
 
 ### Fixed
 

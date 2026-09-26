@@ -43,4 +43,64 @@ describe('buildCliHelp', () => {
     expect(html).toContain('styles.css');
     await expect(readFile(join(outputDir, 'styles.css'), 'utf8')).resolves.toContain('sans-serif');
   });
+
+  it('wraps pages in titlebar and sidebar nav and copies the local font', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-help-'));
+    roots.push(root);
+    const sourceDir = join(root, 'help');
+    const outputDir = join(root, 'out');
+    await mkdir(join(sourceDir, 'pages'), { recursive: true });
+    await mkdir(join(sourceDir, 'fonts'), { recursive: true });
+    await writeFile(
+      join(sourceDir, 'manifest.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        pages: [
+          { id: 'index', title: 'Sheldon help', file: 'pages/index.md', commands: [] },
+          { id: 'init', title: 'init', file: 'pages/init.md', commands: ['init'] },
+          {
+            id: 'flow-first-vault',
+            title: 'First vault',
+            file: 'pages/flow-first-vault.md',
+            commands: ['init'],
+          },
+        ],
+      }),
+      'utf8',
+    );
+    await writeFile(join(sourceDir, 'pages', 'index.md'), '# Sheldon help\n', 'utf8');
+    await writeFile(join(sourceDir, 'pages', 'init.md'), '# init\n', 'utf8');
+    await writeFile(join(sourceDir, 'pages', 'flow-first-vault.md'), '# First vault\n', 'utf8');
+    await writeFile(
+      join(sourceDir, 'styles.css'),
+      ':root{--brand-navy:#001663;--brand-magenta:#e74092}body{font-family:"Nunito Sans",sans-serif}',
+      'utf8',
+    );
+    await writeFile(
+      join(sourceDir, 'fonts', 'NunitoSans-VariableFont_YTLC_opsz_wdth_wght.ttf'),
+      'font',
+      'utf8',
+    );
+
+    await buildCliHelp({ sourceDir, outputDir });
+
+    const index = await readFile(join(outputDir, 'index.html'), 'utf8');
+    expect(index).toContain('class="titlebar"');
+    expect(index).toContain('class="sidebar"');
+    expect(index).toContain('href="pages/init.html"');
+    expect(index).toContain('href="pages/flow-first-vault.html"');
+    expect(index).toContain('aria-current="page"');
+
+    const init = await readFile(join(outputDir, 'pages', 'init.html'), 'utf8');
+    expect(init).toContain('href="../index.html"');
+    expect(init).toContain('href="init.html"');
+    expect(init).toMatch(/navitem is-active[\s\S]*init/);
+
+    const css = await readFile(join(outputDir, 'styles.css'), 'utf8');
+    expect(css).toContain('--brand-navy');
+    expect(css).toContain('--brand-magenta');
+    await expect(
+      readFile(join(outputDir, 'fonts', 'NunitoSans-VariableFont_YTLC_opsz_wdth_wght.ttf'), 'utf8'),
+    ).resolves.toBe('font');
+  });
 });
