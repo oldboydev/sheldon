@@ -82,7 +82,7 @@ import type { OfficialPlatform } from '@sheldon/plugin-host';
 import { startWebServer } from '@sheldon/web';
 import { createWebApplication } from './web-api.js';
 
-import { openHelpPage, resolveHelpPage, resolveHelpRoot } from './help.js';
+import { openHelpPage, readHelpPageIds, resolveHelpPage, resolveHelpRoot } from './help.js';
 import {
   createOfficialCatalogClient,
   currentPlatform,
@@ -424,7 +424,7 @@ async function executeHelp(
   }
 
   if (options.html) {
-    const page = resolveHelpPage(topic, helpRoot);
+    const page = resolveHelpPage(topic, helpRoot, await readHelpPageIds(helpRoot));
     await openHelpPage(page, dependencies.openHelp);
     return;
   }

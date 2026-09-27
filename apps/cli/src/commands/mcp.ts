@@ -187,7 +187,7 @@ export async function doctorMcp(consumer: string, context: CommandContext): Prom
   context.write(`Grok skill: ${skillGrok ? 'installed' : 'not installed (warning)'}`);
 }
 
-/** Starts the local-only stdio server used by Codex and Claude configurations. */
+/** Starts the local-only stdio server used by Codex, Claude, and Grok configurations. */
 export async function serveMcp(consumerConfig: string): Promise<void> {
   const configuration = await readConsumerMcpConfiguration(consumerConfig);
   const scopes = await preferredScopes(configuration);

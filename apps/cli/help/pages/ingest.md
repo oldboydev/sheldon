@@ -86,16 +86,17 @@ Unix — YouTube video:
 sheldon ingest url topic learning https://www.youtube.com/watch?v=xxxxxxxxxxx --plugin source.youtube --language pt,en --vault ~/knowledge/sheldon
 ```
 
-PowerShell — Instagram Reel (`source.instagram`; cookies, media, optional STT):
+PowerShell — Instagram Reel (`source.instagram`; cookies, media; add `--stt` only when a local
+speech runtime is already installed):
 
 ```powershell
-sheldon ingest url topic learning https://www.instagram.com/reel/SHORTCODE/ --plugin source.instagram --cookies C:\secrets\instagram-cookies.txt --media thumbnail --stt --vault C:\knowledge\sheldon
+sheldon ingest url topic learning https://www.instagram.com/reel/SHORTCODE/ --plugin source.instagram --cookies C:\secrets\instagram-cookies.txt --media thumbnail --vault C:\knowledge\sheldon
 ```
 
 Unix — Instagram Reel:
 
 ```sh
-sheldon ingest url topic learning https://www.instagram.com/reel/SHORTCODE/ --plugin source.instagram --cookies ~/secrets/instagram-cookies.txt --media thumbnail --stt --vault ~/knowledge/sheldon
+sheldon ingest url topic learning https://www.instagram.com/reel/SHORTCODE/ --plugin source.instagram --cookies ~/secrets/instagram-cookies.txt --media thumbnail --vault ~/knowledge/sheldon
 ```
 
 Bounded crawl (portable):

@@ -51,10 +51,17 @@ export async function doctorAgents(
     );
     context.write(
       `  Authentication: ${health.authenticated ? 'usable' : 'unavailable'}${
-        health.authenticated ? '' : `; sign in with ${profile.executable} and retry.`
+        health.authenticated ? '' : `; ${authenticationRecovery(profile)}`
       }`,
     );
   }
+}
+
+function authenticationRecovery(profile: AgentProfile): string {
+  if (profile.health.authentication === 'grok-auth-store') {
+    return 'sign in with grok login or set XAI_API_KEY and retry.';
+  }
+  return `sign in with ${profile.executable} and retry.`;
 }
 
 function missingBinaryRecovery(profile: AgentProfile): string {

@@ -74,6 +74,29 @@ describe('agent doctor', () => {
     expect(result.stdout).not.toContain('xai-must-not-print');
   });
 
+  it('names documented grok authentication recovery', async () => {
+    const grok = await runCli(['agent', 'doctor', 'grok'], {
+      environment: { XAI_API_KEY: 'xai-must-not-print' },
+      agentHealthProbe: {
+        check: async () => ({ available: true, version: 'grok 0.1.0', authenticated: false }),
+      },
+    });
+    expect(grok).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(grok.stdout).toContain('Grok CLI: available (grok 0.1.0)');
+    expect(grok.stdout).toContain('Authentication: unavailable');
+    expect(grok.stdout).toContain('grok login');
+    expect(grok.stdout).toContain('XAI_API_KEY');
+    expect(grok.stdout).not.toContain('xai-must-not-print');
+
+    const codex = await runCli(['agent', 'doctor', 'codex'], {
+      agentHealthProbe: {
+        check: async () => ({ available: true, version: 'codex 1.2.3', authenticated: false }),
+      },
+    });
+    expect(codex.stdout).toContain('sign in with codex and retry.');
+    expect(codex.stdout).not.toContain('XAI_API_KEY');
+  });
+
   it('does not forward SECRET_TOKEN to health-check children', async () => {
     const probe = fixtureHealthProbe();
     for (const agent of ['codex', 'claude', 'grok'] as const) {

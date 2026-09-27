@@ -20,9 +20,14 @@
 
 ## ADR-004 — LLM por CLIs autenticados
 
-**Decisão:** Codex CLI e Claude Code são os workers do MVP. O Sheldon não chama APIs de modelos.
+**Decisão:** Codex CLI, Claude Code e Grok CLI são os workers. O Sheldon não chama APIs de
+modelos.
 
 **Razão:** reutiliza autenticação existente e satisfaz a restrição de não exigir API paga.
+
+**Atualizado em 2026-09-27:** Grok CLI entrou no conjunto de workers. O registro fechado de
+perfis e a recusa de um adapter genérico ficam em ADR-015. A restrição de não chamar APIs de
+modelos permanece.
 
 ## ADR-005 — Revisão humana antes da wiki
 

@@ -1,27 +1,6 @@
-export const AGENT_PROFILE_IDS = ['codex', 'claude', 'grok'] as const;
-export type AgentKind = (typeof AGENT_PROFILE_IDS)[number];
 export type AgentOutputParser = 'codex-jsonl' | 'claude-json' | 'grok-json';
 
-export interface AgentProfile {
-  readonly id: AgentKind;
-  readonly label: string;
-  readonly executable: AgentKind;
-  readonly arguments: readonly string[];
-  readonly appendPrompt: boolean;
-  readonly parser: AgentOutputParser;
-  readonly timeoutMilliseconds: number;
-  readonly envAllowlist: readonly string[];
-  readonly health: {
-    readonly versionArguments: readonly string[];
-    readonly authentication: 'codex-login-status' | 'claude-auth-status' | 'grok-auth-store';
-  };
-  readonly consumer: {
-    readonly skillDirectory: string;
-    readonly mcpConfigRelativePath: string;
-  };
-}
-
-const profiles: readonly AgentProfile[] = [
+const profiles = [
   {
     id: 'codex',
     label: 'Codex CLI',
@@ -110,7 +89,29 @@ const profiles: readonly AgentProfile[] = [
       mcpConfigRelativePath: '.grok/config.toml',
     },
   },
-];
+] as const;
+
+export type AgentKind = (typeof profiles)[number]['id'];
+export const AGENT_PROFILE_IDS = profiles.map((profile) => profile.id);
+
+export interface AgentProfile {
+  readonly id: AgentKind;
+  readonly label: string;
+  readonly executable: AgentKind;
+  readonly arguments: readonly string[];
+  readonly appendPrompt: boolean;
+  readonly parser: AgentOutputParser;
+  readonly timeoutMilliseconds: number;
+  readonly envAllowlist: readonly string[];
+  readonly health: {
+    readonly versionArguments: readonly string[];
+    readonly authentication: 'codex-login-status' | 'claude-auth-status' | 'grok-auth-store';
+  };
+  readonly consumer: {
+    readonly skillDirectory: string;
+    readonly mcpConfigRelativePath: string;
+  };
+}
 
 export function isAgentKind(value: string): value is AgentKind {
   return (AGENT_PROFILE_IDS as readonly string[]).includes(value);

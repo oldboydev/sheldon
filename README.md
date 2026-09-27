@@ -70,7 +70,8 @@ sheldon help --path
 ```
 
 Abre o guia HTML instalado com a CLI (sem rede), com navegação lateral pelos comandos e
-fluxos. O `--help` do terminal continua curto.
+fluxos. `--html` só aceita tópicos do guia (`init`, `ingest`, fluxos, …); `--path` imprime o
+diretório e ganha se combinado com `--html`. O `--help` do terminal continua curto.
 
 ## Comece em minutos
 
