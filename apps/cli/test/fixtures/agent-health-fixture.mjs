@@ -10,10 +10,7 @@ if (args.includes('--version')) {
   process.exit(0);
 }
 
-if (
-  (args[0] === 'login' && args[1] === 'status') ||
-  (args[0] === 'auth' && args[1] === 'status')
-) {
+if ((args[0] === 'login' && args[1] === 'status') || (args[0] === 'auth' && args[1] === 'status')) {
   process.exit(process.env.HOME || process.env.USERPROFILE ? 0 : 1);
 }
 
