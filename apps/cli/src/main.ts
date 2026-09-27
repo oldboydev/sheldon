@@ -82,6 +82,7 @@ import type { OfficialPlatform } from '@sheldon/plugin-host';
 import { startWebServer } from '@sheldon/web';
 import { createWebApplication } from './web-api.js';
 
+import { openHelpPage, resolveHelpPage, resolveHelpRoot } from './help.js';
 import {
   createOfficialCatalogClient,
   currentPlatform,
@@ -98,6 +99,8 @@ export interface CliDependencies {
   readonly platform?: OfficialPlatform;
   readonly agentExecutor?: CommandExecutor;
   readonly agentHealthProbe?: AgentHealthProbe;
+  readonly helpRoot?: string;
+  readonly openHelp?: (path: string) => Promise<void>;
 }
 
 export interface CliResult {
@@ -159,6 +162,12 @@ export async function runCli(
       return { exitCode: error.exitCode, stdout: stdout.join(''), stderr: stderr.join('') };
     }
     const message = error instanceof Error ? error.message : String(error);
+    if (message.startsWith('HELP_PAGE_MISSING:')) {
+      stderr.push(
+        `Error: ${message}\nTarget: offline help\nRecovery: run sheldon help --path and confirm the help files are installed.\n`,
+      );
+      return { exitCode: 1, stdout: stdout.join(''), stderr: stderr.join('') };
+    }
     stderr.push(
       `Error: ${message}\nTarget: command execution\nRecovery: review the command and retry.\n`,
     );
@@ -179,6 +188,25 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
   const program = new Command('sheldon').description(
     'Build and use a local, reviewable knowledge vault.',
   );
+  program.helpCommand(false);
+  program
+    .command('help [topic]')
+    .description('Show CLI help, or open offline HTML help.')
+    .option('--html', 'open offline HTML help in the default browser')
+    .option('--path', 'print the offline HTML help directory')
+    .action(
+      async (
+        topic: string | undefined,
+        options: { html?: boolean; path?: boolean },
+        command: Command,
+      ) => {
+        const parent = command.parent;
+        if (!parent) {
+          throw new Error('Help command is missing its parent program.');
+        }
+        await executeHelp(topic, options, parent, context, dependencies);
+      },
+    );
 
   program
     .command('init [path]')
@@ -379,6 +407,40 @@ function createProgram(context: CommandContext, dependencies: CliDependencies): 
     .description('Remove installed OCR language data.')
     .action((code: string) => removeImageLanguageCommand(code, context));
   return program;
+}
+
+async function executeHelp(
+  topic: string | undefined,
+  options: { html?: boolean; path?: boolean },
+  program: Command,
+  context: CommandContext,
+  dependencies: CliDependencies,
+): Promise<void> {
+  const helpRoot = resolveHelpRoot(dependencies.helpRoot);
+
+  if (options.path) {
+    context.write(helpRoot);
+    return;
+  }
+
+  if (options.html) {
+    const page = resolveHelpPage(topic, helpRoot);
+    await openHelpPage(page, dependencies.openHelp);
+    return;
+  }
+
+  if (!topic) {
+    program.outputHelp();
+    return;
+  }
+
+  const command = program.commands.find(
+    (candidate) => candidate.name() === topic || candidate.aliases().includes(topic),
+  );
+  if (!command || command.name() === 'help') {
+    throw new Error(`Unknown help topic '${topic}'.`);
+  }
+  command.outputHelp();
 }
 
 function agentKind(value: string): AgentKind {

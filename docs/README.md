@@ -34,6 +34,7 @@
 - [Go-live da instalação pública npm 0.2.0](superpowers/plans/2026-09-16-npm-public-install.md)
 - [Registro de agentes e Grok CLI](superpowers/specs/2026-09-16-agent-registry-and-grok-design.md)
 - [Plano: registro de agentes e Grok CLI](superpowers/plans/2026-09-16-agent-registry-and-grok.md)
+- [Ajuda HTML offline da CLI](superpowers/plans/2026-09-18-cli-html-help.md)
 
 ## Pesquisa
 

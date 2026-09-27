@@ -532,6 +532,7 @@ describe('npm package staging', () => {
     ['apps/cli/dist/sheldon.js', 'linux-x64'],
     ['apps/cli/dist/official-catalog-public.pem', 'linux-x64'],
     ['apps/cli/dist/skill/SKILL.md', 'linux-x64'],
+    ['apps/cli/dist/help/index.html', 'linux-x64'],
     ['apps/web/dist/server.js', 'linux-x64'],
     ['apps/web/dist/client/index.html', 'linux-x64'],
     ['packages/plugin-host/native/windows-job/build/Release/sheldon_job_object.node', 'win32-x64'],
@@ -615,6 +616,7 @@ async function createFixture(root?: string, cleanupRoot?: string): Promise<Fixtu
   await write(join(root, 'apps', 'cli', 'dist', 'sheldon.js'), 'console.log("cli");');
   await write(join(root, 'apps', 'cli', 'dist', 'official-catalog-public.pem'), 'public key');
   await write(join(root, 'apps', 'cli', 'dist', 'skill', 'SKILL.md'), '# Sheldon');
+  await write(join(root, 'apps', 'cli', 'dist', 'help', 'index.html'), '<!doctype html>');
   await write(join(root, 'apps', 'cli', 'src', 'main.ts'), 'source');
   await write(join(root, 'apps', 'cli', 'test', 'cli.test.ts'), 'test');
   await write(join(root, 'apps', 'cli', 'secret.env'), 'secret');

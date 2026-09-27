@@ -6,8 +6,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Added
+
+- Ajuda HTML offline com exemplos e fluxos (`sheldon help --html`), gerada a partir de
+  Markdown em `apps/cli/help/` e empacotada em `apps/cli/dist/help/`.
+- Visual da ajuda HTML com o design system Stix (navy/magenta, Nunito Sans local, barra e
+  navegação lateral), ainda 100% offline.
+
 ### Fixed
 
+- Exemplos da ajuda HTML: estado em `%APPDATA%\Sheldon` / `~/.local/state/sheldon`, páginas
+  alinhadas ao CLI, ingestão `source.image` / `source.youtube` / `source.instagram`, e o gate npm
+  exige `apps/cli/dist/help/index.html`.
 - `npm dist-tag add` no job de promote não usa o `NODE_AUTH_TOKEN` dummy do `setup-node` (OIDC).
 
 ## [0.2.0] - 2026-09-17

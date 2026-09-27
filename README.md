@@ -61,6 +61,17 @@ Para remover:
 npm uninstall --global @oldboydev/sheldon
 ```
 
+### Ajuda detalhada (HTML, offline)
+
+```powershell
+sheldon help --html
+sheldon help --html init
+sheldon help --path
+```
+
+Abre o guia HTML instalado com a CLI (sem rede), com navegação lateral pelos comandos e
+fluxos. O `--help` do terminal continua curto.
+
 ## Comece em minutos
 
 Crie seu vault — a pasta que guarda todo o conhecimento:
