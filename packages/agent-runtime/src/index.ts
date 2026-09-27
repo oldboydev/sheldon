@@ -20,7 +20,11 @@ export {
   type QueryConceptInput,
 } from './adapters.js';
 export { ProposalPromotionError, ProposalValidationError, type ProposalStatus } from './errors.js';
-export { JsonCommandExecutor, type JsonCommandExecutorOptions } from './command-executor.js';
+export {
+  JsonCommandExecutor,
+  buildChildEnvironment,
+  type JsonCommandExecutorOptions,
+} from './command-executor.js';
 export {
   isProposalId,
   PROPOSAL_SCHEMA_VERSION,

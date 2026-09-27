@@ -335,7 +335,7 @@ function terminate(child: ReturnType<typeof spawn>): void {
   if (!child.killed) child.kill('SIGKILL');
 }
 
-function buildChildEnvironment(
+export function buildChildEnvironment(
   source: NodeJS.ProcessEnv,
   allowlist: readonly string[],
 ): NodeJS.ProcessEnv {

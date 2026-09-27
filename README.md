@@ -138,7 +138,8 @@ sheldon compile topic aprendizado proposta-artigo `
 ```
 
 Substitua codex por claude ou grok se preferir. Use `sheldon agent doctor` para diagnosticar a
-disponibilidade dos agentes.
+disponibilidade dos agentes. O doctor não encaminha o ambiente pai inteiro ao CLI filho — só
+PATH, locale, home/temp e a allowlist do perfil.
 
 ### 3. Revise antes de publicar
 

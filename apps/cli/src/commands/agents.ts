@@ -4,10 +4,12 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 import {
+  buildChildEnvironment,
   listAgentProfiles,
   requireAgentProfile,
   type AgentKind,
   type AgentProfile,
+  type JsonCommandExecutorOptions,
 } from '@sheldon/agent-runtime';
 
 import type { CommandContext } from '../runtime.js';
@@ -69,53 +71,85 @@ function missingBinaryRecovery(profile: AgentProfile): string {
  * intentionally discarded so credentials and tokens cannot reach CLI output.
  */
 export class LocalAgentHealthProbe implements AgentHealthProbe {
+  private readonly executables: JsonCommandExecutorOptions['executables'];
+
+  public constructor(options: Pick<JsonCommandExecutorOptions, 'executables'> = {}) {
+    this.executables = options.executables;
+  }
+
   public async check(agent: AgentKind, environment: NodeJS.ProcessEnv): Promise<AgentHealth> {
     const profile = requireAgentProfile(agent);
-    const version = await invoke(
-      profile.executable,
-      profile.health.versionArguments,
-      environment,
-      true,
-    );
+    const version = await this.invoke(profile, profile.health.versionArguments, environment, true);
     if (version.exitCode !== 0) return { available: false, authenticated: false };
 
     return {
       available: true,
       ...(version.output === undefined ? {} : { version: version.output }),
-      authenticated: await checkAuthentication(profile, environment),
+      authenticated: await this.checkAuthentication(profile, environment),
     };
   }
-}
 
-async function checkAuthentication(
-  profile: AgentProfile,
-  environment: NodeJS.ProcessEnv,
-): Promise<boolean> {
-  switch (profile.health.authentication) {
-    case 'codex-login-status': {
-      const authentication = await invoke(
-        profile.executable,
-        ['login', 'status'],
-        environment,
-        false,
-      );
-      return authentication.exitCode === 0;
+  private async checkAuthentication(
+    profile: AgentProfile,
+    environment: NodeJS.ProcessEnv,
+  ): Promise<boolean> {
+    switch (profile.health.authentication) {
+      case 'codex-login-status': {
+        const authentication = await this.invoke(profile, ['login', 'status'], environment, false);
+        return authentication.exitCode === 0;
+      }
+      case 'claude-auth-status': {
+        const authentication = await this.invoke(profile, ['auth', 'status'], environment, false);
+        return authentication.exitCode === 0;
+      }
+      case 'grok-auth-store': {
+        const grokHome = environment.GROK_HOME ?? join(homedir(), '.grok');
+        const hasKey = (environment.XAI_API_KEY ?? '').trim().length > 0;
+        const hasStore = await pathExists(join(grokHome, 'auth.json'));
+        return hasKey || hasStore;
+      }
     }
-    case 'claude-auth-status': {
-      const authentication = await invoke(
-        profile.executable,
-        ['auth', 'status'],
-        environment,
-        false,
-      );
-      return authentication.exitCode === 0;
-    }
-    case 'grok-auth-store': {
-      const grokHome = environment.GROK_HOME ?? join(homedir(), '.grok');
-      const hasKey = (environment.XAI_API_KEY ?? '').trim().length > 0;
-      const hasStore = await pathExists(join(grokHome, 'auth.json'));
-      return hasKey || hasStore;
-    }
+  }
+
+  private invoke(
+    profile: AgentProfile,
+    arguments_: readonly string[],
+    environment: NodeJS.ProcessEnv,
+    captureOutput: boolean,
+  ): Promise<{ readonly exitCode: number | null; readonly output?: string }> {
+    const override = this.executables?.[profile.id];
+    const executable = override?.executable ?? profile.executable;
+    const argv = [...(override?.arguments ?? []), ...arguments_];
+    return new Promise((resolve) => {
+      let output = '';
+      let finished = false;
+      const child = spawn(executable, argv, {
+        shell: false,
+        env: buildChildEnvironment(environment, profile.envAllowlist),
+        stdio: ['ignore', captureOutput ? 'pipe' : 'ignore', 'ignore'],
+        windowsHide: true,
+      });
+      const timeout = setTimeout(() => child.kill(), 5_000);
+      const finish = (result: {
+        readonly exitCode: number | null;
+        readonly output?: string;
+      }): void => {
+        if (finished) return;
+        finished = true;
+        clearTimeout(timeout);
+        resolve(result);
+      };
+      if (captureOutput) {
+        child.stdout?.on('data', (chunk: Buffer) => {
+          if (output.length < 256) output += chunk.toString('utf8').slice(0, 256 - output.length);
+        });
+      }
+      child.once('error', () => finish({ exitCode: null }));
+      child.once('close', (exitCode) => {
+        const version = output.trim().replace(/\s+/g, ' ');
+        finish({ exitCode, ...(version === '' ? {} : { output: version }) });
+      });
+    });
   }
 }
 
@@ -126,42 +160,4 @@ async function pathExists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
-}
-
-async function invoke(
-  executable: string,
-  arguments_: readonly string[],
-  environment: NodeJS.ProcessEnv,
-  captureOutput: boolean,
-): Promise<{ readonly exitCode: number | null; readonly output?: string }> {
-  return new Promise((resolve) => {
-    let output = '';
-    let finished = false;
-    const child = spawn(executable, arguments_, {
-      shell: false,
-      env: environment,
-      stdio: ['ignore', captureOutput ? 'pipe' : 'ignore', 'ignore'],
-      windowsHide: true,
-    });
-    const timeout = setTimeout(() => child.kill(), 5_000);
-    const finish = (result: {
-      readonly exitCode: number | null;
-      readonly output?: string;
-    }): void => {
-      if (finished) return;
-      finished = true;
-      clearTimeout(timeout);
-      resolve(result);
-    };
-    if (captureOutput) {
-      child.stdout?.on('data', (chunk: Buffer) => {
-        if (output.length < 256) output += chunk.toString('utf8').slice(0, 256 - output.length);
-      });
-    }
-    child.once('error', () => finish({ exitCode: null }));
-    child.once('close', (exitCode) => {
-      const version = output.trim().replace(/\s+/g, ' ');
-      finish({ exitCode, ...(version === '' ? {} : { output: version }) });
-    });
-  });
 }
