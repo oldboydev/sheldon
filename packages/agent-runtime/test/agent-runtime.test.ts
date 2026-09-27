@@ -13,6 +13,7 @@ import {
   QueryAnswerStore,
   ProposalValidationError,
   QUERY_ANSWER_SCHEMA_ID,
+  buildChildEnvironment,
   createClaudeCommandAdapter,
   createClaudeQueryAdapter,
   createCodexQueryAdapter,
@@ -371,6 +372,54 @@ describe('command adapters and runtime', () => {
     await expect(grokAdapter.execute({ ...task, prompt: 'missing-payload' })).resolves.toEqual({
       status: 'error',
       message: 'The agent command did not produce a valid proposal.',
+    });
+  });
+
+  it('buildChildEnvironment forwards base keys and allowlist without secrets', () => {
+    const source: NodeJS.ProcessEnv = {
+      PATH: '/bin',
+      PATHEXT: '.EXE',
+      SystemRoot: 'C:\\Windows',
+      WINDIR: 'C:\\Windows',
+      LANG: 'en_US.UTF-8',
+      LANGUAGE: 'en',
+      LC_ALL: 'en_US.UTF-8',
+      HOME: '/home/sheldon',
+      USERPROFILE: 'C:\\Users\\sheldon',
+      HOMEDRIVE: 'C:',
+      HOMEPATH: '\\Users\\sheldon',
+      TMP: '/tmp',
+      TEMP: '/tmp',
+      SECRET_TOKEN: 'must-not-be-forwarded',
+      XAI_API_KEY: 'xai-test',
+      GROK_HOME: '/tmp/grok',
+      UNRELATED: 'nope',
+    };
+    const base = {
+      PATH: '/bin',
+      PATHEXT: '.EXE',
+      SystemRoot: 'C:\\Windows',
+      WINDIR: 'C:\\Windows',
+      LANG: 'en_US.UTF-8',
+      LANGUAGE: 'en',
+      LC_ALL: 'en_US.UTF-8',
+      HOME: '/home/sheldon',
+      USERPROFILE: 'C:\\Users\\sheldon',
+      HOMEDRIVE: 'C:',
+      HOMEPATH: '\\Users\\sheldon',
+      TMP: '/tmp',
+      TEMP: '/tmp',
+    };
+
+    expect(buildChildEnvironment(source, [])).toEqual(base);
+    expect(buildChildEnvironment(source, ['GROK_HOME', 'XAI_API_KEY'])).toEqual({
+      ...base,
+      GROK_HOME: '/tmp/grok',
+      XAI_API_KEY: 'xai-test',
+    });
+    expect(buildChildEnvironment(source, ['GROK_HOME', 'MISSING_ALLOWLIST_KEY'])).toEqual({
+      ...base,
+      GROK_HOME: '/tmp/grok',
     });
   });
 

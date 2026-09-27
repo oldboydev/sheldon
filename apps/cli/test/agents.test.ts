@@ -1,6 +1,29 @@
-import type { AgentHealthProbe } from '../src/commands/agents.js';
+import { fileURLToPath } from 'node:url';
+
+import { LocalAgentHealthProbe, type AgentHealthProbe } from '../src/commands/agents.js';
 import { runCli } from '../src/main.js';
 import { describe, expect, it } from 'vitest';
+
+const healthFixture = fileURLToPath(
+  new URL('./fixtures/agent-health-fixture.mjs', import.meta.url),
+);
+
+function fixtureHealthProbe(): LocalAgentHealthProbe {
+  const override = { executable: process.execPath, arguments: [healthFixture] };
+  return new LocalAgentHealthProbe({
+    executables: { codex: override, claude: override, grok: override },
+  });
+}
+
+const parentEnvWithSecret: NodeJS.ProcessEnv = {
+  PATH: process.env.PATH,
+  PATHEXT: process.env.PATHEXT,
+  HOME: '/home/sheldon',
+  USERPROFILE: 'C:\\Users\\sheldon',
+  SECRET_TOKEN: 'must-not-be-forwarded',
+  XAI_API_KEY: 'xai-test',
+  GROK_HOME: '/tmp/grok-home-fixture',
+};
 
 describe('agent doctor', () => {
   it('reports binary version and usable authentication through an injected probe', async () => {
@@ -49,5 +72,33 @@ describe('agent doctor', () => {
     expect(result.stdout).toContain('Grok CLI: not found');
     expect(result.stdout).toMatch(/install grok/i);
     expect(result.stdout).not.toContain('xai-must-not-print');
+  });
+
+  it('does not forward SECRET_TOKEN to health-check children', async () => {
+    const probe = fixtureHealthProbe();
+    for (const agent of ['codex', 'claude', 'grok'] as const) {
+      await expect(probe.check(agent, parentEnvWithSecret)).resolves.toMatchObject({
+        available: true,
+      });
+    }
+  });
+
+  it('reports fixture agents available and authenticated without printing secrets', async () => {
+    const result = await runCli(['agent', 'doctor'], {
+      environment: parentEnvWithSecret,
+      agentHealthProbe: fixtureHealthProbe(),
+    });
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    expect(result.stdout).toContain('Codex CLI: available (fixture 1.0 home-forwarded xai-missing');
+    expect(result.stdout).toContain(
+      'Claude Code: available (fixture 1.0 home-forwarded xai-missing',
+    );
+    expect(result.stdout).toContain(
+      'Grok CLI: available (fixture 1.0 home-forwarded xai-forwarded grok-home-forwarded)',
+    );
+    expect(result.stdout.match(/Authentication: usable/g)).toHaveLength(3);
+    expect(result.stdout).not.toContain('must-not-be-forwarded');
+    expect(result.stdout).not.toContain('xai-test');
   });
 });

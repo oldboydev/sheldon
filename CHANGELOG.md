@@ -15,6 +15,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- `sheldon agent doctor` sanitiza o ambiente do CLI filho como o executor (`PATH`/locale/home/temp
+  mais `envAllowlist` do perfil), em vez de encaminhar o ambiente pai inteiro.
 - Exemplos da ajuda HTML: estado em `%APPDATA%\Sheldon` / `~/.local/state/sheldon`, páginas
   alinhadas ao CLI, ingestão `source.image` / `source.youtube` / `source.instagram`, e o gate npm
   exige `apps/cli/dist/help/index.html`.
