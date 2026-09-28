@@ -1,5 +1,6 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { client, type Dashboard, type Job } from './client.generated.js';
+import { KnowledgeView } from './KnowledgeView.js';
 import './styles.css';
 
 type AgentKind = 'codex' | 'claude' | 'grok';
@@ -22,18 +23,21 @@ export function App() {
   const [dashboard, setDashboard] = useState<Dashboard>();
   const [jobs, setJobs] = useState<readonly Job[]>([]);
   const [topics, setTopics] = useState<readonly { title: string; slug: string }[]>([]);
+  const [projects, setProjects] = useState<readonly { title: string; slug: string }[]>([]);
   const [error, setError] = useState<string>();
 
   const refresh = async () => {
     try {
-      const [nextDashboard, nextJobs, nextTopics] = await Promise.all([
+      const [nextDashboard, nextJobs, nextTopics, nextProjects] = await Promise.all([
         client.dashboard(),
         client.jobs(),
         client.entities('topic') as Promise<{ title: string; slug: string }[]>,
+        client.entities('project') as Promise<{ title: string; slug: string }[]>,
       ]);
       setDashboard(nextDashboard);
       setJobs(nextJobs.jobs);
       setTopics(nextTopics);
+      setProjects(nextProjects);
       setError(undefined);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Não foi possível ler o vault local.');
@@ -76,7 +80,7 @@ export function App() {
         {error && <div className="notice error">{error}</div>}
         {section === 'início' && <DashboardView dashboard={dashboard} jobs={jobs} />}
         {section === 'fontes' && <SourceView topics={topics} onQueued={refresh} />}
-        {section === 'conhecimento' && <KnowledgeView topics={topics} />}
+        {section === 'conhecimento' && <KnowledgeView topics={topics} projects={projects} />}
         {section === 'revisão' && <ReviewView jobs={jobs} />}
         {section === 'consulta' && <QueryView topics={topics} onQueued={refresh} />}
         {section === 'bundles' && <BundleView />}
@@ -263,31 +267,6 @@ function SourceView({
           <small>Revise rede, cookies, OCR, STT e downloads de modelo na tela de plugins.</small>
         </div>
       )}
-    </div>
-  );
-}
-
-function KnowledgeView({
-  topics,
-}: {
-  readonly topics: readonly { title: string; slug: string }[];
-}) {
-  return (
-    <div className="page">
-      <p className="eyebrow">CONHECIMENTO APROVADO</p>
-      <h1>Uma árvore que mostra a origem.</h1>
-      <div className="tree panel">
-        {topics.length === 0 ? (
-          <p>Nenhum tópico ainda. Crie um tópico antes de ingerir uma fonte.</p>
-        ) : (
-          topics.map((topic) => (
-            <div key={topic.slug}>
-              <b>{topic.title}</b>
-              <span> wiki / raws / propostas</span>
-            </div>
-          ))
-        )}
-      </div>
     </div>
   );
 }

@@ -8,6 +8,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Added
 
+- Conhecimento em `sheldon web` abre a wiki aprovada do vault (tópicos e projetos) como HTML
+  somente leitura, com árvore, links internos, fontes citadas e vizinhos do índice de busca.
 - Ajuda HTML offline com exemplos e fluxos (`sheldon help --html`), gerada a partir de
   Markdown em `apps/cli/help/` e empacotada em `apps/cli/dist/help/`.
 - Visual da ajuda HTML com o design system Stix (navy/magenta, Nunito Sans local, barra e

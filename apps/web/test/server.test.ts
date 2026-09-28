@@ -1,7 +1,8 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 
+import { SearchIndex } from '@sheldon/search';
 import { VaultService } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -102,11 +103,302 @@ describe('local web server', () => {
   });
 });
 
+describe('wiki read api', () => {
+  it('lists wiki paths under a topic and a project in path order', async () => {
+    const root = await vaultWithWiki();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const topic = await server.inject('/api/v1/entities/topic/memory/wiki');
+      expect(topic.statusCode).toBe(200);
+      expect(topic.json()).toEqual([
+        { path: 'wiki/concepts/nested.md' },
+        { path: 'wiki/recall.md' },
+        { path: 'wiki/support.md' },
+      ]);
+
+      const project = await server.inject('/api/v1/entities/project/sheldon-app/wiki');
+      expect(project.statusCode).toBe(200);
+      expect(project.json()).toEqual([{ path: 'wiki/search.md' }]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns wiki page title and markdown body without yaml frontmatter', async () => {
+    const root = await vaultWithWiki();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const page = await server.inject('/api/v1/entities/topic/memory/wiki/recall.md');
+      expect(page.statusCode).toBe(200);
+      expect(page.json()).toMatchObject({
+        id: 'recall',
+        title: 'Active recall',
+        path: 'wiki/recall.md',
+        sources: ['raw/source/content.md'],
+      });
+      expect(page.json().body).toContain('# Practice');
+      expect(page.json().body).toContain('[Study support](support.md)');
+      expect(page.json().body).not.toContain('title: Active recall');
+      expect(page.json().body).not.toMatch(/^---/u);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns 404 ApiProblem for a missing wiki page', async () => {
+    const root = await vaultWithWiki();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const missing = await server.inject('/api/v1/entities/topic/memory/wiki/missing.md');
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual(
+        expect.objectContaining({
+          code: expect.any(String),
+          message: expect.any(String),
+          recovery: expect.any(String),
+        }),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns 404 ApiProblem when the wiki path is outside wiki', async () => {
+    const root = await vaultWithWiki();
+    const leaked = join(root, 'topics', 'memory', 'secret.md');
+    await writeFile(leaked, 'LEAKED_ENTITY_SECRET\n', 'utf8');
+    const absolute = join(tmpdir(), `sheldon-secret-${Date.now()}.md`);
+    await writeFile(absolute, 'LEAKED_ABSOLUTE_SECRET\n', 'utf8');
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const cases = [`../secret.md`, absolute, `foo/../../secret.md`];
+      for (const path of cases) {
+        const response = await server.inject(
+          `/api/v1/entities/topic/memory/wiki/${encodeURIComponent(path)}`,
+        );
+        expect(response.statusCode, path).toBe(404);
+        expect(response.json(), path).toEqual(
+          expect.objectContaining({
+            code: expect.any(String),
+            message: expect.any(String),
+            recovery: expect.any(String),
+          }),
+        );
+        expect(JSON.stringify(response.json()), path).not.toContain('LEAKED_ENTITY_SECRET');
+        expect(JSON.stringify(response.json()), path).not.toContain('LEAKED_ABSOLUTE_SECRET');
+        expect(response.body, path).not.toContain('LEAKED_ENTITY_SECRET');
+        expect(response.body, path).not.toContain('LEAKED_ABSOLUTE_SECRET');
+      }
+    } finally {
+      await server.close();
+      await rm(absolute, { force: true });
+    }
+  });
+
+  it('returns raw source text inside the entity and 404 when missing', async () => {
+    const root = await vaultWithWiki();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const raw = await server.inject('/api/v1/entities/topic/memory/raw/source/content.md');
+      expect(raw.statusCode).toBe(200);
+      expect(raw.body).toContain('Cited raw source.');
+
+      const missing = await server.inject('/api/v1/entities/topic/memory/raw/source/missing.md');
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toEqual(
+        expect.objectContaining({
+          code: expect.any(String),
+          message: expect.any(String),
+          recovery: expect.any(String),
+        }),
+      );
+
+      await writeFile(
+        join(root, 'topics', 'memory', 'secret.md'),
+        'LEAKED_ENTITY_SECRET\n',
+        'utf8',
+      );
+      const outside = await server.inject(
+        `/api/v1/entities/topic/memory/raw/${encodeURIComponent('../secret.md')}`,
+      );
+      expect(outside.statusCode).toBe(404);
+      expect(outside.body).not.toContain('LEAKED_ENTITY_SECRET');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('includes same-entity neighbours as outgoing or incoming', async () => {
+    const root = await vaultWithWiki();
+    const index = await SearchIndex.rebuild(root);
+    index.close();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const recall = await server.inject('/api/v1/entities/topic/memory/wiki/recall.md');
+      expect(recall.statusCode).toBe(200);
+      expect(recall.json().neighbours).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: 'wiki/support.md', relation: 'outgoing' }),
+        ]),
+      );
+
+      const support = await server.inject('/api/v1/entities/topic/memory/wiki/support.md');
+      expect(support.statusCode).toBe(200);
+      expect(support.json().neighbours).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: 'wiki/recall.md', relation: 'incoming' }),
+        ]),
+      );
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('wiki and raw routes stay GET and still require loopback', async () => {
+    const root = await vaultWithWiki();
+    const wikiFile = join(root, 'topics', 'memory', 'wiki', 'recall.md');
+    const before = await stat(wikiFile);
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const posted = await server.inject({
+        method: 'POST',
+        url: '/api/v1/entities/topic/memory/wiki/recall.md',
+        payload: { body: 'edited' },
+      });
+      expect(posted.statusCode).toBeGreaterThanOrEqual(400);
+
+      const remote = await server.inject({
+        url: '/api/v1/entities/topic/memory/wiki/recall.md',
+        headers: { host: 'vault.example' },
+      });
+      expect(remote.statusCode).toBe(421);
+      expect(remote.json()).toMatchObject({ code: 'WEB_LOCAL_ORIGIN_REQUIRED' });
+
+      const after = await stat(wikiFile);
+      expect(after.mtimeMs).toBe(before.mtimeMs);
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 async function vault(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-web-'));
   directories.push(root);
   await VaultService.init(root);
   return root;
+}
+
+async function vaultWithWiki(): Promise<string> {
+  const root = await vault();
+  const vaultService = await VaultService.discover(root);
+  await vaultService.createEntity({ kind: 'topic', title: 'Memory' });
+  await vaultService.createEntity({ kind: 'project', title: 'Sheldon App' });
+  await writeWiki(
+    root,
+    'topics',
+    'memory',
+    'recall.md',
+    `---
+id: recall
+type: practice
+title: Active recall
+description: A retrieval practice.
+aliases: []
+tags: []
+created_at: 2026-07-20T00:00:00.000Z
+updated_at: 2026-07-20T00:00:00.000Z
+status: active
+sources:
+  - raw/source/content.md
+---
+# Practice
+
+See [Study support](support.md).
+`,
+  );
+  await writeWiki(
+    root,
+    'topics',
+    'memory',
+    'support.md',
+    `---
+id: support
+type: note
+title: Study support
+description: Support notes.
+aliases: []
+tags: []
+created_at: 2026-07-20T00:00:00.000Z
+updated_at: 2026-07-20T00:00:00.000Z
+status: active
+sources: []
+---
+# Support
+
+Support body.
+`,
+  );
+  await writeWiki(
+    root,
+    'topics',
+    'memory',
+    'concepts/nested.md',
+    `---
+id: nested
+type: note
+title: Nested concept
+description: A nested wiki path.
+aliases: []
+tags: []
+created_at: 2026-07-20T00:00:00.000Z
+updated_at: 2026-07-20T00:00:00.000Z
+status: active
+sources: []
+---
+# Nested
+
+Nested body.
+`,
+  );
+  await writeWiki(
+    root,
+    'projects',
+    'sheldon-app',
+    'search.md',
+    `---
+id: search
+type: decision
+title: Search strategy
+description: Lexical search.
+aliases: []
+tags: []
+created_at: 2026-07-20T00:00:00.000Z
+updated_at: 2026-07-20T00:00:00.000Z
+status: active
+sources: []
+---
+# Search
+
+Search body.
+`,
+  );
+  const raw = join(root, 'topics', 'memory', 'raw', 'source', 'content.md');
+  await mkdir(dirname(raw), { recursive: true });
+  await writeFile(raw, 'Cited raw source.\n', 'utf8');
+  return root;
+}
+
+async function writeWiki(
+  root: string,
+  collection: 'topics' | 'projects',
+  slug: string,
+  relativePath: string,
+  content: string,
+): Promise<void> {
+  const path = join(root, collection, slug, 'wiki', relativePath);
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, content, 'utf8');
 }
 
 function application(overrides: Record<string, unknown> = {}) {

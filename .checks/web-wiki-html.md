@@ -27,12 +27,12 @@ Read APIs on the Fastify server (`apps/web/src/wiki.ts` + routes in `server.ts`)
 the existing React Conhecimento section. Wiki files stay Markdown on disk. Neighbours come
 from `SearchIndex` when a compatible index already exists. Markdown HTML is a UI projection.
 
-| One-way door | Literal shape | Alternative rejected |
-| --- | --- | --- |
-| Live Conhecimento in `sheldon web`, not a static vault site | `GET /api/v1/entities/{kind}/{slug}/wiki` and `.../wiki/{path}` and `.../raw/{path}` consumed by the existing React section | dump HTML like `sheldon help --html` — that pipeline is CLI help; PRD 009 binds the local UI |
-| Wiki files stay Markdown on disk; HTML is a read projection | GET page returns `id`, `title`, wiki-relative `path` (`wiki/...`), `body` (Markdown without YAML), `sources`; the UI renders HTML. No HTML files written into the vault | persist rendered HTML in the vault — would fork the source of truth from Markdown |
-| Wiki/raw GETs read the vault from the Fastify server | confined helper `apps/web/src/wiki.ts` used by `createWebServer`; path stay inside the entity `wiki/` or `raw/` before `readFile` | new `WebApplication` CLI commands — there is no `wiki cat`; adding one is extra surface |
-| Neighbours ride on the page GET from an existing search index | `SearchIndex.open` when `system/search-index.db` is compatible; map `backlink` → `incoming`; missing/corrupt index → `neighbours: []` | rebuild-on-GET — a valid page would 500 when another concept in the vault cannot index; a second neighbours route — Surface does not name one and `GET /search` requires `q` |
+| One-way door                                                  | Literal shape                                                                                                                                                           | Alternative rejected                                                                                                                                                         |
+| ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Live Conhecimento in `sheldon web`, not a static vault site   | `GET /api/v1/entities/{kind}/{slug}/wiki` and `.../wiki/{path}` and `.../raw/{path}` consumed by the existing React section                                             | dump HTML like `sheldon help --html` — that pipeline is CLI help; PRD 009 binds the local UI                                                                                 |
+| Wiki files stay Markdown on disk; HTML is a read projection   | GET page returns `id`, `title`, wiki-relative `path` (`wiki/...`), `body` (Markdown without YAML), `sources`; the UI renders HTML. No HTML files written into the vault | persist rendered HTML in the vault — would fork the source of truth from Markdown                                                                                            |
+| Wiki/raw GETs read the vault from the Fastify server          | confined helper `apps/web/src/wiki.ts` used by `createWebServer`; path stay inside the entity `wiki/` or `raw/` before `readFile`                                       | new `WebApplication` CLI commands — there is no `wiki cat`; adding one is extra surface                                                                                      |
+| Neighbours ride on the page GET from an existing search index | `SearchIndex.open` when `system/search-index.db` is compatible; map `backlink` → `incoming`; missing/corrupt index → `neighbours: []`                                   | rebuild-on-GET — a valid page would 500 when another concept in the vault cannot index; a second neighbours route — Surface does not name one and `GET /search` requires `q` |
 
 - Nothing else in this change is hard to reverse
 
@@ -119,15 +119,15 @@ existing, ~17k tokens floor). Running total stays under 150k. No split.
 
 ## Coverage
 
-| Set (size) | Member -> proof | Unproven |
-| --- | --- | --- |
-| entity kinds in the tree (2) | topic C1 · project C1 | - |
-| wiki path escape (3) | `../secret.md` C5 · absolute C5 · not under `wiki/` C5 | - |
-| wiki link target (2) | present C4 follow · missing C4 stay + ApiProblem | - |
-| source open state (2) | exists C6 · missing C6 | - |
-| neighbour relation (2) | `outgoing` C7 · `incoming` C7 | - |
-| wiki GET routes (3) | list C1 · page C3 · raw C6 | - |
-| help --html identity (1) | CLI guide C9 | - |
+| Set (size)                   | Member -> proof                                        | Unproven |
+| ---------------------------- | ------------------------------------------------------ | -------- |
+| entity kinds in the tree (2) | topic C1 · project C1                                  | -        |
+| wiki path escape (3)         | `../secret.md` C5 · absolute C5 · not under `wiki/` C5 | -        |
+| wiki link target (2)         | present C4 follow · missing C4 stay + ApiProblem       | -        |
+| source open state (2)        | exists C6 · missing C6                                 | -        |
+| neighbour relation (2)       | `outgoing` C7 · `incoming` C7                          | -        |
+| wiki GET routes (3)          | list C1 · page C3 · raw C6                             | -        |
+| help --html identity (1)     | CLI guide C9                                           | -        |
 
 - Claims naming a status code, route or response shape: C4, C5, C6, C8 - each has a proof
   that crosses the HTTP boundary

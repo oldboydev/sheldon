@@ -26,6 +26,15 @@ export const webOpenApi = {
       get: { summary: 'Read local vault health and activity', responses: apiResponses },
     },
     '/api/v1/entities/{kind}': { get: { summary: 'List topics or projects' } },
+    '/api/v1/entities/{kind}/{slug}/wiki': {
+      get: { summary: 'List approved wiki paths for a topic or project', responses: apiResponses },
+    },
+    '/api/v1/entities/{kind}/{slug}/wiki/{path}': {
+      get: { summary: 'Read one approved wiki page as Markdown', responses: apiResponses },
+    },
+    '/api/v1/entities/{kind}/{slug}/raw/{path}': {
+      get: { summary: 'Read a cited raw file inside the entity', responses: apiResponses },
+    },
     '/api/v1/plugins': { get: { summary: 'List installed local plugins' } },
     '/api/v1/sources/probe': { post: { summary: 'Preview source plugin selection' } },
     '/api/v1/jobs': {

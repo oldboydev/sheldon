@@ -330,6 +330,77 @@ h2 {
     Consolas,
     monospace;
 }
+.wiki-layout {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.wiki-entity {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font-weight: 700;
+  padding: 6px 0;
+  color: inherit;
+}
+.wiki-entity.selected {
+  color: #183f4b;
+}
+.wiki-paths {
+  list-style: none;
+  margin: 0 0 14px;
+  padding: 0 0 0 12px;
+}
+.wiki-paths button,
+.wiki-aside button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: #3e7b80;
+  padding: 4px 0;
+  font:
+    12px/1.4 'Cascadia Mono',
+    Consolas,
+    monospace;
+}
+.wiki-article h2 {
+  font:
+    600 28px/1.1 'Bahnschrift',
+    'Arial Narrow',
+    sans-serif;
+  letter-spacing: -0.03em;
+}
+.wiki-body {
+  font-size: 16px;
+  line-height: 1.55;
+  color: #24313a;
+}
+.wiki-body h1,
+.wiki-body h2,
+.wiki-body h3 {
+  font:
+    600 22px/1.2 'Bahnschrift',
+    sans-serif;
+  max-width: none;
+  margin: 0 0 12px;
+}
+.wiki-body a {
+  color: #183f4b;
+}
+.wiki-aside {
+  margin-top: 22px;
+  display: grid;
+  gap: 4px;
+}
+.wiki-aside .output {
+  margin-top: 10px;
+  white-space: pre-wrap;
+}
 @media (max-width: 760px) {
   .shell {
     grid-template-columns: 1fr;
@@ -356,7 +427,8 @@ h2 {
     margin-bottom: 34px;
   }
   .metrics,
-  .split {
+  .split,
+  .wiki-layout {
     grid-template-columns: 1fr;
   }
   .title-row {

@@ -9,7 +9,14 @@ function sourcePath(relativePath: string): string {
 
 export default defineConfig({
   oxc: false,
-  plugins: [swc.vite()],
+  plugins: [
+    swc.vite({
+      jsc: {
+        parser: { syntax: 'typescript', tsx: true },
+        transform: { react: { runtime: 'automatic' } },
+      },
+    }),
+  ],
   resolve: {
     alias: {
       '@sheldon/core': sourcePath('./packages/core/src/index.ts'),

@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
 import { basename, join, relative, resolve, sep } from 'node:path';
 
-import fastify, { type FastifyInstance } from 'fastify';
+import fastify, { type FastifyInstance, type FastifyReply } from 'fastify';
 import fastifyMultipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 
@@ -14,6 +14,7 @@ import type { EntityKind } from '@sheldon/core';
 import type { WebApplication } from './application.js';
 import { webOpenApi } from './contract.js';
 import { InvalidWebJobRequestError, WebJobService } from './jobs.js';
+import { listWikiPaths, readRawFile, readWikiPage, WikiNotFoundError } from './wiki.js';
 
 export type { WebApplication } from './application.js';
 export type { WebJobRequest } from './jobs.js';
@@ -89,6 +90,23 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
   server.get('/api/v1/entities/:kind/:slug', async (request) => {
     const params = request.params as { kind: string; slug: string };
     return options.application.showEntity(entityKind(params.kind), params.slug);
+  });
+  server.get('/api/v1/entities/:kind/:slug/wiki', async (request, reply) => {
+    const params = request.params as { kind: string; slug: string };
+    return sendWiki(reply, () => listWikiPaths(root, entityKind(params.kind), params.slug));
+  });
+  server.get('/api/v1/entities/:kind/:slug/wiki/*', async (request, reply) => {
+    const params = request.params as { kind: string; slug: string; '*': string };
+    return sendWiki(reply, () =>
+      readWikiPage(root, entityKind(params.kind), params.slug, params['*']),
+    );
+  });
+  server.get('/api/v1/entities/:kind/:slug/raw/*', async (request, reply) => {
+    const params = request.params as { kind: string; slug: string; '*': string };
+    return sendWiki(reply, async () => {
+      const text = await readRawFile(root, entityKind(params.kind), params.slug, params['*']);
+      return reply.type('text/plain; charset=utf-8').send(text);
+    });
   });
   server.post('/api/v1/entities/:kind/:slug/archive', async (request) => {
     const params = request.params as { kind: string; slug: string };
@@ -278,6 +296,19 @@ async function dashboard(root: string) {
     };
   } finally {
     database.close();
+  }
+}
+
+async function sendWiki<T>(reply: FastifyReply, run: () => Promise<T>): Promise<T | FastifyReply> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof WikiNotFoundError) {
+      return reply
+        .status(404)
+        .send(problem(error.code, error.message, error.target, error.recovery));
+    }
+    throw error;
   }
 }
 

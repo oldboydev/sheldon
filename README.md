@@ -94,7 +94,8 @@ sheldon web --vault C:\knowledge\sheldon
 ```
 
 Ela informa uma URL em `http://127.0.0.1:<porta>`. A interface só aceita conexões da própria
-máquina.
+máquina. A seção Conhecimento navega a wiki aprovada em HTML (árvore, página, fontes e
+vizinhos) sem editar o vault.
 
 Confira o ambiente quando necessário:
 

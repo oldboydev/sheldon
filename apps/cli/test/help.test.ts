@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -145,6 +145,39 @@ describe('html help', () => {
     expect(result.stderr).toContain('HELP_PAGE_MISSING');
     expect(result.stderr).toContain('sheldon help --path');
     expect(open).not.toHaveBeenCalled();
+  });
+
+  it('html help remains the packaged cli guide not vault wiki', async () => {
+    const helpRoot = await createTempHelpRoot();
+    await writeFile(
+      join(helpRoot, 'manifest.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        pages: [
+          { id: 'index', title: 'Sheldon help', file: 'pages/index.md', commands: [] },
+          { id: 'init', title: 'init', file: 'pages/init.md', commands: ['init'] },
+          { id: 'web', title: 'web', file: 'pages/web.md', commands: ['web'] },
+        ],
+      }),
+      'utf8',
+    );
+    await writeFile(
+      join(helpRoot, 'pages', 'web.html'),
+      '<html><body>sheldon web [--vault]</body></html>',
+      'utf8',
+    );
+    const open = vi.fn(async () => undefined);
+
+    const result = await runCli(
+      ['help', '--html', 'web'],
+      dependencies(helpRoot, { openHelp: open }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(open).toHaveBeenCalledWith(join(helpRoot, 'pages', 'web.html'));
+
+    const source = await readFile(join('apps', 'cli', 'help', 'pages', 'web.md'), 'utf8');
+    expect(source).toContain('sheldon web [--vault <path>] [--port <port>]');
+    expect(source).not.toContain('wiki/recall.md');
   });
 
   it('keeps Commander text help for help and help init', async () => {
