@@ -23,6 +23,17 @@ async function createTempHelpRoot(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-html-help-'));
   temporaryDirectories.push(root);
   await mkdir(join(root, 'pages'), { recursive: true });
+  await writeFile(
+    join(root, 'manifest.json'),
+    JSON.stringify({
+      schemaVersion: 1,
+      pages: [
+        { id: 'index', title: 'Sheldon help', file: 'pages/index.md', commands: [] },
+        { id: 'init', title: 'init', file: 'pages/init.md', commands: ['init'] },
+      ],
+    }),
+    'utf8',
+  );
   await writeFile(join(root, 'index.html'), '<html><body>index</body></html>', 'utf8');
   await writeFile(join(root, 'pages', 'init.html'), '<html><body>init</body></html>', 'utf8');
   return root;
@@ -78,6 +89,48 @@ describe('html help', () => {
     const result = await runCli(['help', '--html'], dependencies(helpRoot, { openHelp: open }));
     expect(result.exitCode).toBe(0);
     expect(open).toHaveBeenCalledWith(join(helpRoot, 'index.html'));
+  });
+
+  it('prints the help root when --path is combined with --html', async () => {
+    const helpRoot = await createTempHelpRoot();
+    const open = vi.fn(async () => undefined);
+
+    const result = await runCli(
+      ['help', '--path', '--html'],
+      dependencies(helpRoot, { openHelp: open }),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain(helpRoot);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('rejects html topics that are not manifest page ids', async () => {
+    const helpRoot = await createTempHelpRoot();
+    await writeFile(join(helpRoot, 'secret.html'), '<html><body>secret</body></html>', 'utf8');
+    await writeFile(
+      join(helpRoot, 'pages', 'extra.html'),
+      '<html><body>extra</body></html>',
+      'utf8',
+    );
+    const open = vi.fn(async () => undefined);
+    const deps = dependencies(helpRoot, { openHelp: open });
+
+    const missing = await runCli(['help', '--html', 'missing-topic'], deps);
+    expect(missing.exitCode).toBe(1);
+    expect(missing.stderr).toContain('HELP_PAGE_MISSING');
+
+    const extra = await runCli(['help', '--html', 'extra'], deps);
+    expect(extra.exitCode).toBe(1);
+    expect(extra.stderr).toContain('HELP_PAGE_MISSING');
+
+    const traversal = await runCli(['help', '--html', '../secret'], deps);
+    expect(traversal.exitCode).toBe(1);
+    expect(traversal.stderr).toContain('HELP_PAGE_MISSING');
+    expect(open).not.toHaveBeenCalled();
+
+    const listed = await runCli(['help', '--html', 'init'], deps);
+    expect(listed.exitCode).toBe(0);
+    expect(open).toHaveBeenCalledWith(join(helpRoot, 'pages', 'init.html'));
   });
 
   it('fails with HELP_PAGE_MISSING for an unknown html topic', async () => {

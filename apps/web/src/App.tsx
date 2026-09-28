@@ -1,8 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
-import type { AgentKind } from '@sheldon/agent-runtime';
-
 import { client, type Dashboard, type Job } from './client.generated.js';
 import './styles.css';
+
+type AgentKind = 'codex' | 'claude' | 'grok';
 
 type Section =
   'início' | 'fontes' | 'conhecimento' | 'revisão' | 'consulta' | 'bundles' | 'configurações';

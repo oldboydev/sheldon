@@ -84,4 +84,9 @@ describe('agent profiles', () => {
     ]);
     expect(listAgentProfiles().map((profile) => profile.id)).toEqual([...AGENT_PROFILE_IDS]);
   });
+
+  it('derives AGENT_PROFILE_IDS from the profile table', () => {
+    expect(AGENT_PROFILE_IDS).toEqual(listAgentProfiles().map((profile) => profile.id));
+    expect(AGENT_PROFILE_IDS).toEqual(['codex', 'claude', 'grok']);
+  });
 });
