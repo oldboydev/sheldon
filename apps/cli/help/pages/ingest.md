@@ -34,8 +34,11 @@ sheldon plugin list
 sheldon plugin list --remote
 sheldon plugin install source.file
 sheldon plugin install source.image
+sheldon plugin install source.url
 sheldon plugin install source.youtube
 sheldon plugin install source.instagram
+sheldon plugin install source.linkedin
+sheldon plugin install source.repository
 ```
 
 PowerShell — local file:
@@ -127,7 +130,7 @@ sheldon ingest repository topic learning ~/src/my-repo --vault ~/knowledge/sheld
 
 ## Common failures
 
-- Required plugin not installed — run `sheldon plugin list --remote`, then `sheldon plugin install <id>` (for example `source.file`, `source.image`, `source.youtube`, or `source.instagram`).
+- Required plugin not installed — run `sheldon plugin list --remote`, then `sheldon plugin install <id>` (for example `source.file`, `source.image`, `source.url`, `source.youtube`, `source.instagram`, `source.linkedin`, or `source.repository`).
 - Ambiguous plugin selection — retry with `--plugin <id>` using one of the listed candidates.
 - No configured vault — pass `--vault <path>` or run `sheldon init`.
 - Unreadable input path / invalid URL / dirty Git working tree (repository) — fix the input and retry.

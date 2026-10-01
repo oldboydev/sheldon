@@ -109,6 +109,7 @@ describe('official release staging', () => {
       'source.youtube',
       'source.instagram',
       'source.linkedin',
+      'source.repository',
     ]) {
       const plugin = join(source, id);
       await mkdir(join(plugin, 'dist'), { recursive: true });
@@ -158,6 +159,7 @@ describe('official release staging', () => {
       'source.youtube',
       'source.instagram',
       'source.linkedin',
+      'source.repository',
     ]) {
       const plugin = join(source, id);
       await mkdir(join(plugin, 'dist'), { recursive: true });

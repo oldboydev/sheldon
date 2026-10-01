@@ -12,6 +12,7 @@ export const OFFICIAL_PLUGIN_IDS = [
   'source.youtube',
   'source.instagram',
   'source.linkedin',
+  'source.repository',
 ];
 export const OFFICIAL_PLATFORMS = ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64'];
 export const OFFICIAL_RELEASE_TAG = 'official-catalog';

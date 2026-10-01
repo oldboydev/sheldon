@@ -6,6 +6,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-10-01
+
+Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrão e o npm `latest`.
+
 ### Added
 
 - Conhecimento em `sheldon web` abre a wiki aprovada do vault (tópicos e projetos) como HTML
@@ -14,6 +18,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
   Markdown em `apps/cli/help/` e empacotada em `apps/cli/dist/help/`.
 - Visual da ajuda HTML com o design system Stix (navy/magenta, Nunito Sans local, barra e
   navegação lateral), ainda 100% offline.
+- Catálogo oficial de plugins inclui os sete conectores padrão: `source.file`, `source.image`,
+  `source.url`, `source.youtube`, `source.instagram`, `source.linkedin` e `source.repository`.
 
 ### Fixed
 

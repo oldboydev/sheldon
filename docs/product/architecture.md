@@ -79,7 +79,7 @@ O host impõe timeout, limite de saída, cancelamento e diretório temporário. 
 
 O registro local continua sendo a fonte do inventário instalado. Quando um catálogo oficial remoto assinado estiver publicado e acessível, `plugin list --remote` e `plugin info <id> --remote` poderão carregá-lo para descoberta explícita, sem instalar nem persistir plugins. Se o catálogo disponibilizar um artefato oficial compatível, `plugin install <id>` poderá baixá-lo; se disponibilizar um artefato de idioma, `image language install <code>` poderá baixá-lo para um `source.image` já instalado. Antes de instalar, a CLI valida a assinatura do catálogo, a política de host, a plataforma, o tamanho, o SHA-256 e o conteúdo extraído; URLs arbitrárias não são aceitas.
 
-`source.image`, OCR e o runtime nativo correspondente existem na implementação. Está pausado somente o trabalho de release e manutenção desse runtime, que permanece fora do escopo atual de conectores. Quando houver catálogo e artefatos assinados publicados e disponíveis, os comandos de catálogo e instalação apenas poderão consumi-los: não publicam plugins, não criam releases e não alteram essa decisão de manutenção.
+O catálogo oficial publica os sete conectores padrão (`source.file`, `source.image`, `source.url`, `source.youtube`, `source.instagram`, `source.linkedin` e `source.repository`). `source.image` leva o runtime nativo de OCR no artefato assinado. Os comandos de catálogo e instalação apenas consomem esse release: não publicam plugins, não criam releases e não assinam o catálogo na máquina do usuário.
 
 ## Agent runtime
 
