@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -119,6 +119,28 @@ describe('wiki read api', () => {
       const project = await server.inject('/api/v1/entities/project/sheldon-app/wiki');
       expect(project.statusCode).toBe(200);
       expect(project.json()).toEqual([{ path: 'wiki/search.md' }]);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('keeps wiki page paths under wiki when the vault root is not canonical', async () => {
+    const canonical = await vaultWithWiki();
+    const alias = join(dirname(canonical), `alias-${Date.now()}`);
+    await symlink(canonical, alias, process.platform === 'win32' ? 'junction' : undefined);
+    directories.push(alias);
+    const index = await SearchIndex.rebuild(alias);
+    index.close();
+    const server = await createWebServer({ vaultRoot: alias, application: application() });
+    try {
+      const page = await server.inject('/api/v1/entities/topic/memory/wiki/recall.md');
+      expect(page.statusCode).toBe(200);
+      expect(page.json().path).toBe('wiki/recall.md');
+      expect(page.json().neighbours).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ path: 'wiki/support.md', relation: 'outgoing' }),
+        ]),
+      );
     } finally {
       await server.close();
     }

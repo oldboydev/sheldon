@@ -116,9 +116,17 @@ describe('official release verifier', () => {
   it('executes the packaged host runtime when no test runner is injected', async () => {
     const fixture = await signedRelease();
 
-    await expect(verifyOfficialRelease(fixture.output, fixture.publicKey)).rejects.toThrow(
-      'OFFICIAL_RELEASE_IMAGE_RUNTIME_FAILED',
-    );
+    await expect(
+      verifyOfficialRelease(fixture.output, fixture.publicKey, { runtimePlatform: 'linux-x64' }),
+    ).rejects.toThrow('OFFICIAL_RELEASE_IMAGE_RUNTIME_FAILED');
+  });
+
+  it('does not spawn an image runtime for a catalog platform that omits source.image', async () => {
+    const fixture = await signedRelease();
+
+    await expect(
+      verifyOfficialRelease(fixture.output, fixture.publicKey, { runtimePlatform: 'darwin-arm64' }),
+    ).resolves.toBeUndefined();
   });
 
   it.each([
@@ -150,6 +158,25 @@ describe('official release verifier', () => {
     await expect(verifyOfficialRelease(fixture.output, fixture.publicKey)).rejects.toThrow(
       'OFFICIAL_RELEASE_CATALOG_INVALID',
     );
+  });
+
+  it('verifies extra OCR languages only for source.image catalog platforms', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-language-'));
+    temporaryRoots.push(root);
+    const input = join(root, 'stage');
+    const output = join(root, 'out');
+    await createStage(input);
+    await writeFile(join(input, 'source.image', 'data', 'tessdata', 'deu.traineddata'), 'deu');
+    await buildOfficialArtifacts(input, output, '2026-07-21T00:00:00.000Z');
+    const keys = generateKeyPairSync('ed25519');
+    const publicKey = join(root, 'public.pem');
+    const privateKey = keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+    await writeFile(publicKey, keys.publicKey.export({ type: 'spki', format: 'pem' }));
+    await signCatalog(join(output, 'catalog.json'), join(output, 'catalog.sig'), privateKey);
+
+    await expect(
+      verifyOfficialRelease(output, publicKey, { runtimePlatform: 'darwin-arm64' }),
+    ).resolves.toBeUndefined();
   });
 
   it('rejects a release whose source.image archive lacks a mandatory model', async () => {

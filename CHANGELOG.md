@@ -44,6 +44,10 @@ Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrã
 - O builder OCR Windows baixa giflib pelo mesmo tarball HTTPS do Homebrew
   (`downloads.sourceforge.net`). O host `master.dl.sourceforge.net` redirecionava para HTTP e
   bloqueava o artefato `win32-x64`.
+- A API de wiki em `sheldon web` devolve caminhos `wiki/…` mesmo quando a raiz do vault não é
+  canônica (`/var` no macOS, 8.3 no Windows), para a página e os vizinhos baterem com o índice.
+- O staging do catálogo oficial ignora `optionalDependencies` ausentes no host (por exemplo
+  `@napi-rs/canvas-android-arm64` via `pdfjs-dist`), em vez de abortar o assemble.
 
 ## [0.2.0] - 2026-09-17
 

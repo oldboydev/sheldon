@@ -95,7 +95,7 @@ export async function verifyOfficialRelease(directory, publicKeyPath, options = 
   }
 
   for (const language of catalog.languages) {
-    for (const platform of OFFICIAL_PLATFORMS) {
+    for (const platform of catalogPlatformsFor('source.image')) {
       const artifact = language.artifacts[platform];
       const assetName = `${language.code}-${platform}.traineddata`;
       if (artifact.url !== `${OFFICIAL_RELEASE_PREFIX}${assetName}`) catalogInvalid();

@@ -217,4 +217,58 @@ describe('official release staging', () => {
       access(join(output, 'source.file', 'node_modules', 'test-only')),
     ).rejects.toThrow();
   });
+
+  it('skips optional production dependencies that are not installed on the host', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-optional-'));
+    temporaryRoots.push(root);
+    const source = join(root, 'plugins');
+    const output = join(root, 'stage');
+    const dependencyRoot = join(root, 'node_modules');
+    for (const id of [
+      'source.file',
+      'source.image',
+      'source.url',
+      'source.youtube',
+      'source.instagram',
+      'source.linkedin',
+      'source.repository',
+    ]) {
+      const plugin = join(source, id);
+      await mkdir(join(plugin, 'dist'), { recursive: true });
+      await writeFile(
+        join(plugin, 'package.json'),
+        JSON.stringify({
+          name: `@fixture/${id}`,
+          version: '1.0.0',
+          dependencies: id === 'source.file' ? { pdfjs: '1.0.0' } : {},
+        }),
+      );
+      for (const file of ['sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'])
+        await writeFile(join(plugin, file), file);
+      await writeFile(join(plugin, 'dist', 'index.js'), 'built');
+    }
+    await mkdir(join(source, 'source.image', 'data', 'tessdata'), { recursive: true });
+    await mkdir(join(source, 'source.image', 'runtime', 'linux-x64'), { recursive: true });
+    await writeFile(join(source, 'source.image', 'data', 'tessdata', 'eng.traineddata'), 'eng');
+    await writeFile(join(source, 'source.image', 'runtime', 'linux-x64', 'tesseract'), 'runtime');
+    await mkdir(join(dependencyRoot, 'pdfjs'), { recursive: true });
+    await writeFile(
+      join(dependencyRoot, 'pdfjs', 'package.json'),
+      JSON.stringify({
+        name: 'pdfjs',
+        version: '1.0.0',
+        optionalDependencies: { 'canvas-android': '1.0.0' },
+      }),
+    );
+    await writeFile(join(dependencyRoot, 'pdfjs', 'index.js'), 'pdfjs');
+
+    await stageOfficialArtifacts(source, output, undefined, undefined, { dependencyRoot });
+
+    await expect(
+      readFile(join(output, 'source.file', 'node_modules', 'pdfjs', 'index.js'), 'utf8'),
+    ).resolves.toBe('pdfjs');
+    await expect(
+      access(join(output, 'source.file', 'node_modules', 'canvas-android')),
+    ).rejects.toThrow();
+  });
 });

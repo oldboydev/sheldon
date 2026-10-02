@@ -74,12 +74,17 @@ async function copyDependencyClosure(
   copied,
   targets,
 ) {
-  const dependencies = {
-    ...(manifest.dependencies ?? {}),
-    ...(manifest.optionalDependencies ?? {}),
-  };
-  for (const name of Object.keys(dependencies).sort()) {
-    const source = await resolveProductionDependency(sourcePackage, dependencyRoot, name);
+  const required = new Set(Object.keys(manifest.dependencies ?? {}));
+  const optional = Object.keys(manifest.optionalDependencies ?? {});
+  const names = [...new Set([...required, ...optional])].sort();
+  for (const name of names) {
+    const source = await resolveProductionDependency(
+      sourcePackage,
+      dependencyRoot,
+      name,
+      optional.includes(name) && !required.has(name),
+    );
+    if (source === undefined) continue;
     const target = join(targetNodeModules, ...name.split('/'));
     const existing = copied.get(source);
     if (existing !== undefined) {
@@ -118,7 +123,7 @@ async function copyDependencyClosure(
   }
 }
 
-async function resolveProductionDependency(sourcePackage, dependencyRoot, name) {
+async function resolveProductionDependency(sourcePackage, dependencyRoot, name, optional = false) {
   for (const candidate of [join(sourcePackage, 'node_modules', name), join(dependencyRoot, name)]) {
     try {
       return await realpath(candidate);
@@ -126,6 +131,7 @@ async function resolveProductionDependency(sourcePackage, dependencyRoot, name) 
       if (!isMissing(error)) throw error;
     }
   }
+  if (optional) return undefined;
   throw releaseError(
     'OFFICIAL_RELEASE_DEPENDENCY_MISSING',
     `The production dependency ${name} is unavailable for official artifact staging.`,

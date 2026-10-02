@@ -62,7 +62,8 @@ export async function readWikiPage(
   const file = await confinedExistingFile(wikiRoot, relativePath);
   const content = await readFile(file, 'utf8');
   const concept = parseConcept(content);
-  const path = toPosix(join('wiki', relative(wikiRoot, file)));
+  const realWikiRoot = await realpath(wikiRoot);
+  const path = toPosix(join('wiki', relative(realWikiRoot, file)));
   return {
     ...concept,
     path,
