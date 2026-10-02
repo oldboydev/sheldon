@@ -2,7 +2,11 @@ import { cp, lstat, mkdir, readFile, readdir, realpath, rm } from 'node:fs/promi
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { OFFICIAL_PLUGIN_IDS, releaseError } from './build-official-artifacts.mjs';
+import {
+  catalogPlatformsFor,
+  OFFICIAL_PLUGIN_IDS,
+  releaseError,
+} from './build-official-artifacts.mjs';
 import { prepareOcrRuntime } from './prepare-ocr-runtime.mjs';
 
 const PACKAGE_FILES = ['package.json', 'sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'];
@@ -218,7 +222,7 @@ export async function assertNoStageInputSymlinks(
 async function mergeOcrRuntimeArtifacts(artifacts, output) {
   await rm(join(output, 'runtime'), { recursive: true, force: true });
   await rm(join(output, 'data', 'tessdata'), { recursive: true, force: true });
-  for (const platform of ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64']) {
+  for (const platform of catalogPlatformsFor('source.image')) {
     await prepareOcrRuntime({
       platform,
       input: join(artifacts, `ocr-runtime-${platform}`),

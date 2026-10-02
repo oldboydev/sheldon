@@ -2,7 +2,13 @@ import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+const prepareOcrRuntime = vi.hoisted(() => vi.fn(async () => undefined));
+
+vi.mock('../prepare-ocr-runtime.mjs', () => ({
+  prepareOcrRuntime,
+}));
 
 import {
   assertNoStageInputSymlinks,
@@ -270,5 +276,45 @@ describe('official release staging', () => {
     await expect(
       access(join(output, 'source.file', 'node_modules', 'canvas-android')),
     ).rejects.toThrow();
+  });
+
+  it('merges OCR runtime artifacts only for source.image catalog platforms', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-ocr-platforms-'));
+    temporaryRoots.push(root);
+    const source = join(root, 'plugins');
+    const output = join(root, 'stage');
+    const artifacts = join(root, 'runtime-artifacts');
+    await mkdir(artifacts, { recursive: true });
+    for (const id of [
+      'source.file',
+      'source.image',
+      'source.url',
+      'source.youtube',
+      'source.instagram',
+      'source.linkedin',
+      'source.repository',
+    ]) {
+      const plugin = join(source, id);
+      await mkdir(join(plugin, 'dist'), { recursive: true });
+      await writeFile(
+        join(plugin, 'package.json'),
+        JSON.stringify({ name: `@fixture/${id}`, version: '1.0.0', dependencies: {} }),
+      );
+      for (const file of ['sheldon-plugin.json', 'plugin.mjs', 'THIRD_PARTY_NOTICES'])
+        await writeFile(join(plugin, file), file);
+      await writeFile(join(plugin, 'dist', 'index.js'), 'built');
+    }
+    await mkdir(join(source, 'source.image', 'data', 'tessdata'), { recursive: true });
+    await mkdir(join(source, 'source.image', 'runtime', 'linux-x64'), { recursive: true });
+    await writeFile(join(source, 'source.image', 'data', 'tessdata', 'eng.traineddata'), 'eng');
+    await writeFile(join(source, 'source.image', 'runtime', 'linux-x64', 'tesseract'), 'runtime');
+    prepareOcrRuntime.mockClear();
+
+    await stageOfficialArtifacts(source, output, artifacts);
+
+    expect(prepareOcrRuntime.mock.calls.map((call) => call[0].platform)).toEqual([
+      'win32-x64',
+      'linux-x64',
+    ]);
   });
 });
