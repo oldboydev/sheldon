@@ -4,6 +4,8 @@ import { basename, extname, posix } from 'node:path';
 import { XMLParser, XMLValidator } from 'fast-xml-parser';
 import JSZip, { type JSZipObject } from 'jszip';
 import mammoth from 'mammoth';
+
+import './pdfjs-dom-polyfill.js';
 import { getDocument } from 'pdfjs-dist/legacy/build/pdf.mjs';
 import { parse as parseYaml } from 'yaml';
 

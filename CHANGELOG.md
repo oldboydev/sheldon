@@ -55,6 +55,8 @@ Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrã
 - O staging do catálogo não copia `optionalDependencies` (o `@napi-rs/canvas` linux quebrava
   `source.file` no Windows e no macOS). O smoke linux roda em Ubuntu 24.04, alinhado ao OCR
   Debian bookworm (GLIBC 2.36).
+- `source.file` define `DOMMatrix`/`Path2D` antes de carregar `pdfjs-dist` 6, para o plugin
+  iniciar sem `@napi-rs/canvas`.
 
 ## [0.2.0] - 2026-09-17
 

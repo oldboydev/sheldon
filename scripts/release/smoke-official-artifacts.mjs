@@ -54,6 +54,9 @@ export async function smokeOfficialArtifacts(directory, platform = currentOffici
       await runner.healthcheck(plugin);
       if (plugin.manifest.id === 'source.image') await verifyOcrRuntime(plugin.root, platform);
     }
+  } catch (error) {
+    console.error(error);
+    throw error;
   } finally {
     state?.close();
     await rm(root, { recursive: true, force: true });
