@@ -41,6 +41,9 @@ Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrã
   alinhadas ao CLI, ingestão `source.image` / `source.youtube` / `source.instagram`, e o gate npm
   exige `apps/cli/dist/help/index.html`.
 - `npm dist-tag add` no job de promote não usa o `NODE_AUTH_TOKEN` dummy do `setup-node` (OIDC).
+- O builder OCR Windows baixa giflib pelo mesmo tarball HTTPS do Homebrew
+  (`downloads.sourceforge.net`). O host `master.dl.sourceforge.net` redirecionava para HTTP e
+  bloqueava o artefato `win32-x64`.
 
 ## [0.2.0] - 2026-09-17
 

@@ -65,6 +65,19 @@ describe('OCR runtime dependency inventory', () => {
     });
   });
 
+  it('uses the same verified giflib tarball across providers', () => {
+    const homebrew = findOcrRuntimeDependency('homebrew', 'giflib', '6.1.3');
+    const msys2 = findOcrRuntimeDependency('msys2', 'mingw-w64-x86_64-giflib', '6.1.3-1');
+
+    expect(homebrew.sourceUrl).toBe(
+      'https://downloads.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz',
+    );
+    expect(msys2).toMatchObject({
+      sourceUrl: homebrew.sourceUrl,
+      sourceSha256: homebrew.sourceSha256,
+    });
+  });
+
   it('models every verified license in the MSYS2 zstd release source', () => {
     const dependency = findOcrRuntimeDependency('msys2', 'mingw-w64-x86_64-zstd', '1.5.7-2');
 
@@ -327,7 +340,7 @@ describe('OCR runtime dependency inventory', () => {
         name: 'mingw-w64-x86_64-giflib',
         version: '6.1.3-1',
         sourceUrl:
-          'https://master.dl.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz?viasf=1',
+          'https://downloads.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz',
         sourceSha256: 'b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e',
         licenses: [
           {

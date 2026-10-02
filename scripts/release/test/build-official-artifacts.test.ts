@@ -117,10 +117,7 @@ describe('official release builder', () => {
     };
     expect(catalog.languages).toHaveLength(1);
     expect(catalog.languages[0]?.code).toBe('deu');
-    expect(Object.keys(catalog.languages[0]?.artifacts ?? {})).toEqual([
-      'win32-x64',
-      'linux-x64',
-    ]);
+    expect(Object.keys(catalog.languages[0]?.artifacts ?? {})).toEqual(['win32-x64', 'linux-x64']);
     await expect(readFile(join(output, 'deu-linux-x64.traineddata'), 'utf8')).resolves.toBe('deu');
     expect(catalog.languages[0]?.artifacts['linux-x64']?.url).toBe(
       'https://github.com/oldboydev/sheldon/releases/download/official-catalog/deu-linux-x64.traineddata',

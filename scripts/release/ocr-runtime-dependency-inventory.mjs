@@ -232,8 +232,7 @@ const inventory = [
     provider: 'msys2',
     name: 'mingw-w64-x86_64-giflib',
     version: '6.1.3-1',
-    sourceUrl:
-      'https://master.dl.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz?viasf=1',
+    sourceUrl: 'https://downloads.sourceforge.net/project/giflib/giflib-6.x/giflib-6.1.3.tar.gz',
     sourceSha256: 'b65b66b99f0424b93525f987386f22fc5efb9da2bfc92ad4a532249aaffbab0e',
     licenses: [
       {
