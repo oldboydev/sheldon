@@ -57,6 +57,8 @@ Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrã
   Debian bookworm (GLIBC 2.36).
 - `source.file` define `DOMMatrix`/`Path2D` antes de carregar `pdfjs-dist` 6, para o plugin
   iniciar sem `@napi-rs/canvas`.
+- O smoke do OCR Windows coloca `runtime/win32-x64/lib` no `PATH`, como o plugin, para o
+  Tesseract achar as DLLs.
 
 ## [0.2.0] - 2026-09-17
 

@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildOfficialArtifacts } from '../build-official-artifacts.mjs';
 import { signOfficialCatalog } from '../sign-official-catalog.mjs';
-import { smokeOfficialArtifacts } from '../smoke-official-artifacts.mjs';
+import { ocrSmokeChildEnvironment, smokeOfficialArtifacts } from '../smoke-official-artifacts.mjs';
 import {
   signAndNotarizeMacosArtifacts,
   verifyMacosArtifactSignatures,
@@ -30,6 +30,12 @@ describe('official release verifier', () => {
     await expect(smokeOfficialArtifacts(root, 'win32-x64')).rejects.toMatchObject({
       code: 'OFFICIAL_RELEASE_ARTIFACT_MISSING',
     });
+  });
+
+  it('puts the packaged OCR lib directory on the Windows loader PATH', () => {
+    const root = join('plugin-root');
+    const env = ocrSmokeChildEnvironment(root, 'win32-x64', { Path: 'C:\\Windows' });
+    expect(env.PATH).toBe(`${join(root, 'runtime', 'win32-x64', 'lib')};C:\\Windows`);
   });
 
   it('blocks macOS promotion when signing and notarization credentials are unavailable', async () => {

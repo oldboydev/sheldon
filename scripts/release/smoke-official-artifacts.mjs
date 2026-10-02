@@ -63,6 +63,30 @@ export async function smokeOfficialArtifacts(directory, platform = currentOffici
   }
 }
 
+export function ocrSmokeChildEnvironment(pluginRoot, platform, environment = process.env) {
+  const childEnvironment = { ...environment };
+  const variable = platform.startsWith('win32-')
+    ? 'PATH'
+    : platform.startsWith('darwin-')
+      ? 'DYLD_FALLBACK_LIBRARY_PATH'
+      : 'LD_LIBRARY_PATH';
+  const separator = platform.startsWith('win32-') ? ';' : ':';
+  let existingValue = environment[variable];
+  if (variable === 'PATH') {
+    for (const key of Object.keys(childEnvironment)) {
+      if (key.toUpperCase() !== variable) continue;
+      existingValue ??= childEnvironment[key];
+      delete childEnvironment[key];
+    }
+  }
+  const libraryDirectory = join(pluginRoot, 'runtime', platform, 'lib');
+  childEnvironment[variable] =
+    existingValue === undefined || existingValue.length === 0
+      ? libraryDirectory
+      : `${libraryDirectory}${separator}${existingValue}`;
+  return childEnvironment;
+}
+
 async function verifyOcrRuntime(pluginRoot, platform) {
   const executable = join(
     pluginRoot,
@@ -79,14 +103,17 @@ async function verifyOcrRuntime(pluginRoot, platform) {
         encoding: 'utf8',
         timeout: 30_000,
         windowsHide: true,
+        env: ocrSmokeChildEnvironment(pluginRoot, platform),
       },
     );
     const languages = new Set(stdout.split(/\r?\n/u).map((line) => line.trim()));
     if (!languages.has('por') || !languages.has('eng')) throw new Error('missing por or eng model');
   } catch (error) {
+    const stderr = error instanceof Error && 'stderr' in error ? String(error.stderr).trim() : '';
+    const detail = error instanceof Error ? error.message : 'unknown error';
     throw releaseError(
       'OFFICIAL_RELEASE_IMAGE_RUNTIME_FAILED',
-      `The packaged OCR runtime failed smoke verification: ${error instanceof Error ? error.message : 'unknown error'}`,
+      `The packaged OCR runtime failed smoke verification: ${detail}${stderr ? `\n${stderr}` : ''}`,
     );
   }
 }
