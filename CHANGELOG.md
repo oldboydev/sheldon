@@ -52,6 +52,9 @@ Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrã
   sem exigir artefatos darwin que o workflow deixou de construir.
 - O passo `published-at` do catálogo usa `eval` com aspas simples, para o bash do Actions não
   quebrar em `console.log(...)`.
+- O staging do catálogo não copia `optionalDependencies` (o `@napi-rs/canvas` linux quebrava
+  `source.file` no Windows e no macOS). O smoke linux roda em Ubuntu 24.04, alinhado ao OCR
+  Debian bookworm (GLIBC 2.36).
 
 ## [0.2.0] - 2026-09-17
 

@@ -224,7 +224,7 @@ describe('official release staging', () => {
     ).rejects.toThrow();
   });
 
-  it('skips optional production dependencies that are not installed on the host', async () => {
+  it('does not copy optional production dependencies even when they are installed on the host', async () => {
     const root = await mkdtemp(join(tmpdir(), 'sheldon-release-optional-'));
     temporaryRoots.push(root);
     const source = join(root, 'plugins');
@@ -267,6 +267,12 @@ describe('official release staging', () => {
       }),
     );
     await writeFile(join(dependencyRoot, 'pdfjs', 'index.js'), 'pdfjs');
+    await mkdir(join(dependencyRoot, 'canvas-android'), { recursive: true });
+    await writeFile(
+      join(dependencyRoot, 'canvas-android', 'package.json'),
+      JSON.stringify({ name: 'canvas-android', version: '1.0.0' }),
+    );
+    await writeFile(join(dependencyRoot, 'canvas-android', 'index.js'), 'native');
 
     await stageOfficialArtifacts(source, output, undefined, undefined, { dependencyRoot });
 

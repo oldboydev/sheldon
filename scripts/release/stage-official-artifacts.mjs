@@ -78,17 +78,9 @@ async function copyDependencyClosure(
   copied,
   targets,
 ) {
-  const required = new Set(Object.keys(manifest.dependencies ?? {}));
-  const optional = Object.keys(manifest.optionalDependencies ?? {});
-  const names = [...new Set([...required, ...optional])].sort();
+  const names = Object.keys(manifest.dependencies ?? {}).sort();
   for (const name of names) {
-    const source = await resolveProductionDependency(
-      sourcePackage,
-      dependencyRoot,
-      name,
-      optional.includes(name) && !required.has(name),
-    );
-    if (source === undefined) continue;
+    const source = await resolveProductionDependency(sourcePackage, dependencyRoot, name);
     const target = join(targetNodeModules, ...name.split('/'));
     const existing = copied.get(source);
     if (existing !== undefined) {

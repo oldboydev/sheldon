@@ -69,6 +69,11 @@ describe('official release workflow', () => {
       ),
     ).toBe(false);
     expect(workflow.jobs?.['smoke-official-artifacts']?.needs).toBe('assemble-official-catalog');
+    expect(workflow.jobs?.['smoke-official-artifacts']?.strategy?.matrix?.include).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ platform: 'linux-x64', runner: 'ubuntu-24.04' }),
+      ]),
+    );
     expect(workflow.jobs?.['smoke-official-artifacts']?.strategy?.matrix?.include).toHaveLength(4);
     expect(workflow.jobs?.['promote-official-catalog']?.needs).toEqual('smoke-official-artifacts');
     const releaseActions = workflow.jobs?.['promote-official-catalog']?.steps?.filter((step) =>
