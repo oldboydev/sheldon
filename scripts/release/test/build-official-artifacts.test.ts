@@ -34,12 +34,8 @@ describe('official release builder', () => {
       'source.file-darwin-x64.zip',
       'source.file-linux-x64.zip',
       'source.file-win32-x64.zip',
-      'source.image-darwin-arm64.zip',
-      'source.image-darwin-x64.zip',
       'source.image-linux-x64.zip',
       'source.image-win32-x64.zip',
-      'source.instagram-darwin-arm64.zip',
-      'source.instagram-darwin-x64.zip',
       'source.instagram-linux-x64.zip',
       'source.instagram-win32-x64.zip',
       'source.linkedin-darwin-arm64.zip',
@@ -54,8 +50,6 @@ describe('official release builder', () => {
       'source.url-darwin-x64.zip',
       'source.url-linux-x64.zip',
       'source.url-win32-x64.zip',
-      'source.youtube-darwin-arm64.zip',
-      'source.youtube-darwin-x64.zip',
       'source.youtube-linux-x64.zip',
       'source.youtube-win32-x64.zip',
     ]);
@@ -66,6 +60,16 @@ describe('official release builder', () => {
     expect(catalog.plugins[0]?.artifacts['linux-x64']?.url).toBe(
       'https://github.com/oldboydev/sheldon/releases/download/official-catalog/source.file-linux-x64.zip',
     );
+    expect(catalog.plugins.find((plugin) => plugin.id === 'source.image')?.platforms).toEqual([
+      'win32-x64',
+      'linux-x64',
+    ]);
+    expect(catalog.plugins.find((plugin) => plugin.id === 'source.file')?.platforms).toEqual([
+      'win32-x64',
+      'darwin-arm64',
+      'darwin-x64',
+      'linux-x64',
+    ]);
     await expect(readFile(join(first, 'SBOM.spdx.json'), 'utf8')).resolves.toContain('SPDX-2.3');
     await expect(readFile(join(first, 'THIRD_PARTY_NOTICES'), 'utf8')).resolves.toContain(
       'source.image notices',
@@ -99,7 +103,7 @@ describe('official release builder', () => {
     expect(linuxInstagram.file('source.instagram/runtime/win32-x64/yt-dlp.exe')).toBeNull();
   });
 
-  it('publishes every additional staged image language for all supported platforms', async () => {
+  it('publishes every additional staged image language for catalog platforms', async () => {
     const root = await temporaryRoot();
     const input = join(root, 'stage');
     const output = join(root, 'out');
@@ -115,8 +119,6 @@ describe('official release builder', () => {
     expect(catalog.languages[0]?.code).toBe('deu');
     expect(Object.keys(catalog.languages[0]?.artifacts ?? {})).toEqual([
       'win32-x64',
-      'darwin-arm64',
-      'darwin-x64',
       'linux-x64',
     ]);
     await expect(readFile(join(output, 'deu-linux-x64.traineddata'), 'utf8')).resolves.toBe('deu');

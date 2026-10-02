@@ -12,6 +12,7 @@ import {
   OFFICIAL_PLATFORMS,
   OFFICIAL_PLUGIN_IDS,
   OFFICIAL_RELEASE_PREFIX,
+  catalogPlatformsFor,
   releaseError,
 } from './build-official-artifacts.mjs';
 
@@ -54,7 +55,7 @@ export async function verifyOfficialRelease(directory, publicKeyPath, options = 
     options.runImageRuntime !== undefined && options.runtimePlatform === undefined;
 
   for (const plugin of catalog.plugins) {
-    for (const platform of OFFICIAL_PLATFORMS) {
+    for (const platform of catalogPlatformsFor(plugin.id)) {
       const artifact = plugin.artifacts?.[platform];
       if (!artifact)
         throw releaseError(
@@ -142,12 +143,12 @@ function parseCatalog(bytes) {
       !SEMVER.test(plugin.version) ||
       typeof plugin.description !== 'string' ||
       plugin.description.trim() === '' ||
-      !samePlatforms(plugin.platforms)
+      !samePlatforms(plugin.platforms, plugin.id)
     ) {
       catalogInvalid();
     }
     seenPlugins.add(plugin.id);
-    return { ...plugin, artifacts: parseArtifactRecord(plugin.artifacts) };
+    return { ...plugin, artifacts: parseArtifactRecord(plugin.artifacts, plugin.id) };
   });
   if (
     plugins.length !== OFFICIAL_PLUGIN_IDS.length ||
@@ -172,7 +173,7 @@ function parseCatalog(bytes) {
     return {
       owner: 'source.image',
       code: language.code,
-      artifacts: parseArtifactRecord(language.artifacts),
+      artifacts: parseArtifactRecord(language.artifacts, 'source.image'),
     };
   });
   return { schemaVersion: 1, publishedAt: document.publishedAt, plugins, languages };
@@ -296,10 +297,11 @@ function currentOfficialPlatform() {
   return value;
 }
 
-function parseArtifactRecord(value) {
-  const record = exactRecord(value, OFFICIAL_PLATFORMS);
+function parseArtifactRecord(value, pluginId) {
+  const platforms = catalogPlatformsFor(pluginId);
+  const record = exactRecord(value, platforms);
   const artifacts = {};
-  for (const platform of OFFICIAL_PLATFORMS) {
+  for (const platform of platforms) {
     const artifact = exactRecord(record[platform], ['url', 'sha256', 'bytes']);
     if (
       typeof artifact.url !== 'string' ||
@@ -325,11 +327,12 @@ function exactRecord(value, keys) {
   return value;
 }
 
-function samePlatforms(value) {
+function samePlatforms(value, pluginId) {
+  const platforms = catalogPlatformsFor(pluginId);
   return (
     Array.isArray(value) &&
-    value.length === OFFICIAL_PLATFORMS.length &&
-    OFFICIAL_PLATFORMS.every((platform, index) => value[index] === platform)
+    value.length === platforms.length &&
+    platforms.every((platform, index) => value[index] === platform)
   );
 }
 

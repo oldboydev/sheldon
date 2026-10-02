@@ -2,7 +2,7 @@ name: Release official plugin catalog
 
 on:
   workflow_dispatch: {}
-  # Weekly native validation keeps both Apple Silicon and Intel artifact smokes exercised between tags.
+  # Weekly smoke keeps Windows, Linux, and macOS catalog plugins exercised between tags.
   schedule:
     - cron: '17 4 * * 1'
   push:
@@ -47,62 +47,14 @@ jobs:
           --input release/stage
           --output release/out
           --published-at ${{ steps.published-at.outputs.value }}
-      - run: >-
-          node scripts/release/assert-signed-macos-artifact-replacements.mjs
-          --directory release/out
-          --write-candidate
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: official-release-candidate
           path: release/out
-          if-no-files-found: error
-
-  sign-macos-artifacts:
-    needs: official-catalog
-    name: sign and notarize (${{ matrix.platform }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: darwin-arm64
-            runner: macos-14
-          - platform: darwin-x64
-            runner: macos-15-intel
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
-        with:
-          node-version: 24.13.0
-          cache: npm
-      - run: npm ci
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
-        with:
-          name: official-release-candidate
-          path: release/out
-      - run: >-
-          node scripts/release/verify-macos-artifact-signatures.mjs
-          --directory release/out
-          --platform ${{ matrix.platform }}
-          --sign-and-notarize
-        env:
-          SHELDON_MACOS_SIGNING_IDENTITY: ${{ secrets.SHELDON_MACOS_SIGNING_IDENTITY }}
-          SHELDON_MACOS_NOTARY_PROFILE: ${{ secrets.SHELDON_MACOS_NOTARY_PROFILE }}
-      - run: >-
-          node scripts/release/assert-signed-macos-artifact-replacements.mjs
-          --directory release/out
-          --platform ${{ matrix.platform }}
-          --write-signed
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: signed-macos-${{ matrix.platform }}
-          path: |
-            release/out/*-${{ matrix.platform }}.zip
-            release/out/signed-macos-${{ matrix.platform }}-checksums.json
           if-no-files-found: error
 
   assemble-official-catalog:
-    needs: sign-macos-artifacts
+    needs: official-catalog
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
@@ -115,20 +67,6 @@ jobs:
         with:
           name: official-release-candidate
           path: release/out
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
-        with:
-          pattern: signed-macos-*
-          path: release/out
-          merge-multiple: true
-      - run: >-
-          node scripts/release/assert-signed-macos-artifact-replacements.mjs
-          --directory release/out
-          --assert-replacements
-      - run: rm -f release/out/macos-candidate-checksums.json release/out/signed-macos-*-checksums.json
-      - run: >-
-          node scripts/release/build-official-artifacts.mjs
-          --refresh-catalog
-          --output release/out
       - run: >-
           node scripts/release/sign-official-catalog.mjs
           --catalog release/out/catalog.json
@@ -175,37 +113,8 @@ jobs:
           path: release/out
       - run: node scripts/release/smoke-official-artifacts.mjs --directory release/out
 
-  verify-macos-notarization:
-    needs: assemble-official-catalog
-    name: verify macOS signature and notarization (${{ matrix.platform }})
-    runs-on: ${{ matrix.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - platform: darwin-arm64
-            runner: macos-14
-          - platform: darwin-x64
-            runner: macos-15-intel
-    steps:
-      - uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5.0.0
-        with:
-          node-version: 24.13.0
-          cache: npm
-      - run: npm ci
-      - uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
-        with:
-          name: official-release
-          path: release/out
-      - run: >-
-          node scripts/release/verify-macos-artifact-signatures.mjs
-          --directory release/out
-          --platform ${{ matrix.platform }}
-          --verify
-
   promote-official-catalog:
-    needs: [smoke-official-artifacts, verify-macos-notarization]
+    needs: smoke-official-artifacts
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:

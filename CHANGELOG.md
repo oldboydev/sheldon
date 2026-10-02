@@ -6,7 +6,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
-## [0.2.1] - 2026-10-01
+## [0.2.1] - 2026-10-02
 
 Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrão e o npm `latest`.
 
@@ -20,6 +20,14 @@ Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrã
   navegação lateral), ainda 100% offline.
 - Catálogo oficial de plugins inclui os sete conectores padrão: `source.file`, `source.image`,
   `source.url`, `source.youtube`, `source.instagram`, `source.linkedin` e `source.repository`.
+
+### Changed
+
+- O catálogo oficial omite artefatos macOS para `source.image`, `source.youtube` e
+  `source.instagram` (executáveis nativos que exigiriam codesign e notarytool da Apple). Windows
+  x64 e Linux x64 publicam os sete conectores; macOS publica `source.file`, `source.url`,
+  `source.linkedin` e `source.repository`. Pacotes extras de idioma do OCR seguem as plataformas
+  de `source.image`. O workflow de release deixa de assinar e notarizar ZIPs darwin.
 
 ### Fixed
 

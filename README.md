@@ -126,6 +126,13 @@ O comando retorna o identificador da fonte e o caminho do conteúdo normalizado.
 pública, use `sheldon ingest url`; para um crawl limitado, `sheldon ingest crawl`; para um checkout
 Git local, `sheldon ingest repository`. Execute `sheldon help ingest` para ver todas as opções.
 
+No macOS, o catálogo oficial não oferece `source.image`, `source.youtube` nem `source.instagram`.
+Esses conectores embarcam executáveis nativos (OCR e yt-dlp) que exigiriam assinatura e
+notarização da Apple. `sheldon plugin list --remote` marca-os como `platform unavailable` nessa
+plataforma; `plugin install` recusa o ZIP. `source.file`, `source.url`, `source.linkedin` e
+`source.repository` instalam nas quatro plataformas. A CLI npm continua cobrindo Windows, Linux e
+macOS.
+
 ### 2. Transforme conteúdo em proposta
 
 Depois de capturar a fonte, peça uma proposta a um agente já instalado e autenticado. A proposta

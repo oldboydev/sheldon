@@ -18,6 +18,7 @@ sheldon plugin test <directory>
 - `id` — plugin id from the local install set or the signed official catalog (for example `source.file`).
 - `--remote` — (`list` / `info`) load the signed official catalog instead of only local installs.
 - `directory` — (`test`) path to a local plugin package under contract test.
+- Catalog entries may omit a platform. On macOS, `source.image`, `source.youtube`, and `source.instagram` are listed remotely as `platform unavailable` because they ship native binaries that would require Apple signing and notarization. `source.file`, `source.url`, `source.linkedin`, and `source.repository` install on Windows, Linux, and macOS.
 
 ## Examples
 
@@ -65,6 +66,7 @@ sheldon plugin remove source.file
 ## Common failures
 
 - Catalog signature or network failure on `--remote` / `install` — retry when online; do not bypass signature checks.
+- `platform unavailable` / `OFFICIAL_CATALOG_PLATFORM_UNSUPPORTED` for `source.image`, `source.youtube`, or `source.instagram` on macOS — those official artifacts are Windows x64 and Linux x64 only.
 - Plugin not installed when ingesting — `plugin list --remote`, then `plugin install <id>`.
 - Unhealthy doctor — follow the printed remediation (missing runtime, language pack, etc.).
 - Plugin not installed when removing — `plugin list`, then retry with an installed id.

@@ -111,7 +111,9 @@ function parseCatalogDocument(value: unknown): OfficialCatalog {
   }
   const publishedAt = timestamp(document.publishedAt);
   const plugins = pluginEntries(document.plugins);
-  const languages = languageEntries(document.languages);
+  const imagePlatforms =
+    plugins.find((plugin) => plugin.id === 'source.image')?.platforms ?? SUPPORTED_PLATFORMS;
+  const languages = languageEntries(document.languages, imagePlatforms);
   return { schemaVersion: 1, publishedAt, plugins, languages };
 }
 
@@ -143,7 +145,10 @@ function pluginEntries(value: unknown): OfficialPluginCatalogEntry[] {
   return entries.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function languageEntries(value: unknown): OfficialLanguageCatalogEntry[] {
+function languageEntries(
+  value: unknown,
+  imagePlatforms: readonly OfficialPlatform[],
+): OfficialLanguageCatalogEntry[] {
   if (!Array.isArray(value)) schemaInvalid();
   const codes = new Set<string>();
   const entries = value.map((candidate) => {
@@ -165,7 +170,7 @@ function languageEntries(value: unknown): OfficialLanguageCatalogEntry[] {
     return {
       owner: 'source.image' as const,
       code: entry.code,
-      artifacts: artifactRecord(entry.artifacts, SUPPORTED_PLATFORMS),
+      artifacts: artifactRecord(entry.artifacts, imagePlatforms),
     };
   });
   return entries.sort((left, right) => left.code.localeCompare(right.code));

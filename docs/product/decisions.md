@@ -104,3 +104,22 @@ pacotes npm públicos copiam esse arquivo e declaram `"license": "MIT"`.
 
 **Razão:** MIT é permissiva, compatível com as dependências obrigatórias (ADR-010) e com a
 distribuição pública no npm.
+
+## ADR-017 — Catálogo oficial omite plugins nativos no macOS
+
+**Decisão:** o catálogo oficial não publica artefatos `darwin-arm64` nem `darwin-x64` para
+`source.image`, `source.youtube` e `source.instagram`. Esses três conectores embarcam executáveis
+nativos (Tesseract no primeiro, `yt-dlp` nos outros dois) que a Apple exigiria assinar e notarizar
+antes da distribuição. `source.file`, `source.url`, `source.linkedin` e `source.repository`
+continuam nas quatro plataformas do catálogo. A CLI npm permanece nas quatro plataformas. Pacotes
+extras de idioma OCR seguem as plataformas de `source.image`.
+
+**Razão:** promover ZIPs macOS com binários nativos exigiria Apple Developer ID Application,
+`notarytool` e secrets de CI. Sem isso, o único caminho seria publicar executáveis não assinados,
+o que pediria ao usuário enfraquecer o Gatekeeper. Omitir só os plugins nativos libera o catálogo
+no Windows e no Linux, e no macOS os quatro conectores sem runtime nativo.
+
+**Alternativa rejeitada:** configurar o Apple Developer Program e os secrets de codesign/notarytool
+no GitHub Actions. Rejeitada neste ciclo: o maintainer está no Windows, sem Mac local, e optou por
+não abrir essa conta agora. Os scripts de assinatura permanecem no repositório para um reingresso
+futuro; o workflow de release deixa de invocá-los.

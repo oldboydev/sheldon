@@ -5,10 +5,7 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import {
-  buildOfficialArtifacts,
-  refreshOfficialArtifactCatalog,
-} from '../build-official-artifacts.mjs';
+import { buildOfficialArtifacts } from '../build-official-artifacts.mjs';
 import { signOfficialCatalog } from '../sign-official-catalog.mjs';
 import { smokeOfficialArtifacts } from '../smoke-official-artifacts.mjs';
 import {
@@ -53,58 +50,20 @@ describe('official release verifier', () => {
     }
   });
 
-  it('signs and notarizes every executable sent in a macOS target before refreshing the catalog', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-macos-sign-'));
+  it('omits macOS archives for plugins that would require Apple notarization', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-macos-omit-'));
     temporaryRoots.push(root);
     const input = join(root, 'stage');
     const output = join(root, 'out');
     await createStage(input);
     await buildOfficialArtifacts(input, output, '2026-07-21T00:00:00.000Z');
-    const execute = vi.fn(async () => ({ stdout: '', stderr: '' }));
 
-    await signAndNotarizeMacosArtifacts(output, 'darwin-arm64', {
-      environment: {
-        SHELDON_MACOS_SIGNING_IDENTITY: 'Developer ID Application: Sheldon',
-        SHELDON_MACOS_NOTARY_PROFILE: 'sheldon-notary',
-      },
-      execute,
+    await expect(verifyMacosArtifactSignatures(output, 'darwin-arm64')).rejects.toMatchObject({
+      code: 'OFFICIAL_RELEASE_ARTIFACT_MISSING',
     });
-    await refreshOfficialArtifactCatalog(output);
-
-    const signed = execute.mock.calls.filter(([command]) => command === 'codesign');
-    expect(signed.filter(([, arguments_]) => arguments_[0] === '--force')).toHaveLength(3);
-    expect(execute.mock.calls.filter(([command]) => command === 'xcrun')).toHaveLength(3);
-    expect(signed.map(([, arguments_]) => arguments_.at(-1))).toEqual(
-      expect.arrayContaining([
-        expect.stringMatching(/source\.image.*tesseract$/),
-        expect.stringMatching(/source\.youtube.*yt-dlp$/),
-        expect.stringMatching(/source\.instagram.*yt-dlp$/),
-      ]),
+    await expect(readFile(join(output, 'source.file-darwin-arm64.zip'))).resolves.toBeInstanceOf(
+      Buffer,
     );
-    expect(execute.mock.calls.filter(([command]) => command === 'spctl')).toHaveLength(3);
-  });
-
-  it('rejects an archive whose expected executable payload is absent before invoking macOS tools', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'sheldon-release-macos-invalid-'));
-    temporaryRoots.push(root);
-    const input = join(root, 'stage');
-    const output = join(root, 'out');
-    await createStage(input);
-    await buildOfficialArtifacts(input, output, '2026-07-21T00:00:00.000Z');
-    const archive = join(output, 'source.image-darwin-arm64.zip');
-    const JSZip = (await import('jszip')).default;
-    const zip = await JSZip.loadAsync(await readFile(archive));
-    zip.remove('source.image/runtime/darwin-arm64/tesseract');
-    await writeFile(
-      archive,
-      await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', platform: 'UNIX' }),
-    );
-    const execute = vi.fn(async () => ({ stdout: '', stderr: '' }));
-
-    await expect(
-      verifyMacosArtifactSignatures(output, 'darwin-arm64', { execute }),
-    ).rejects.toMatchObject({ code: 'OFFICIAL_RELEASE_MACOS_SIGNATURE_INVALID' });
-    expect(execute).not.toHaveBeenCalled();
   });
 
   it('verifies a signed release and exercises every packaged image runtime through injection', async () => {
@@ -132,7 +91,7 @@ describe('official release verifier', () => {
     await expect(
       verifyOfficialRelease(output, publicKey, { runImageRuntime }),
     ).resolves.toBeUndefined();
-    expect(runImageRuntime).toHaveBeenCalledTimes(4);
+    expect(runImageRuntime).toHaveBeenCalledTimes(2);
     expect(runImageRuntime).toHaveBeenCalledWith(
       expect.stringMatching(/source\.image[\\/]runtime[\\/]win32-x64[\\/]tesseract\.exe$/),
       expect.arrayContaining(['--tessdata-dir', '--list-langs']),

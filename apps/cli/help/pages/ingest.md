@@ -41,6 +41,8 @@ sheldon plugin install source.linkedin
 sheldon plugin install source.repository
 ```
 
+On macOS the official catalog does not ship `source.image`, `source.youtube`, or `source.instagram`. `plugin list --remote` shows `platform unavailable` for those ids; install `source.file`, `source.url`, `source.linkedin`, or `source.repository` from the catalog. Image, YouTube, and Instagram capture remain available from the catalog on Windows and Linux.
+
 PowerShell — local file:
 
 ```powershell
@@ -130,7 +132,7 @@ sheldon ingest repository topic learning ~/src/my-repo --vault ~/knowledge/sheld
 
 ## Common failures
 
-- Required plugin not installed — run `sheldon plugin list --remote`, then `sheldon plugin install <id>` (for example `source.file`, `source.image`, `source.url`, `source.youtube`, `source.instagram`, `source.linkedin`, or `source.repository`).
+- Required plugin not installed — run `sheldon plugin list --remote`, then `sheldon plugin install <id>` (for example `source.file`, `source.image`, `source.url`, `source.youtube`, `source.instagram`, `source.linkedin`, or `source.repository`). On macOS, `source.image`, `source.youtube`, and `source.instagram` are `platform unavailable` in the official catalog.
 - Ambiguous plugin selection — retry with `--plugin <id>` using one of the listed candidates.
 - No configured vault — pass `--vault <path>` or run `sheldon init`.
 - Unreadable input path / invalid URL / dirty Git working tree (repository) — fix the input and retry.

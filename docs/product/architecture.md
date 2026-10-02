@@ -39,7 +39,7 @@ packages/
   mcp/                  Ferramentas de consumo por agentes
 plugins/
   source.file/          Documentos e dados locais offline
-  source.image/         Imagens e OCR; somente release/manutenção do runtime nativo pausados
+  source.image/         Imagens e OCR; catálogo oficial em Windows e Linux (ADR-017)
   website/              Página pública e crawl público limitado
   youtube/              Vídeo público único com legendas
   repository/           Snapshots locais estritos de HEAD
@@ -79,7 +79,7 @@ O host impõe timeout, limite de saída, cancelamento e diretório temporário. 
 
 O registro local continua sendo a fonte do inventário instalado. Quando um catálogo oficial remoto assinado estiver publicado e acessível, `plugin list --remote` e `plugin info <id> --remote` poderão carregá-lo para descoberta explícita, sem instalar nem persistir plugins. Se o catálogo disponibilizar um artefato oficial compatível, `plugin install <id>` poderá baixá-lo; se disponibilizar um artefato de idioma, `image language install <code>` poderá baixá-lo para um `source.image` já instalado. Antes de instalar, a CLI valida a assinatura do catálogo, a política de host, a plataforma, o tamanho, o SHA-256 e o conteúdo extraído; URLs arbitrárias não são aceitas.
 
-O catálogo oficial publica os sete conectores padrão (`source.file`, `source.image`, `source.url`, `source.youtube`, `source.instagram`, `source.linkedin` e `source.repository`). `source.image` leva o runtime nativo de OCR no artefato assinado. Os comandos de catálogo e instalação apenas consomem esse release: não publicam plugins, não criam releases e não assinam o catálogo na máquina do usuário.
+O catálogo oficial publica os sete conectores padrão (`source.file`, `source.image`, `source.url`, `source.youtube`, `source.instagram`, `source.linkedin` e `source.repository`). Cada entrada declara o subconjunto de plataformas para o qual existe ZIP: `source.file`, `source.url`, `source.linkedin` e `source.repository` cobrem Windows x64, Linux x64 e macOS Intel/Apple Silicon; `source.image`, `source.youtube` e `source.instagram` cobrem somente Windows x64 e Linux x64, porque embarcam executáveis nativos que exigiriam assinatura e notarização da Apple (ADR-017). `source.image` leva o runtime nativo de OCR no artefato dessas plataformas; pacotes extras de idioma seguem as mesmas. Os comandos de catálogo e instalação apenas consomem esse release: não publicam plugins, não criam releases e não assinam o catálogo na máquina do usuário. No macOS, `plugin list --remote` marca os três conectores nativos como `platform unavailable` e `plugin install` recusa o ZIP.
 
 ## Agent runtime
 

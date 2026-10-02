@@ -1,6 +1,6 @@
 # image
 
-Manage extra OCR language data used by `source.image`. Install that plugin first. Base packs `por` and `eng` ship with the plugin and cannot be removed. Extra codes such as `deu` come from the official catalog and are stored outside the vault.
+Manage extra OCR language data used by `source.image`. Install that plugin first. Base packs `por` and `eng` ship with the plugin and cannot be removed. Extra codes such as `deu` come from the official catalog and are stored outside the vault. The official catalog publishes `source.image` (and its extra language packs) for Windows x64 and Linux x64 only.
 
 ## Synopsis
 
@@ -43,7 +43,7 @@ Local image files use `sheldon ingest file … --plugin source.image` (the plugi
 
 ## Common failures
 
-- `source.image` not installed — `sheldon plugin install source.image`, then retry.
+- `source.image` not installed — `sheldon plugin install source.image`, then retry. On macOS the official catalog marks this plugin `platform unavailable`.
 - Language not in catalog / signature failure — retry when online; do not bypass catalog verification.
 - Removing `eng` or `por` — those are base packs; use an extra code such as `deu`.
 - OCR ingest fails with language-not-installed — run `sheldon image language install <code>` for every extra required code.

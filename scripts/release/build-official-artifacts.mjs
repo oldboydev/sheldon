@@ -15,6 +15,16 @@ export const OFFICIAL_PLUGIN_IDS = [
   'source.repository',
 ];
 export const OFFICIAL_PLATFORMS = ['win32-x64', 'darwin-arm64', 'darwin-x64', 'linux-x64'];
+/** Plugins whose official artifacts embed unsigned native binaries that Apple notarization would cover. */
+export const MACOS_NATIVE_PLUGIN_IDS = ['source.image', 'source.youtube', 'source.instagram'];
+const MACOS_CATALOG_PLATFORMS = new Set(['darwin-arm64', 'darwin-x64']);
+
+export function catalogPlatformsFor(pluginId) {
+  if (MACOS_NATIVE_PLUGIN_IDS.includes(pluginId)) {
+    return OFFICIAL_PLATFORMS.filter((platform) => !MACOS_CATALOG_PLATFORMS.has(platform));
+  }
+  return [...OFFICIAL_PLATFORMS];
+}
 export const OFFICIAL_RELEASE_TAG = 'official-catalog';
 export const OFFICIAL_RELEASE_PREFIX = `https://github.com/oldboydev/sheldon/releases/download/${OFFICIAL_RELEASE_TAG}/`;
 const BASE_IMAGE_LANGUAGES = new Set(['por', 'eng']);
@@ -32,7 +42,8 @@ export async function buildOfficialArtifacts(input, output, publishedAt) {
   const notices = [];
   for (const plugin of plugins) {
     const artifacts = {};
-    for (const platform of OFFICIAL_PLATFORMS) {
+    const platforms = catalogPlatformsFor(plugin.id);
+    for (const platform of platforms) {
       const archiveName = `${plugin.id}-${platform}.zip`;
       const archive = await createPluginArchive(plugin, platform, timestamp);
       await writeFile(join(output, archiveName), archive);
@@ -45,7 +56,7 @@ export async function buildOfficialArtifacts(input, output, publishedAt) {
     catalogPlugins.push({
       id: plugin.id,
       version: plugin.version,
-      platforms: [...OFFICIAL_PLATFORMS],
+      platforms,
       artifacts,
       description: plugin.name,
     });
@@ -103,7 +114,7 @@ export async function refreshOfficialArtifactCatalog(output) {
         'The release catalog plugins are invalid.',
       );
     }
-    for (const platform of OFFICIAL_PLATFORMS) {
+    for (const platform of catalogPlatformsFor(plugin.id)) {
       const artifact = plugin.artifacts[platform];
       if (artifact === null || typeof artifact !== 'object') {
         throw releaseError(
@@ -158,7 +169,7 @@ async function validateImageStage(root) {
       'OFFICIAL_RELEASE_IMAGE_TESSDATA_MISSING',
     );
   }
-  for (const platform of OFFICIAL_PLATFORMS) {
+  for (const platform of catalogPlatformsFor('source.image')) {
     await requireRegularFile(
       join(root, 'runtime', platform, platform === 'win32-x64' ? 'tesseract.exe' : 'tesseract'),
       'OFFICIAL_RELEASE_IMAGE_RUNTIME_MISSING',
@@ -167,7 +178,7 @@ async function validateImageStage(root) {
 }
 
 async function validateYtDlpStage(root) {
-  for (const platform of OFFICIAL_PLATFORMS) {
+  for (const platform of catalogPlatformsFor('source.youtube')) {
     await requireRegularFile(
       join(root, 'runtime', platform, platform === 'win32-x64' ? 'yt-dlp.exe' : 'yt-dlp'),
       'OFFICIAL_RELEASE_YTDLP_RUNTIME_MISSING',
@@ -244,7 +255,7 @@ async function buildLanguageArtifacts(imagePlugin, output) {
     }
     const sha256 = createHash('sha256').update(bytes).digest('hex');
     const artifacts = {};
-    for (const platform of OFFICIAL_PLATFORMS) {
+    for (const platform of catalogPlatformsFor('source.image')) {
       const assetName = `${code}-${platform}.traineddata`;
       await writeFile(join(output, assetName), bytes);
       artifacts[platform] = {

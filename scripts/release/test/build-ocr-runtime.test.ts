@@ -155,21 +155,15 @@ describe('Native OCR runtime workflow', () => {
     };
 
     expect(workflow.on?.workflow_dispatch).toEqual({});
-    expect(workflow.jobs?.build?.strategy?.matrix?.platform).toEqual([
-      'win32-x64',
-      'darwin-arm64',
-      'darwin-x64',
-      'linux-x64',
-    ]);
+    expect(workflow.jobs?.build?.strategy?.matrix?.platform).toEqual(['win32-x64', 'linux-x64']);
     expect(workflow.jobs?.build?.['timeout-minutes']).toBe('${{ matrix.timeoutMinutes }}');
     expect(workflow.jobs?.build?.strategy?.matrix?.include).toEqual(
       expect.arrayContaining([
         { platform: 'win32-x64', runner: 'windows-2022', timeoutMinutes: 30 },
-        { platform: 'darwin-arm64', runner: 'macos-14', timeoutMinutes: 360 },
-        { platform: 'darwin-x64', runner: 'macos-15-intel', timeoutMinutes: 360 },
         { platform: 'linux-x64', runner: 'ubuntu-22.04', timeoutMinutes: 360 },
       ]),
     );
+    expect(workflow.jobs?.build?.strategy?.matrix?.include).toHaveLength(2);
     expect(workflow.jobs?.build?.steps).toContainEqual(
       expect.objectContaining({
         uses: 'actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02',

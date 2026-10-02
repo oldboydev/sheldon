@@ -25,14 +25,8 @@ describe('official release workflow', () => {
           needs?: unknown;
           steps?: Array<{ uses?: string; if?: string }>;
         };
-        'verify-macos-notarization'?: {
-          needs?: unknown;
-          strategy?: { matrix?: { include?: unknown[] } };
-        };
-        'sign-macos-artifacts'?: {
-          needs?: unknown;
-          strategy?: { matrix?: { include?: unknown[] } };
-        };
+        'sign-macos-artifacts'?: unknown;
+        'verify-macos-notarization'?: unknown;
         'assemble-official-catalog'?: {
           needs?: unknown;
           steps?: Array<{ uses?: string; run?: string }>;
@@ -57,23 +51,18 @@ describe('official release workflow', () => {
         }),
       }),
     );
-    expect(workflow.jobs?.['sign-macos-artifacts']?.needs).toBe('official-catalog');
-    expect(workflow.jobs?.['sign-macos-artifacts']?.strategy?.matrix?.include).toHaveLength(2);
-    expect(workflow.jobs?.['assemble-official-catalog']?.needs).toBe('sign-macos-artifacts');
-    expect(releaseSteps).toContainEqual(
-      expect.objectContaining({ run: expect.stringContaining('--write-candidate') }),
-    );
-    expect(workflow.jobs?.['assemble-official-catalog']?.steps).toContainEqual(
-      expect.objectContaining({ run: expect.stringContaining('--assert-replacements') }),
-    );
+    expect(workflow.jobs?.['sign-macos-artifacts']).toBeUndefined();
+    expect(workflow.jobs?.['verify-macos-notarization']).toBeUndefined();
+    expect(workflow.jobs?.['assemble-official-catalog']?.needs).toBe('official-catalog');
+    expect(releaseSteps.some((step) => step.run?.includes('--write-candidate'))).toBe(false);
+    expect(
+      workflow.jobs?.['assemble-official-catalog']?.steps?.some((step) =>
+        step.run?.includes('--assert-replacements'),
+      ),
+    ).toBe(false);
     expect(workflow.jobs?.['smoke-official-artifacts']?.needs).toBe('assemble-official-catalog');
     expect(workflow.jobs?.['smoke-official-artifacts']?.strategy?.matrix?.include).toHaveLength(4);
-    expect(workflow.jobs?.['verify-macos-notarization']?.needs).toBe('assemble-official-catalog');
-    expect(workflow.jobs?.['verify-macos-notarization']?.strategy?.matrix?.include).toHaveLength(2);
-    expect(workflow.jobs?.['promote-official-catalog']?.needs).toEqual([
-      'smoke-official-artifacts',
-      'verify-macos-notarization',
-    ]);
+    expect(workflow.jobs?.['promote-official-catalog']?.needs).toEqual('smoke-official-artifacts');
     const releaseActions = workflow.jobs?.['promote-official-catalog']?.steps?.filter((step) =>
       step.uses?.startsWith('softprops/action-gh-release@'),
     );
