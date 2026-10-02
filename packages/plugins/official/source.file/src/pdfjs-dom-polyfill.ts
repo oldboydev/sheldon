@@ -1,16 +1,11 @@
 /** pdfjs-dist 6 evaluates `new DOMMatrix()` at load when @napi-rs/canvas is absent. */
 
-type PdfJsGlobals = typeof globalThis & {
-  DOMMatrix?: unknown;
-  Path2D?: unknown;
-};
-
-const globals = globalThis as PdfJsGlobals;
+const globals = globalThis as typeof globalThis & Record<string, unknown>;
 
 if (typeof globals.DOMMatrix !== 'function') {
-  globals.DOMMatrix = class DOMMatrix {};
+  Object.assign(globalThis, { DOMMatrix: class DOMMatrix {} });
 }
 
 if (typeof globals.Path2D !== 'function') {
-  globals.Path2D = class Path2D {};
+  Object.assign(globalThis, { Path2D: class Path2D {} });
 }
