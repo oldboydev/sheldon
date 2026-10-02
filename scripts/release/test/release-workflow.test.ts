@@ -15,7 +15,12 @@ describe('official release workflow', () => {
         'build-ocr-runtime'?: { uses?: string };
         'official-catalog'?: {
           needs?: unknown;
-          steps?: Array<{ uses?: string; with?: Record<string, unknown>; run?: string }>;
+          steps?: Array<{
+            id?: string;
+            uses?: string;
+            with?: Record<string, unknown>;
+            run?: string;
+          }>;
         };
         'smoke-official-artifacts'?: {
           needs?: unknown;
@@ -54,6 +59,9 @@ describe('official release workflow', () => {
     expect(workflow.jobs?.['sign-macos-artifacts']).toBeUndefined();
     expect(workflow.jobs?.['verify-macos-notarization']).toBeUndefined();
     expect(workflow.jobs?.['assemble-official-catalog']?.needs).toBe('official-catalog');
+    const publishedAt = releaseSteps.find((step) => step.id === 'published-at');
+    expect(publishedAt?.run).toContain("eval 'console.log(new Date().toISOString())'");
+    expect(publishedAt?.run).not.toContain('\\"');
     expect(releaseSteps.some((step) => step.run?.includes('--write-candidate'))).toBe(false);
     expect(
       workflow.jobs?.['assemble-official-catalog']?.steps?.some((step) =>

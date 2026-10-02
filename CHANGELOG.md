@@ -50,6 +50,8 @@ Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrã
   `@napi-rs/canvas-android-arm64` via `pdfjs-dist`), em vez de abortar o assemble.
 - O merge do runtime OCR no staging usa só as plataformas de `source.image` (Windows e Linux),
   sem exigir artefatos darwin que o workflow deixou de construir.
+- O passo `published-at` do catálogo usa `eval` com aspas simples, para o bash do Actions não
+  quebrar em `console.log(...)`.
 
 ## [0.2.0] - 2026-09-17
 

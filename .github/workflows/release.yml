@@ -41,7 +41,8 @@ jobs:
           --ytdlp-runtime release/ytdlp-runtime
           --output release/stage
       - id: published-at
-        run: echo "value=$(node --input-type=module --eval \"console.log(new Date().toISOString())\")" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "value=$(node --input-type=module --eval 'console.log(new Date().toISOString())')" >> "$GITHUB_OUTPUT"
       - run: >-
           node scripts/release/build-official-artifacts.mjs
           --input release/stage
