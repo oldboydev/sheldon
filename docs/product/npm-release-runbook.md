@@ -1,7 +1,10 @@
 # Runbook — publicação npm do Sheldon
 
-Go-live `0.2.0` (tag `v0.2.0`) concluída em 2026-09-17. Não reutilizar `0.1.0` / `0.1.1` /
-`0.2.0`. Próxima publicação: `0.2.1` ou superior.
+Go-live `0.2.0` (tag `v0.2.0`) concluída em 2026-09-17. Não reutilizar versões já publicadas
+(`0.1.0`, `0.1.1`, `0.2.0`, `0.2.1`, `0.2.2`). Próxima publicação: `0.2.3` ou superior.
+
+Tag `v0.2.2` publicou os cinco pacotes em `candidate`; `latest` ainda é `0.2.1` (promote E401).
+Ver Recuperação.
 
 ## Pacotes
 
@@ -22,6 +25,7 @@ Na organização npm `oldboydev`, para **cada** um dos cinco nomes:
 2. Repository: `oldboydev/sheldon`
 3. Workflow filename: `publish-npm.yml` (exato)
 4. Environment: leave empty unless the workflow later adds `environment:`
+5. Marque **Allow npm dist-tag** (opt-in; o publish OIDC sozinho não promove `latest`)
 
 Pacotes de runtime que ainda 404 devem ser criados pelo primeiro `npm publish` via OIDC, ou
 provisionados vazios na org antes da tag. Sem trusted publisher, o job de publish falha e
@@ -86,4 +90,16 @@ Não unpublish.
 ## Recuperação
 
 Publicação parcial (runtimes no `candidate`, metapacote ausente): não promover `latest` à mão.
-Corrigir o workflow, taguear `v0.2.1`. Dist-tag `candidate` pode ficar órfão.
+Corrigir o workflow, taguear a **próxima** versão. Dist-tag `candidate` pode ficar órfão.
+
+Se os cinco pacotes já estão no registry em `candidate` e só faltou o promote (`E401` no
+`dist-tag`), com **Allow npm dist-tag** ligado e npm CLI ≥ 11.21 no job, a próxima tag `v*`
+promove sozinha. Para promover uma versão já publicada sem nova tag, na máquina autenticada:
+
+```powershell
+npm dist-tag add @oldboydev/sheldon-win32-x64@<ver> latest
+npm dist-tag add @oldboydev/sheldon-linux-x64@<ver> latest
+npm dist-tag add @oldboydev/sheldon-darwin-arm64@<ver> latest
+npm dist-tag add @oldboydev/sheldon-darwin-x64@<ver> latest
+npm dist-tag add @oldboydev/sheldon@<ver> latest
+```

@@ -163,13 +163,19 @@ describe('npm publication workflow', () => {
     );
   });
 
-  it('clears NODE_AUTH_TOKEN before dist-tag so OIDC is used instead of the dummy setup-node token', async () => {
-    const { source } = await readWorkflow();
+  it('promotes dist-tags with npm 11.21+ over OIDC and ignores the dummy setup-node token', async () => {
+    const { source, workflow } = await readWorkflow();
     const promote = source.slice(source.indexOf('promote-npm-packages:'));
+    const steps = runSteps(workflow.jobs?.['promote-npm-packages']).join('\n');
     expect(promote).toContain('NODE_AUTH_TOKEN:');
     expect(promote).toContain("NODE_AUTH_TOKEN: ''");
     expect(promote).toContain('unset NODE_AUTH_TOKEN');
-    expect(promote).toContain('npm dist-tag add');
+    expect(steps).toContain('npm install -g npm@11.21.0');
+    expect(steps).toContain('npm dist-tag add');
+    expect(workflow.jobs?.['promote-npm-packages']?.permissions).toEqual({
+      contents: 'read',
+      'id-token': 'write',
+    });
   });
 
   it('configures npm registry-url on every OIDC publish and dist-tag job', async () => {
