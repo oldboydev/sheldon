@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-10-03
+
+Tag `v0.2.2`. Publica o npm `latest` e o catálogo oficial com compile/query schemas e a Revisão
+web das propostas pendentes.
+
 ### Added
 
 - Revisão em `sheldon web` lista tópicos com propostas **pendentes** e, em seguida, as propostas
