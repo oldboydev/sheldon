@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-10-03
+
+Tag `v0.2.3`. Publica o npm `latest` e o catálogo oficial. O promote de dist-tag usa npm CLI
+11.21.0 via OIDC (trusted publisher **Allow npm dist-tag**).
+
 ### Fixed
 
 - O job `promote-npm-packages` instala npm CLI 11.21.0 para `npm dist-tag add` via OIDC
