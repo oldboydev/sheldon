@@ -1,3 +1,5 @@
+import { parseWikiFrontmatter, wikiConceptFrontmatterIssues } from '@sheldon/core';
+
 import { ProposalValidationError } from './errors.js';
 
 export const PROPOSAL_SCHEMA_VERSION = 1;
@@ -92,6 +94,25 @@ export function validateProposal(candidate: StructuredProposal): ProposalValidat
         issues.push(`File ${file.path} cites an undeclared raw source ${citation}.`);
       }
     }
+    if (file.operation !== 'delete' && typeof file.content === 'string') {
+      const frontmatter = parseWikiFrontmatter(file.content);
+      const schemaIssues = wikiConceptFrontmatterIssues(frontmatter);
+      if (schemaIssues.length > 0) {
+        issues.push(
+          `File ${file.path} wiki concept frontmatter is invalid: ${schemaIssues.join(' ')}`,
+        );
+      } else {
+        const conceptSources = frontmatter.sources as string[];
+        for (const citation of file.citations ?? []) {
+          if (!conceptSources.includes(citation)) {
+            issues.push(`File ${file.path} frontmatter must list every cited raw source.`);
+          }
+        }
+      }
+      if (wikiBody(file.content).length === 0) {
+        issues.push(`File ${file.path} must include a concept body.`);
+      }
+    }
   }
 
   if (issues.length > 0) throw new ProposalValidationError(issues);
@@ -115,6 +136,10 @@ export function summarizeProposal(
       changed: before !== after,
     };
   });
+}
+
+function wikiBody(content: string): string {
+  return content.replace(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/, '').trim();
 }
 
 export function isProposalId(value: string): boolean {

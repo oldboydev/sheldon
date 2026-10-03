@@ -1,9 +1,8 @@
 import { access, readFile, readdir, realpath, rm, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
-import { isoTimestampEpoch } from '@sheldon/core';
+import { parseWikiFrontmatter, wikiConceptFrontmatterIssues } from '@sheldon/core';
 import { atomicWriteFile } from '@sheldon/vault';
-import { parse } from 'yaml';
 
 import { ReviewError } from './errors.js';
 
@@ -91,19 +90,6 @@ interface PreviousFile {
   readonly path: string;
   readonly content?: string;
 }
-
-const conceptFields = [
-  'id',
-  'type',
-  'title',
-  'description',
-  'aliases',
-  'tags',
-  'created_at',
-  'updated_at',
-  'status',
-  'sources',
-] as const;
 
 /** Applies only explicitly approved wiki changes; it never accepts raw or system writes. */
 export class ReviewService {
@@ -232,8 +218,8 @@ export class ReviewService {
         });
         continue;
       }
-      const frontmatter = parseFrontmatter(content);
-      const schemaIssues = validateConceptFrontmatter(frontmatter);
+      const frontmatter = parseWikiFrontmatter(content);
+      const schemaIssues = wikiConceptFrontmatterIssues(frontmatter);
       if (schemaIssues.length > 0) {
         issues.push({
           code: 'WIKI_SCHEMA_INVALID',
@@ -334,8 +320,8 @@ export class ReviewService {
         'Include the proposed Markdown content.',
       );
     }
-    const parsed = parseFrontmatter(file.content);
-    const schemaIssues = validateConceptFrontmatter(parsed);
+    const parsed = parseWikiFrontmatter(file.content);
+    const schemaIssues = wikiConceptFrontmatterIssues(parsed);
     if (schemaIssues.length > 0) {
       throw new ReviewError(
         `Wiki concept frontmatter is invalid: ${schemaIssues.join(' ')}`,
@@ -414,8 +400,8 @@ export class ReviewService {
   }
 
   private readConceptContent(content: string, path: string): WikiConcept {
-    const frontmatter = parseFrontmatter(content);
-    const issues = validateConceptFrontmatter(frontmatter);
+    const frontmatter = parseWikiFrontmatter(content);
+    const issues = wikiConceptFrontmatterIssues(frontmatter);
     if (issues.length > 0) {
       throw new ReviewError(
         `Cannot index ${path}: ${issues.join(' ')}`,
@@ -489,61 +475,12 @@ export class ReviewService {
   }
 }
 
-function parseFrontmatter(content: string): Record<string, unknown> {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(content);
-  if (!match) return {};
-  const value: unknown = parse(match[1]);
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : {};
-}
-
-function validateConceptFrontmatter(frontmatter: Record<string, unknown>): string[] {
-  const issues: string[] = [];
-  for (const field of conceptFields) {
-    if (!(field in frontmatter)) issues.push(`Missing required frontmatter field '${field}'.`);
-  }
-  if (
-    !isNonEmptyString(frontmatter.id) ||
-    !/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(frontmatter.id)
-  ) {
-    issues.push("'id' must be a stable identifier.");
-  }
-  for (const field of ['type', 'title', 'description', 'status'] as const) {
-    if (!isNonEmptyString(frontmatter[field]))
-      issues.push(`'${field}' must be a non-empty string.`);
-  }
-  for (const field of ['aliases', 'tags', 'sources'] as const) {
-    if (!isStringList(frontmatter[field]))
-      issues.push(`'${field}' must be a list of non-empty strings.`);
-  }
-  if (Array.isArray(frontmatter.sources) && frontmatter.sources.length === 0) {
-    issues.push("'sources' must contain at least one raw artifact.");
-  }
-  for (const field of ['created_at', 'updated_at'] as const) {
-    if (!isTimestamp(frontmatter[field])) issues.push(`'${field}' must be an ISO-8601 timestamp.`);
-  }
-  return issues;
-}
-
 function conceptFromFrontmatter(frontmatter: Record<string, unknown>): WikiConcept {
   return {
     id: frontmatter.id as string,
     title: frontmatter.title as string,
     sources: frontmatter.sources as string[],
   };
-}
-
-function isNonEmptyString(value: unknown): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
-}
-
-function isStringList(value: unknown): value is readonly string[] {
-  return Array.isArray(value) && value.every(isNonEmptyString);
-}
-
-function isTimestamp(value: unknown): value is string {
-  return isNonEmptyString(value) && isoTimestampEpoch(value) !== undefined;
 }
 
 function isRawSourcePath(path: string): boolean {

@@ -463,6 +463,45 @@ export async function compileMemory(
   context.write(JSON.stringify(result, null, 2));
 }
 
+export async function listPendingReviews(
+  options: VaultOption,
+  context: CommandContext,
+): Promise<void> {
+  const root = await resolveVaultPath(context, options.vault);
+  const vault = await VaultService.discover(root);
+  const topics: {
+    readonly slug: string;
+    readonly title: string;
+    readonly proposals: readonly {
+      readonly id: string;
+      readonly agent: AgentKind;
+      readonly createdAt: string;
+    }[];
+  }[] = [];
+  for (const entity of await vault.listEntities('topic')) {
+    if (entity.status !== 'active') continue;
+    const store = new ProposalStore(entityDirectory(root, 'topic', entity.slug));
+    const proposals: {
+      readonly id: string;
+      readonly agent: AgentKind;
+      readonly createdAt: string;
+    }[] = [];
+    for (const metadata of await store.list()) {
+      if (metadata.status !== 'pending') continue;
+      const stored = await store.load(metadata.id);
+      if (stored.proposal === undefined) continue;
+      proposals.push({
+        id: metadata.id,
+        agent: metadata.agent,
+        createdAt: metadata.createdAt,
+      });
+    }
+    if (proposals.length === 0) continue;
+    topics.push({ slug: entity.slug, title: entity.title, proposals });
+  }
+  context.write(JSON.stringify({ topics }));
+}
+
 export async function previewProposal(
   kind: EntityKind,
   slug: string,

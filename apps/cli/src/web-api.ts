@@ -12,6 +12,7 @@ import {
   ingestRepository,
   ingestUrl,
   lintWiki,
+  listPendingReviews,
   previewProposal,
   approveProposal,
 } from './commands/memory.js';
@@ -42,6 +43,7 @@ export {
   type FileIngestionOptions,
   type RepositoryIngestionOptions,
   type UrlIngestionOptions,
+  listPendingReviews,
   previewProposal,
   approveProposal,
   lintWiki,
@@ -66,6 +68,7 @@ export function createWebApplication(context: CommandContext, vault: string): We
           output,
         ),
       ),
+    listPendingReviews: () => capture(context, (output) => listPendingReviews({ vault }, output)),
     previewProposal: (kind, slug, proposalId) =>
       capture(context, (output) => previewProposal(kind, slug, proposalId, { vault }, output)),
     approveProposal: (kind, slug, proposalId, paths) =>

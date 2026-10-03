@@ -65,6 +65,9 @@ sheldon review preview topic learning proposal-article --vault ~/knowledge/sheld
 
 Inspect the listed file paths before applying anything.
 
+The same pending proposals appear in `sheldon web` → **Revisão**: choose the topic, then the
+proposal, then **Abrir revisão**. Attempts with status `error` or `cancelled` are omitted.
+
 ## Approve selected paths
 
 PowerShell:

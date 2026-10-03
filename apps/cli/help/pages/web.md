@@ -40,6 +40,10 @@ sheldon web
 - Prints `Sheldon web: http://127.0.0.1:<port>` and a reminder that access is loopback-only.
 - Serves the local UI until you press Ctrl+C.
 - Does not expose the vault on the LAN or internet.
+- **Revisão** lists topics that currently have a pending proposal, then the pending proposals of
+  the chosen topic. **Abrir revisão** loads the file diffs; approve still writes only the selected
+  wiki paths. Compile from the CLI does not fill the job list — pick the proposal from those
+  selects.
 
 ## Common failures
 
@@ -47,4 +51,5 @@ sheldon web
 - Port already in use — omit `--port` for an automatic free port, or choose another value.
 - Browser cannot reach a non-loopback URL — open the printed `127.0.0.1` address only; do not put a reverse proxy in front.
 
-Related: [init](init.html), [First vault](flow-first-vault.html).
+Related: [init](init.html), [First vault](flow-first-vault.html), [review](review.html),
+[Compile then review](flow-compile-review.html).

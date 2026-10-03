@@ -1,6 +1,6 @@
 import { PROPOSAL_SCHEMA_VERSION } from './proposal.js';
 
-export const STRUCTURED_PROPOSAL_SCHEMA_ID = 'sheldon-proposal/v1';
+export const STRUCTURED_PROPOSAL_SCHEMA_ID = 'urn:sheldon:proposal:v1';
 export const AGENT_PROMPT_VERSION = 'm2/v1';
 
 /**
@@ -26,7 +26,11 @@ export const structuredProposalJsonSchema = {
         properties: {
           path: { type: 'string', minLength: 1 },
           operation: { enum: ['create', 'modify', 'delete'] },
-          content: { type: 'string' },
+          content: {
+            type: 'string',
+            description:
+              'Markdown starting with YAML frontmatter (id, type, title, description, aliases, tags, created_at, updated_at, status, sources) then the concept body.',
+          },
           citations: { type: 'array', minItems: 1, items: { type: 'string', minLength: 1 } },
         },
       },

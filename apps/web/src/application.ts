@@ -13,6 +13,7 @@ export interface WebApplication {
     readonly project?: string;
     readonly tag?: string;
   }) => Promise<unknown>;
+  readonly listPendingReviews: () => Promise<unknown>;
   readonly previewProposal: (
     kind: EntityKind,
     slug: string,

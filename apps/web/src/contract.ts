@@ -35,6 +35,9 @@ export const webOpenApi = {
     '/api/v1/entities/{kind}/{slug}/raw/{path}': {
       get: { summary: 'Read a cited raw file inside the entity', responses: apiResponses },
     },
+    '/api/v1/reviews': {
+      get: { summary: 'List pending wiki proposals grouped by topic', responses: apiResponses },
+    },
     '/api/v1/plugins': { get: { summary: 'List installed local plugins' } },
     '/api/v1/sources/probe': { post: { summary: 'Preview source plugin selection' } },
     '/api/v1/jobs': {

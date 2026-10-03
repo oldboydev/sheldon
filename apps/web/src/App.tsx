@@ -1,6 +1,7 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { client, type Dashboard, type Job } from './client.generated.js';
 import { KnowledgeView } from './KnowledgeView.js';
+import { ReviewView } from './ReviewView.js';
 import './styles.css';
 
 type AgentKind = 'codex' | 'claude' | 'grok';
@@ -267,79 +268,6 @@ function SourceView({
           <small>Revise rede, cookies, OCR, STT e downloads de modelo na tela de plugins.</small>
         </div>
       )}
-    </div>
-  );
-}
-
-function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
-  const candidates = useMemo(
-    () => jobs.filter((job) => job.type === 'compile' || job.type === 'query'),
-    [jobs],
-  );
-  const [slug, setSlug] = useState('');
-  const [proposalId, setProposalId] = useState('');
-  const [preview, setPreview] = useState<{
-    files?: readonly { path: string; diff?: { text: string } }[];
-  }>();
-  const [message, setMessage] = useState<string>();
-  const load = async (event: FormEvent) => {
-    event.preventDefault();
-    const response = await fetch(
-      `/api/v1/reviews/topic/${encodeURIComponent(slug)}/${encodeURIComponent(proposalId)}`,
-    );
-    const value = (await response.json()) as {
-      files?: readonly { path: string; diff?: { text: string } }[];
-      message?: string;
-    };
-    if (!response.ok) throw new Error(value.message);
-    setPreview(value);
-  };
-  const approve = async () => {
-    if (!preview?.files) return;
-    await request(
-      `/reviews/topic/${encodeURIComponent(slug)}/${encodeURIComponent(proposalId)}/approve`,
-      {
-        method: 'POST',
-        body: { confirmation: proposalId, paths: preview.files.map((file) => file.path) },
-      },
-    );
-    setMessage('Arquivos aprovados e promovidos para a wiki.');
-  };
-  return (
-    <div className="page">
-      <p className="eyebrow">REVISÃO HUMANA</p>
-      <h1>Nada entra na wiki por acaso.</h1>
-      <form className="source-form" onSubmit={(event) => void load(event)}>
-        <label>
-          Tópico
-          <input value={slug} onChange={(event) => setSlug(event.target.value)} required />
-        </label>
-        <label>
-          Proposta
-          <input
-            value={proposalId}
-            onChange={(event) => setProposalId(event.target.value)}
-            required
-          />
-        </label>
-        <button className="primary">Abrir revisão</button>
-      </form>
-      {preview?.files?.map((file) => (
-        <article className="panel" key={file.path}>
-          <b>{file.path}</b>
-          <pre className="output">{file.diff?.text}</pre>
-        </article>
-      ))}
-      {preview?.files && (
-        <button className="primary" onClick={() => void approve()}>
-          Aprovar todos os arquivos
-        </button>
-      )}
-      {message && <div className="notice">{message}</div>}
-      <div className="panel">
-        <p>Trabalhos que podem gerar propostas:</p>
-        <JobList jobs={candidates} />
-      </div>
     </div>
   );
 }

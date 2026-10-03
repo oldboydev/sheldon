@@ -64,6 +64,7 @@ Check agent readiness anytime with `sheldon agent doctor`.
 
 - Agent not installed or not logged in — run `sheldon agent doctor` and complete the agent’s own login/auth flow.
 - Raw path missing or outside `raw/` — ingest first, then pass paths relative to the entity (for example `raw/<source-id>/content.md`).
+- Agent wiki files missing YAML concept frontmatter (`id`, `type`, `title`, `description`, `aliases`, `tags`, `created_at`, `updated_at`, `status`, `sources`) — compile stores `error`, not a pending proposal; retry with those fields in each page.
 - No configured vault — pass `--vault <path>` or run `sheldon init`.
 - Invalid or duplicate retry id — choose a new `proposal-id` different from `--from`.
 

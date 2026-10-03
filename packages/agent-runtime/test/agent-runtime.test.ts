@@ -13,6 +13,7 @@ import {
   QueryAnswerStore,
   ProposalValidationError,
   QUERY_ANSWER_SCHEMA_ID,
+  STRUCTURED_PROPOSAL_SCHEMA_ID,
   buildChildEnvironment,
   createClaudeCommandAdapter,
   createClaudeQueryAdapter,
@@ -65,6 +66,23 @@ const queryTask: QueryAgentTask = {
   truncated: false,
 };
 
+const conceptTimestamp = '2026-07-20T12:00:00.000Z';
+
+function conceptMarkdown(
+  overrides: {
+    readonly id?: string;
+    readonly title?: string;
+    readonly body?: string;
+    readonly sources?: readonly string[];
+  } = {},
+): string {
+  const id = overrides.id ?? 'example';
+  const title = overrides.title ?? 'Example';
+  const body = overrides.body ?? 'Updated fact.';
+  const sources = overrides.sources ?? ['raw/source-001/content.md'];
+  return `---\nid: ${id}\ntype: note\ntitle: ${title}\ndescription: ${title} description\naliases: []\ntags: []\ncreated_at: ${conceptTimestamp}\nupdated_at: ${conceptTimestamp}\nstatus: active\nsources:\n${sources.map((source) => `  - ${source}`).join('\n')}\n---\n# ${title}\n${body}\n`;
+}
+
 function proposal(overrides: Partial<StructuredProposal> = {}): StructuredProposal {
   return {
     schemaVersion: 1,
@@ -74,7 +92,7 @@ function proposal(overrides: Partial<StructuredProposal> = {}): StructuredPropos
       {
         path: 'wiki/concepts/example.md',
         operation: 'modify',
-        content: '# Example\nUpdated fact.',
+        content: conceptMarkdown(),
         citations: ['raw/source-001/content.md'],
       },
     ],
@@ -122,6 +140,58 @@ describe('proposal validation', () => {
     expect(validateProposal(proposal())).toMatchObject({ proposal: { id: task.proposalId } });
   });
 
+  it('rejects wiki files that omit required concept frontmatter', () => {
+    expect(() =>
+      validateProposal(
+        proposal({
+          files: [{ ...proposal().files[0], content: '# Example\nUpdated fact.' }],
+        }),
+      ),
+    ).toThrow(/frontmatter/i);
+  });
+
+  it('rejects placeholder wiki content', () => {
+    expect(() =>
+      validateProposal(
+        proposal({
+          files: [{ ...proposal().files[0], content: 'placeholder' }],
+        }),
+      ),
+    ).toThrow(/frontmatter/i);
+  });
+
+  it('rejects wiki files that have frontmatter but no concept body', () => {
+    expect(() =>
+      validateProposal(
+        proposal({
+          files: [
+            {
+              ...proposal().files[0],
+              content: conceptMarkdown().replace(/\n# Example\nUpdated fact.\n/, '\n'),
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/concept body/);
+  });
+
+  it('rejects frontmatter that omits a cited raw source', () => {
+    expect(() =>
+      validateProposal(
+        proposal({
+          files: [
+            {
+              ...proposal().files[0],
+              content: conceptMarkdown({
+                sources: ['raw/other/content.md'],
+              }),
+            },
+          ],
+        }),
+      ),
+    ).toThrow(/cited raw source/);
+  });
+
   it.each([
     'raw/source-001/content.md',
     'system/vault.yaml',
@@ -144,9 +214,14 @@ describe('proposal validation', () => {
   });
 
   it('produces a per-file line summary against the current wiki content', () => {
-    const summaries = summarizeProposal(proposal(), {
-      'wiki/concepts/example.md': '# Example\nPrevious fact.',
-    });
+    const summaries = summarizeProposal(
+      proposal({
+        files: [{ ...proposal().files[0], content: conceptMarkdown({ body: 'Updated fact.' }) }],
+      }),
+      {
+        'wiki/concepts/example.md': conceptMarkdown({ body: 'Previous fact.' }),
+      },
+    );
 
     expect(summaries).toEqual([
       {
@@ -161,6 +236,15 @@ describe('proposal validation', () => {
 });
 
 describe('query answer persistence and promotion', () => {
+  it('publishes absolute URI JSON Schema $ids for Grok and Claude --json-schema', () => {
+    expect(STRUCTURED_PROPOSAL_SCHEMA_ID).toBe('urn:sheldon:proposal:v1');
+    expect(QUERY_ANSWER_SCHEMA_ID).toBe('urn:sheldon:query-answer:v1');
+    expect(structuredProposalJsonSchema.$id).toBe(STRUCTURED_PROPOSAL_SCHEMA_ID);
+    expect(queryAnswerJsonSchema.$id).toBe(QUERY_ANSWER_SCHEMA_ID);
+    expect(STRUCTURED_PROPOSAL_SCHEMA_ID).toMatch(/^[a-z][a-z0-9+.-]*:/i);
+    expect(QUERY_ANSWER_SCHEMA_ID).toMatch(/^[a-z][a-z0-9+.-]*:/i);
+  });
+
   it('publishes a strict schema for structured query answers', () => {
     expect(queryAnswerJsonSchema).toMatchObject({
       $id: QUERY_ANSWER_SCHEMA_ID,
@@ -267,6 +351,7 @@ describe('query answer persistence and promotion', () => {
             {
               ...proposal().files[0],
               citations: ['raw/private/content.md'],
+              content: conceptMarkdown({ sources: ['raw/private/content.md'] }),
             },
           ],
         }),
@@ -466,7 +551,7 @@ describe('command adapters and runtime', () => {
     );
     expect(commands[0].prompt).toContain('raw/source-001/content.md');
     expect(commands[0].prompt).toContain(task.prompt);
-    expect(commands[0].outputSchema).toMatchObject({ $id: 'sheldon-proposal/v1' });
+    expect(commands[0].outputSchema).toMatchObject({ $id: STRUCTURED_PROPOSAL_SCHEMA_ID });
   });
 
   it('builds grok compile and query commands from the grok profile', async () => {
@@ -573,7 +658,43 @@ describe('command adapters and runtime', () => {
     await expect(readFile(join(output, 'artifacts', '001.md'), 'utf8')).resolves.toContain(
       'Updated fact.',
     );
-    expect(result.diffs).toMatchObject([{ addedLines: 1, removedLines: 1 }]);
+    expect(result.diffs).toMatchObject([{ path: 'wiki/concepts/example.md', changed: true }]);
+    expect(result.diffs[0]!.addedLines).toBeGreaterThan(0);
+  });
+
+  it('lists an empty array when no proposals have been stored', async () => {
+    const entity = await entityDirectory();
+    await expect(new ProposalStore(entity).list()).resolves.toEqual([]);
+  });
+
+  it('lists stored proposal metadata including error attempts', async () => {
+    const entity = await entityDirectory();
+    const store = new ProposalStore(entity, () => new Date('2026-07-20T12:00:00Z'));
+    await store.savePending(
+      {
+        id: task.proposalId,
+        agent: 'codex',
+        prompt: task.prompt,
+        promptVersion: task.promptVersion,
+        rawSources: task.rawSources,
+      },
+      proposal(),
+    );
+    await store.saveTerminal({
+      id: 'proposal-failed',
+      status: 'error',
+      agent: 'grok',
+      prompt: task.prompt,
+      promptVersion: task.promptVersion,
+      rawSources: task.rawSources,
+      error: 'placeholder',
+    });
+
+    const listed = await store.list();
+
+    expect(listed).toHaveLength(2);
+    expect(listed.find((item) => item.id === task.proposalId)?.status).toBe('pending');
+    expect(listed.find((item) => item.id === 'proposal-failed')?.status).toBe('error');
   });
 
   it.each([
@@ -596,6 +717,42 @@ describe('command adapters and runtime', () => {
     expect(() => new ProposalStore(entity).assertPromotable(result)).toThrow(
       ProposalPromotionError,
     );
+  });
+
+  it('records a proposal without wiki concept frontmatter as an error', async () => {
+    const entity = await entityDirectory();
+    const runtime = new AgentRuntime(new ProposalStore(entity));
+    const adapter = createCodexCommandAdapter({
+      execute: async () => ({
+        status: 'proposal',
+        proposal: proposal({
+          files: [{ ...proposal().files[0], content: '# Example\nUpdated fact.' }],
+        }),
+        agentVersion: '1.2.3',
+      }),
+    });
+
+    const result = await runtime.run(adapter, task);
+
+    expect(result).toMatchObject({ metadata: { status: 'error' } });
+    expect(result.proposal).toBeUndefined();
+    expect(result.metadata.error).toMatch(/frontmatter/i);
+  });
+
+  it('instructs compile agents to emit wiki concept frontmatter', async () => {
+    const commands: AgentCommand[] = [];
+    const executor: CommandExecutor = {
+      execute: async (command) => {
+        commands.push(command);
+        return { status: 'proposal', proposal: proposal(), agentVersion: 'fixture-1.0' };
+      },
+    };
+
+    await createCodexCommandAdapter(executor).execute(task);
+
+    expect(commands[0].prompt).toContain('YAML frontmatter');
+    expect(commands[0].prompt).toMatch(/created_at/);
+    expect(commands[0].prompt).toMatch(/updated_at/);
   });
 
   it('records invalid agent output as an error rather than a proposal awaiting review', async () => {
@@ -624,7 +781,13 @@ describe('command adapters and runtime', () => {
         status: 'proposal',
         proposal: proposal({
           sources: [{ rawPath: 'raw/private/content.md', citation: 'Lines 1-2' }],
-          files: [{ ...proposal().files[0], citations: ['raw/private/content.md'] }],
+          files: [
+            {
+              ...proposal().files[0],
+              citations: ['raw/private/content.md'],
+              content: conceptMarkdown({ sources: ['raw/private/content.md'] }),
+            },
+          ],
         }),
         agentVersion: '1.2.3',
       }),
@@ -657,11 +820,14 @@ describe('command adapters and runtime', () => {
   it('bounds quadratic diff work for oversized proposed files', () => {
     const largeBefore = Array.from({ length: 1_001 }, (_, index) => `before-${index}`).join('\n');
     const largeAfter = Array.from({ length: 1_001 }, (_, index) => `after-${index}`).join('\n');
+    const before = conceptMarkdown({ body: largeBefore });
+    const after = conceptMarkdown({ body: largeAfter });
+    const lineCount = after.split('\n').length;
 
     expect(
-      summarizeProposal(proposal({ files: [{ ...proposal().files[0], content: largeAfter }] }), {
-        'wiki/concepts/example.md': largeBefore,
+      summarizeProposal(proposal({ files: [{ ...proposal().files[0], content: after }] }), {
+        'wiki/concepts/example.md': before,
       }),
-    ).toMatchObject([{ removedLines: 1_001, addedLines: 1_001 }]);
+    ).toMatchObject([{ removedLines: lineCount, addedLines: lineCount }]);
   });
 });
