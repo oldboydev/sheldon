@@ -69,6 +69,51 @@ describe('local web server', () => {
     }
   });
 
+  it('lists pending reviews grouped by topic', async () => {
+    const root = await vault();
+    const server = await createWebServer({
+      vaultRoot: root,
+      application: application({
+        listPendingReviews: async () => ({
+          topics: [
+            {
+              slug: 'observability',
+              title: 'Observability',
+              proposals: [
+                {
+                  id: 'proposal-observability-notes-3',
+                  agent: 'grok',
+                  createdAt: '2026-10-02T22:24:23.050Z',
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    });
+    try {
+      const listed = await server.inject('/api/v1/reviews');
+      expect(listed.statusCode).toBe(200);
+      expect(listed.json()).toEqual({
+        topics: [
+          {
+            slug: 'observability',
+            title: 'Observability',
+            proposals: [
+              {
+                id: 'proposal-observability-notes-3',
+                agent: 'grok',
+                createdAt: '2026-10-02T22:24:23.050Z',
+              },
+            ],
+          },
+        ],
+      });
+    } finally {
+      await server.close();
+    }
+  });
+
   it('requires the exact proposal confirmation before forwarding approval to the facade', async () => {
     const root = await vault();
     let approved = false;
@@ -429,6 +474,7 @@ function application(overrides: Record<string, unknown> = {}) {
     showEntity: async () => ({}),
     archiveEntity: async () => ({}),
     search: async () => ({}),
+    listPendingReviews: async () => ({ topics: [] }),
     previewProposal: async () => ({}),
     approveProposal: async () => ({}),
     rejectProposal: async () => ({}),

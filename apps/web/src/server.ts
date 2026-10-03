@@ -123,6 +123,7 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
       tag: query.tag,
     });
   });
+  server.get('/api/v1/reviews', async () => options.application.listPendingReviews());
   server.get('/api/v1/reviews/:kind/:slug/:proposalId', async (request) => {
     const params = request.params as { kind: string; slug: string; proposalId: string };
     return options.application.previewProposal(

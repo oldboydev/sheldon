@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import { atomicWriteFile } from '@sheldon/vault';
@@ -59,6 +59,29 @@ export class ProposalStore {
     const persisted: ProposalMetadata = { ...metadata, ...this.timestamps() };
     await this.write(persisted, undefined, []);
     return { metadata: persisted, diffs: [] };
+  }
+
+  public async list(): Promise<readonly ProposalMetadata[]> {
+    const root = join(resolve(this.entityDirectory), 'outputs', 'proposals');
+    let entries;
+    try {
+      entries = await readdir(root, { withFileTypes: true });
+    } catch (error) {
+      if (isMissing(error)) return [];
+      throw error;
+    }
+    const listed: ProposalMetadata[] = [];
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !isProposalId(entry.name)) continue;
+      const metadata = await readJsonIfPresent<ProposalMetadata>(
+        join(root, entry.name, 'metadata.json'),
+      );
+      if (metadata?.id === entry.name) listed.push(metadata);
+    }
+    return listed.sort(
+      (left, right) =>
+        right.createdAt.localeCompare(left.createdAt) || left.id.localeCompare(right.id),
+    );
   }
 
   public async load(id: string): Promise<StoredProposal> {

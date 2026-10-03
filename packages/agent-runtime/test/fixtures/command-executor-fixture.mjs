@@ -18,7 +18,7 @@ if (prompt.includes('invalid-json')) {
         path: 'wiki/concepts/example.md',
         operation: 'create',
         content:
-          schema?.$id === 'sheldon-proposal/v1'
+          schema?.$id === 'urn:sheldon:proposal:v1'
             ? (process.env.SHELDON_AGENT_RUNTIME_SECRET ?? 'schema-file-used')
             : 'invalid-schema-file',
         citations: ['raw/source-001/content.md'],
@@ -35,7 +35,7 @@ if (prompt.includes('invalid-json')) {
     createdAt: '2026-07-28T12:00:00.000Z',
     text: '## Wiki facts\n- Example\n\n## Inferences\n- None\n\n## Gaps\n- None',
   };
-  const output = schema?.$id === 'sheldon-query-answer/v1' ? answer : proposal;
+  const output = schema?.$id === 'urn:sheldon:query-answer:v1' ? answer : proposal;
   if (lastMessageFlag >= 0) {
     await writeFile(args[lastMessageFlag + 1], JSON.stringify(output), 'utf8');
     process.stdout.write(JSON.stringify({ type: 'turn.completed' }) + '\n');

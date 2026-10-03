@@ -11,3 +11,8 @@ export {
 export { slugify } from './slug.js';
 export { markdownBody } from './markdown.js';
 export { isoTimestampEpoch } from './timestamp.js';
+export {
+  parseWikiFrontmatter,
+  wikiConceptFrontmatterIssues,
+  WIKI_CONCEPT_FRONTMATTER_FIELDS,
+} from './wiki-concept.js';

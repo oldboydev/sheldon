@@ -443,23 +443,42 @@ async function createVault(): Promise<{ readonly root: string; readonly vaultPat
 
 function cliDependencies(root: string, overrides: Partial<CommandExecutor> = {}): CliDependencies {
   const agentExecutor: CommandExecutor = {
-    execute: async (command) => ({
-      status: 'proposal',
-      agentVersion: 'test',
-      proposal: {
-        schemaVersion: 1,
-        id: command.input.proposalId,
-        sources: [{ rawPath: command.input.rawSources[0]!, citation: 'Query answer evidence' }],
-        files: [
-          {
-            path: 'wiki/promoted.md',
-            operation: 'create',
-            content: '# Promoted answer\n',
-            citations: [command.input.rawSources[0]!],
-          },
-        ],
-      },
-    }),
+    execute: async (command) => {
+      const source = command.input.rawSources[0]!;
+      return {
+        status: 'proposal',
+        agentVersion: 'test',
+        proposal: {
+          schemaVersion: 1,
+          id: command.input.proposalId,
+          sources: [{ rawPath: source, citation: 'Query answer evidence' }],
+          files: [
+            {
+              path: 'wiki/promoted.md',
+              operation: 'create',
+              content: [
+                '---',
+                'id: promoted',
+                'type: note',
+                'title: Promoted answer',
+                'description: Promoted from a cited query answer.',
+                'aliases: []',
+                'tags: []',
+                'created_at: 2026-07-28T00:00:00.000Z',
+                'updated_at: 2026-07-28T00:00:00.000Z',
+                'status: active',
+                'sources:',
+                `  - ${source}`,
+                '---',
+                '# Promoted answer',
+                '',
+              ].join('\n'),
+              citations: [source],
+            },
+          ],
+        },
+      };
+    },
     ...overrides,
   };
   return {

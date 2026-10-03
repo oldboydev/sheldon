@@ -6,6 +6,20 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Added
+
+- Revisão em `sheldon web` lista tópicos com propostas **pendentes** e, em seguida, as propostas
+  daquele tópico (`GET /api/v1/reviews`). Tentativas `error` / `cancelled` ficam de fora.
+
+### Fixed
+
+- `sheldon compile` / `query` send JSON Schema `$id` values that Grok and Claude `--json-schema`
+  accept (`urn:sheldon:proposal:v1`, `urn:sheldon:query-answer:v1`).
+- Compile rejects wiki files that would fail `review preview` (missing concept frontmatter,
+  placeholder content, or `sources` that omit a cited raw) and asks the agent for those fields.
+- Abrir revisão em `sheldon web` lê o array de arquivos no JSON aninhado (`files.files`) e mostra
+  a mensagem da API quando o preview falha, em vez de deixar a página em branco.
+
 ## [0.2.1] - 2026-10-02
 
 Tag `v0.2.1`. Publica o catálogo oficial assinado com os sete conectores padrão e o npm `latest`.

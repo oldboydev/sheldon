@@ -25,7 +25,7 @@ const proposal = {
         process.env.XAI_API_KEY ? 'xai-forwarded' : 'xai-missing',
         process.env.USERPROFILE || process.env.HOME ? 'home-forwarded' : 'home-missing',
         prompt.includes('Turn the cited raw') ? 'prompt-file-used' : 'prompt-missing',
-        schema.$id === 'sheldon-proposal/v1' ? 'schema-inline-used' : 'schema-missing',
+        schema.$id === 'urn:sheldon:proposal:v1' ? 'schema-inline-used' : 'schema-missing',
       ].join('\n'),
       citations: ['raw/source-001/content.md'],
     },

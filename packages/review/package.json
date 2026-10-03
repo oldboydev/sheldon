@@ -8,7 +8,6 @@
   },
   "dependencies": {
     "@sheldon/core": "*",
-    "@sheldon/vault": "*",
-    "yaml": "^2.8.1"
+    "@sheldon/vault": "*"
   }
 }

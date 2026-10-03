@@ -1,7 +1,7 @@
 import { AGENT_PROFILE_IDS } from './profiles.js';
 import { QUERY_ANSWER_SCHEMA_VERSION } from './query-answer.js';
 
-export const QUERY_ANSWER_SCHEMA_ID = 'sheldon-query-answer/v1';
+export const QUERY_ANSWER_SCHEMA_ID = 'urn:sheldon:query-answer:v1';
 
 /** JSON Schema supplied to query adapters that need structured answer output. */
 export const queryAnswerJsonSchema = {
