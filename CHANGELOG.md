@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- O job `promote-npm-packages` instala npm CLI 11.21.0 para `npm dist-tag add` via OIDC
+  (trusted publisher **Allow npm dist-tag**), em vez de depender do npm 11.6 do runner.
+
 ## [0.2.2] - 2026-10-03
 
 Tag `v0.2.2`. Publica o npm `latest` e o catálogo oficial com compile/query schemas e a Revisão

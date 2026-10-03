@@ -234,6 +234,8 @@ jobs:
         with:
           node-version: 24.13.0
           registry-url: https://registry.npmjs.org
+      - name: Install npm CLI that supports OIDC dist-tag
+        run: npm install -g npm@11.21.0
       - name: Promote the complete release only after every package is published
         env:
           NODE_AUTH_TOKEN: ''
