@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-10-05
+
+Tag `v0.2.4`. Publica o npm `latest` e o catálogo oficial. O probe de `yt-dlp` do plugin doctor
+passa a esperar até 5 s pelo binário empacotado.
+
 ### Fixed
 
 - `sheldon plugin doctor` aceita o `yt-dlp` empacotado de `source.youtube` e `source.instagram`
