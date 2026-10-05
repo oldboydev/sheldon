@@ -120,12 +120,17 @@ arquivo local:
 
 ```powershell
 sheldon plugin install source.file
+sheldon plugin doctor source.file
 sheldon ingest file topic aprendizado C:\inbox\artigo.pdf --vault C:\knowledge\sheldon
 ```
 
-O comando retorna o identificador da fonte e o caminho do conteúdo normalizado. Para uma página
-pública, use `sheldon ingest url`; para um crawl limitado, `sheldon ingest crawl`; para um checkout
-Git local, `sheldon ingest repository`. Execute `sheldon help ingest` para ver todas as opções.
+`sheldon plugin doctor <id>` executa o healthcheck do conector. Em `source.youtube` e
+`source.instagram`, o probe de `yt-dlp --version` espera até 5 segundos pelo binário empacotado.
+
+`sheldon ingest` retorna o identificador da fonte e o caminho do conteúdo normalizado. Para uma
+página pública, use `sheldon ingest url`; para um crawl limitado, `sheldon ingest crawl`; para um
+checkout Git local, `sheldon ingest repository`. Execute `sheldon help ingest` para ver todas as
+opções.
 
 No macOS, o catálogo oficial não oferece `source.image`, `source.youtube` nem `source.instagram`.
 Esses conectores embarcam executáveis nativos (OCR e yt-dlp) que exigiriam assinatura e

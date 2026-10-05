@@ -17,6 +17,7 @@ import { canonicalInstagramVideo } from './instagram-url.js';
 import { resolveYtDlpExecutable } from './runtime.js';
 
 const DEFAULT_PLATFORM = `${process.platform}-${process.arch}` as OfficialPlatform;
+const YT_DLP_VERSION_PROBE_TIMEOUT_MS = 5_000;
 const MAX_THUMBNAIL_BYTES = 10 * 1024 * 1024;
 const MAX_STT_INPUT_BYTES = 50 * 1024 * 1024;
 
@@ -749,7 +750,7 @@ async function ytDlpCheck(
 }
 async function boundedVersionProbe(executable: string, runner: InstagramRunner): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1_000);
+  const timeout = setTimeout(() => controller.abort(), YT_DLP_VERSION_PROBE_TIMEOUT_MS);
   try {
     return (
       await runner.run(executable, ['--no-config', '--version'], {
