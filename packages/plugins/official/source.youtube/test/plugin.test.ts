@@ -161,6 +161,66 @@ describe('source.youtube', () => {
       expect.objectContaining({ shell: false }),
     );
   });
+
+  describe('yt-dlp version probe budget', () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('treats a yt-dlp version that arrives after 1s as healthy', async () => {
+      vi.useFakeTimers();
+      const run = vi.fn<YoutubeRunner['run']>(async (_file, arguments_, options) => {
+        expect(arguments_).toEqual(['--no-config', '--version']);
+        await waitUnlessAborted(1_500, options.signal);
+        return { stdout: '2026.07.04\n', stderr: '' };
+      });
+      const plugin = createOfficialSourceYoutubePlugin({ runner: { run } });
+
+      const health = plugin.healthcheck(context);
+      await vi.advanceTimersByTimeAsync(1_500);
+
+      await expect(health).resolves.toMatchObject({
+        checks: [
+          {
+            id: 'yt-dlp',
+            severity: 'info',
+            message: 'yt-dlp 2026.07.04 is available.',
+          },
+        ],
+      });
+    });
+
+    it('reports the existing yt-dlp error when the version probe exceeds 5s', async () => {
+      vi.useFakeTimers();
+      const run = vi.fn<YoutubeRunner['run']>(async (_file, arguments_, options) => {
+        expect(arguments_).toEqual(['--no-config', '--version']);
+        await waitUnlessAborted(Number.POSITIVE_INFINITY, options.signal);
+        return { stdout: 'never\n', stderr: '' };
+      });
+      const plugin = createOfficialSourceYoutubePlugin({ runner: { run } });
+
+      const health = plugin.healthcheck(context);
+      await vi.advanceTimersByTimeAsync(4_999);
+      let settled = false;
+      void health.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(health).resolves.toMatchObject({
+        checks: [
+          {
+            id: 'yt-dlp',
+            severity: 'error',
+            message: 'yt-dlp is unavailable or did not respond to the version probe.',
+            remediation: 'Reinstall the official source.youtube plugin for this platform.',
+          },
+        ],
+      });
+    });
+  });
 });
 
 const fixtureRunner: YoutubeRunner = {
@@ -189,4 +249,26 @@ async function temporaryDirectoryForTest(): Promise<string> {
   const directory = await mkdtemp(join(tmpdir(), 'sheldon-youtube-plugin-test-'));
   temporaryRoots.push(directory);
   return directory;
+}
+
+function waitUnlessAborted(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const abort = () => {
+      reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+    };
+    if (signal.aborted) {
+      abort();
+      return;
+    }
+    const timer =
+      milliseconds === Number.POSITIVE_INFINITY ? undefined : setTimeout(resolve, milliseconds);
+    signal.addEventListener(
+      'abort',
+      () => {
+        if (timer !== undefined) clearTimeout(timer);
+        abort();
+      },
+      { once: true },
+    );
+  });
 }

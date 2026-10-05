@@ -20,6 +20,7 @@ import { resolveYtDlpExecutable } from './runtime.js';
 
 const DEFAULT_PLATFORM: OfficialPlatform =
   `${process.platform}-${process.arch}` as OfficialPlatform;
+const YT_DLP_VERSION_PROBE_TIMEOUT_MS = 5_000;
 
 const description: PluginDescription = {
   id: 'source.youtube',
@@ -228,7 +229,7 @@ async function boundedVersionProbe(
   runner: YoutubeRunner | undefined,
 ): Promise<string> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 1_000);
+  const timeout = setTimeout(() => controller.abort(), YT_DLP_VERSION_PROBE_TIMEOUT_MS);
   try {
     const output = await (runner ?? systemVersionRunner).run(
       executable,

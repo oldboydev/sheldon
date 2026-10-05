@@ -6,6 +6,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- `sheldon plugin doctor` aceita o `yt-dlp` empacotado de `source.youtube` e `source.instagram`
+  quando `--version` responde em até 5 s. O probe abortava em 1 s e marcava o binário Windows
+  saudável (~1,5 s) como ausente.
+
 ## [0.2.3] - 2026-10-03
 
 Tag `v0.2.3`. Publica o npm `latest` e o catálogo oficial. O promote de dist-tag usa npm CLI
