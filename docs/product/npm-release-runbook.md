@@ -1,8 +1,8 @@
 # Runbook — publicação npm do Sheldon
 
 Go-live `0.2.0` (tag `v0.2.0`) concluída em 2026-09-17. Não reutilizar versões já publicadas
-(`0.1.0`, `0.1.1`, `0.2.0`, `0.2.1`, `0.2.2`, `0.2.3`, `0.2.4`). Próxima publicação: `0.2.5` ou
-superior.
+(`0.1.0`, `0.1.1`, `0.2.0`, `0.2.1`, `0.2.2`, `0.2.3`, `0.2.4`, `0.2.5`). Próxima publicação:
+`0.2.6` ou superior.
 
 Tag `v0.2.2` publicou os cinco pacotes em `candidate`; `latest` ficou em `0.2.1` (promote E401).
 A tag `v0.2.3` publica e promove `latest` com npm CLI 11.21.0 via OIDC. Ver Recuperação.

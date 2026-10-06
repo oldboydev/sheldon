@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-06
+
+Tag `v0.2.5`. Publica o npm `latest` e o catálogo oficial. `source.youtube` ganha fallback STT
+local quando o vídeo não tem legenda.
+
 ### Added
 
 - `source.youtube` aceita `ingest url --stt` com o mesmo contrato local do Instagram
