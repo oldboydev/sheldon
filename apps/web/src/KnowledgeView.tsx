@@ -89,7 +89,7 @@ export function KnowledgeView({
 
   return (
     <div className="page">
-      <p className="eyebrow">CONHECIMENTO APROVADO</p>
+      <p className="eyebrow">Conhecimento aprovado</p>
       <h1>Uma árvore que mostra a origem.</h1>
       {entities.length === 0 ? (
         <div className="tree panel">
@@ -97,7 +97,7 @@ export function KnowledgeView({
         </div>
       ) : (
         <div className="wiki-layout">
-          <nav className="tree panel" aria-label="Árvore da wiki">
+          <nav className="tree panel card" aria-label="Árvore da wiki">
             {entities.map((entity) => (
               <div key={`${entity.kind}:${entity.slug}`}>
                 <button
@@ -130,7 +130,7 @@ export function KnowledgeView({
               </div>
             ))}
           </nav>
-          <article className="panel wiki-article">
+          <article className="panel card wiki-article">
             {page && (
               <>
                 <h2>{page.title}</h2>
@@ -143,8 +143,21 @@ export function KnowledgeView({
                     ),
                   )}
                 </div>
+              </>
+            )}
+            {problem && (
+              <div className="notice error">
+                <b>{problem.code}</b>
+                <p>{problem.message}</p>
+                <small>{problem.recovery}</small>
+              </div>
+            )}
+          </article>
+          <aside className="panel card wiki-aside">
+            {page ? (
+              <>
                 {page.sources.length > 0 && (
-                  <section className="wiki-aside">
+                  <section>
                     <p className="eyebrow">Fontes</p>
                     {page.sources.map((source) => (
                       <button
@@ -160,7 +173,7 @@ export function KnowledgeView({
                   </section>
                 )}
                 {page.neighbours.length > 0 && (
-                  <section className="wiki-aside">
+                  <section>
                     <p className="eyebrow">Vizinhos</p>
                     {page.neighbours.map((neighbour) => (
                       <button
@@ -174,16 +187,19 @@ export function KnowledgeView({
                     ))}
                   </section>
                 )}
+                <p className="eyebrow">Proveniência</p>
+                <div className="provenance" aria-label="Fluxo de proveniência">
+                  <span>raw</span>
+                  <i>→</i>
+                  <span>proposta</span>
+                  <i>→</i>
+                  <span>conceito</span>
+                </div>
               </>
+            ) : (
+              <p className="muted">Abra uma página para ver fontes e vizinhos.</p>
             )}
-            {problem && (
-              <div className="notice error">
-                <b>{problem.code}</b>
-                <p>{problem.message}</p>
-                <small>{problem.recovery}</small>
-              </div>
-            )}
-          </article>
+          </aside>
         </div>
       )}
     </div>

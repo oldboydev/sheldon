@@ -6,6 +6,17 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Changed
+
+- `sheldon web` usa o design system do produto (navy `#001663`, magenta `#e74092`, Nunito Sans):
+  titlebar 48px, sidebar 232px agrupada em Bancada/Vault/Entrega/Sistema, CTA magenta, e Revisão
+  lista propostas pendentes por tópico. O wordmark é o texto Sheldon.
+
+### Fixed
+
+- `source.repository` e os testes de ingestão apontam `GIT_CONFIG_GLOBAL` e `core.hooksPath` para
+  `/dev/null` também no Windows. Git for Windows 2.56 (UCRT) rejeita `NUL` em maiúsculas.
+
 ## [0.2.5] - 2026-10-06
 
 Tag `v0.2.5`. Publica o npm `latest` e o catálogo oficial. `source.youtube` ganha fallback STT

@@ -1,5 +1,5 @@
-import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { defineConfig, searchForWorkspaceRoot } from 'vite';
 
 export default defineConfig({
   plugins: [react()],
@@ -7,5 +7,10 @@ export default defineConfig({
   build: {
     outDir: 'dist/client',
     emptyOutDir: false,
+  },
+  server: {
+    fs: {
+      allow: [searchForWorkspaceRoot(process.cwd())],
+    },
   },
 });

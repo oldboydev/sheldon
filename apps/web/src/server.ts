@@ -283,6 +283,7 @@ async function dashboard(root: string) {
   try {
     const jobs = database.listJobs(12).jobs;
     return {
+      path: root,
       health: {
         vault: true,
         sqlite: OperationsDatabase.checkHealth(vaultPaths(root).operationsDatabase).healthy,
