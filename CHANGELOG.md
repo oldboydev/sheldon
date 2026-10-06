@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-06
+
+Tag `v0.2.6`. Publica o npm `latest` e o catálogo oficial. `sheldon web` adota o design system do
+produto.
+
 ### Changed
 
 - `sheldon web` usa o design system do produto (navy `#001663`, magenta `#e74092`, Nunito Sans):
