@@ -126,6 +126,8 @@ sheldon ingest file topic aprendizado C:\inbox\artigo.pdf --vault C:\knowledge\s
 
 `sheldon plugin doctor <id>` executa o healthcheck do conector. Em `source.youtube` e
 `source.instagram`, o probe de `yt-dlp --version` espera até 5 segundos pelo binário empacotado.
+Os dois conectores também avisam quando o STT local opcional (`--stt`,
+`SHELDON_LOCAL_STT_EXECUTABLE`) não está configurado; nenhum modelo é baixado automaticamente.
 
 `sheldon ingest` retorna o identificador da fonte e o caminho do conteúdo normalizado. Para uma
 página pública, use `sheldon ingest url`; para um crawl limitado, `sheldon ingest crawl`; para um

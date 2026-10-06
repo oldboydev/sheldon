@@ -10,13 +10,19 @@
   "priority": 200,
   "platforms": ["win32", "darwin", "linux"],
   "permissions": { "network": true, "cookies": false },
-  "effects": { "ocr": false, "stt": false, "modelDownload": false },
+  "effects": { "ocr": false, "stt": true, "modelDownload": false },
   "dependencies": [
     {
       "id": "yt-dlp",
       "kind": "executable",
       "required": true,
       "remediation": "Reinstall the official source.youtube plugin for this platform."
+    },
+    {
+      "id": "local-stt",
+      "kind": "runtime",
+      "required": false,
+      "remediation": "Install an offline local STT runtime and configure SHELDON_LOCAL_STT_EXECUTABLE (and optional JSON SHELDON_LOCAL_STT_ARGUMENTS) before using --stt."
     }
   ]
 }

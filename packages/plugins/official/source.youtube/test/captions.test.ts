@@ -134,7 +134,7 @@ describe('selectYoutubeCaption', () => {
         readCaption: vi.fn(),
       }),
     ).rejects.toThrow(
-      'YOUTUBE_CAPTIONS_UNAVAILABLE: No usable requested captions were available. Local speech-to-text fallback is not implemented; retry with another requested language or provide a captioned source.',
+      'YOUTUBE_CAPTIONS_UNAVAILABLE: No usable requested captions were available. Pass --stt with SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS, retry with another requested language, or provide a captioned source.',
     );
   });
 

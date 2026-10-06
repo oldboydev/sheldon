@@ -117,15 +117,53 @@ describe('PluginProcessRunner URL diagnostics', () => {
       }),
     ).rejects.toMatchObject({
       code: 'YOUTUBE_CAPTIONS_UNAVAILABLE',
-      message:
-        'No usable requested captions were available. Local speech-to-text fallback is not implemented.',
-      recovery: 'Retry with another requested language or provide a captioned source.',
+      message: 'No usable requested captions were available.',
+      recovery:
+        'Pass --stt with SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS, retry with another requested language, or provide a captioned source.',
       target: 'fixture.node',
     });
     expect(state.listRuns().at(-1)).toMatchObject({
       status: 'error',
       errorCode: 'YOUTUBE_CAPTIONS_UNAVAILABLE',
     });
+  });
+
+  it('maps unavailable YouTube local STT to an actionable remediation', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+
+    await expect(
+      runner.probe(await pluginForFixture(), {
+        errorCode: 'YOUTUBE_STT_UNAVAILABLE',
+        secret: 'https://youtu.be/AbCdEf12345?credential=query-secret',
+      }),
+    ).rejects.toMatchObject({
+      code: 'YOUTUBE_STT_UNAVAILABLE',
+      message: 'No local speech-to-text runtime is configured for source.youtube.',
+      recovery:
+        'Remove --stt or configure a local STT runtime; no model will be downloaded automatically.',
+      target: 'fixture.node',
+    });
+    expect(JSON.stringify(state.listRuns().at(-1))).not.toContain('query-secret');
+  });
+
+  it('maps invalid YouTube local STT configuration to an actionable remediation', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+
+    await expect(
+      runner.probe(await pluginForFixture(), {
+        errorCode: 'YOUTUBE_STT_CONFIGURATION_INVALID',
+        secret: 'https://youtu.be/AbCdEf12345?credential=query-secret',
+      }),
+    ).rejects.toMatchObject({
+      code: 'YOUTUBE_STT_CONFIGURATION_INVALID',
+      message: 'The configured local speech-to-text runtime is invalid for source.youtube.',
+      recovery:
+        'Set SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS to a valid local command configuration.',
+      target: 'fixture.node',
+    });
+    expect(JSON.stringify(state.listRuns().at(-1))).not.toContain('query-secret');
   });
 
   it('maps invalid local Instagram STT configuration to an actionable remediation', async () => {

@@ -12,9 +12,19 @@ import {
 } from '@sheldon/plugin-sdk';
 import type { OfficialPlatform } from '@sheldon/plugin-host';
 
-import { normalizeYoutubeMarkdown, selectYoutubeCaption } from './captions.js';
+import {
+  normalizeYoutubeMarkdown,
+  selectYoutubeCaption,
+  type SelectedYoutubeCaption,
+} from './captions.js';
 import { normalizeYoutubeLanguageTag } from './languages.js';
-import { extractYoutubeVideo, type YoutubeRunner } from './yt-dlp.js';
+import {
+  downloadSttInput,
+  localSttCheck,
+  localSttConfiguration,
+  transcribeLocalInput,
+} from './local-stt.js';
+import { extractYoutubeVideo, type YoutubeExtraction, type YoutubeRunner } from './yt-dlp.js';
 import { canonicalYoutubeVideo } from './youtube-url.js';
 import { resolveYtDlpExecutable } from './runtime.js';
 
@@ -32,13 +42,20 @@ const description: PluginDescription = {
   priority: 200,
   platforms: ['win32', 'darwin', 'linux'],
   permissions: { network: true, cookies: false },
-  effects: { ocr: false, stt: false, modelDownload: false },
+  effects: { ocr: false, stt: true, modelDownload: false },
   dependencies: [
     {
       id: 'yt-dlp',
       kind: 'executable',
       required: true,
       remediation: 'Reinstall the official source.youtube plugin for this platform.',
+    },
+    {
+      id: 'local-stt',
+      kind: 'runtime',
+      required: false,
+      remediation:
+        'Install an offline local STT runtime and configure SHELDON_LOCAL_STT_EXECUTABLE (and optional JSON SHELDON_LOCAL_STT_ARGUMENTS) before using --stt.',
     },
   ],
 };
@@ -49,6 +66,9 @@ export interface OfficialSourceYoutubeDependencies {
   readonly executable?: string;
   readonly runner?: YoutubeRunner;
   readonly version?: () => Promise<string>;
+  readonly sttRunner?: YoutubeRunner;
+  /** Allows tests and embedded hosts to supply a non-secret local STT configuration. */
+  readonly environment?: NodeJS.ProcessEnv;
 }
 
 export function createOfficialSourceYoutubePlugin(
@@ -61,9 +81,13 @@ export function createOfficialSourceYoutubePlugin(
   return definePlugin({
     describe: async () => description,
     probe: async ({ input }) => probeYoutube(input),
-    ingest: async (request, context) => ingestYoutube(request, context.signal, executable, runner),
+    ingest: async (request, context) =>
+      ingestYoutube(request, context.signal, executable, runner, dependencies),
     healthcheck: async () => ({
-      checks: [await ytDlpCheck(executable, runner, dependencies.version)],
+      checks: [
+        await ytDlpCheck(executable, runner, dependencies.version),
+        localSttCheck(dependencies.environment ?? process.env),
+      ],
     }),
     cancel: async () => undefined,
   });
@@ -78,80 +102,57 @@ async function ingestYoutube(
   signal: AbortSignal,
   executable: string,
   runner: YoutubeRunner | undefined,
+  dependencies: OfficialSourceYoutubeDependencies,
 ): Promise<readonly SourceArtifact[]> {
   const video = validatedInput(request.input);
-  const languages = validatedLanguages(request.options);
+  const options = validatedOptions(request.options);
   const extraction = await extractYoutubeVideo(
-    { video, outputDirectory: request.temporaryDirectory, languages, signal },
+    {
+      video,
+      outputDirectory: request.temporaryDirectory,
+      languages: options.languages,
+      signal,
+    },
     { executable, runner },
   );
-  const caption = await selectYoutubeCaption({
-    candidates: extraction.captions,
-    languages,
-    readCaption: async (path) => readFile(path, 'utf8'),
-  });
-  const markdown = normalizeYoutubeMarkdown({
-    canonicalUri: video.canonicalUri,
-    info: extraction.infoJson,
-    caption,
-    ytDlpVersion: extraction.ytDlpVersion,
-  });
-  let captionBytes: Uint8Array;
+  let caption: SelectedYoutubeCaption | undefined;
   try {
-    captionBytes = new Uint8Array(await readFile(caption.candidate.path));
-  } catch {
+    caption = await selectYoutubeCaption({
+      candidates: extraction.captions,
+      languages: options.languages,
+      readCaption: async (path) => readFile(path, 'utf8'),
+    });
+  } catch (error) {
+    if (!isCaptionsUnavailable(error) || !options.stt) throw error;
+  }
+  if (caption !== undefined) {
+    return publishCaptioned(request.temporaryDirectory, video.canonicalUri, extraction, caption);
+  }
+  const localStt = localSttConfiguration(dependencies.environment ?? process.env);
+  if (localStt.status === 'invalid') {
     throw youtubeError(
-      'YOUTUBE_EXTRACTION_FAILED',
-      'Unable to read the selected caption artifact.',
+      'YOUTUBE_STT_CONFIGURATION_INVALID',
+      'The local STT runtime configuration is invalid.',
     );
   }
-  const captionPath = `assets/${captionArtifactName(caption.candidate.language, caption.candidate.kind)}`;
-
-  try {
-    await mkdir(request.temporaryDirectory, { recursive: true });
-    return [
-      await writeArtifact(
-        request.temporaryDirectory,
-        'original.info.json',
-        extraction.infoJsonBytes,
-        'application/json',
-        'original',
-        {
-          canonicalUri: video.canonicalUri,
-          extractor: 'yt-dlp',
-          extractorVersion: extraction.ytDlpVersion,
-        },
-      ),
-      await writeArtifact(
-        request.temporaryDirectory,
-        'content.md',
-        markdown.content,
-        'text/markdown',
-        'normalized',
-        {
-          canonicalUri: video.canonicalUri,
-          extractor: 'yt-dlp',
-          extractorVersion: extraction.ytDlpVersion,
-          format: 'youtube',
-          extractionStatus: 'complete',
-          language: caption.candidate.language,
-          captionKind: caption.candidate.kind,
-          warnings: markdown.warnings,
-        },
-      ),
-      await writeArtifact(
-        request.temporaryDirectory,
-        captionPath,
-        captionBytes,
-        'text/vtt',
-        'asset',
-        { language: caption.candidate.language, captionKind: caption.candidate.kind },
-      ),
-    ];
-  } catch (error) {
-    if (hasYoutubeCode(error)) throw error;
-    throw youtubeError('YOUTUBE_EXTRACTION_FAILED', 'Unable to materialize YouTube artifacts.');
+  if (localStt.status === 'unconfigured') {
+    throw youtubeError('YOUTUBE_STT_UNAVAILABLE', 'No local STT runtime is configured.');
   }
+  const audio = await downloadSttInput(
+    runner,
+    executable,
+    request.temporaryDirectory,
+    video.canonicalUri,
+    signal,
+  );
+  const transcript = await transcribeLocalInput(
+    localStt.configuration,
+    audio,
+    request.temporaryDirectory,
+    signal,
+    dependencies.sttRunner,
+  );
+  return publishTranscribed(request.temporaryDirectory, video.canonicalUri, extraction, transcript);
 }
 
 function probeYoutube(input: Readonly<Record<string, unknown>>): ProbeResult {
@@ -178,11 +179,22 @@ function validatedInput(input: Readonly<Record<string, unknown>>) {
   return canonicalYoutubeVideo(input.url);
 }
 
-function validatedLanguages(options: Readonly<Record<string, unknown>>): readonly string[] {
-  if (Object.keys(options).some((key) => key !== 'language')) {
-    throw youtubeError('YOUTUBE_INPUT_INVALID', 'options must be {} or { language: string }.');
+function validatedOptions(options: Readonly<Record<string, unknown>>): {
+  readonly languages: readonly string[];
+  readonly stt: boolean;
+} {
+  if (Object.keys(options).some((key) => key !== 'language' && key !== 'stt')) {
+    throw youtubeError(
+      'YOUTUBE_INPUT_INVALID',
+      'options must be {} or { language: string } with optional stt.',
+    );
   }
-  if (options.language === undefined) return ['pt', 'en'];
+  if (options.stt !== undefined && typeof options.stt !== 'boolean') {
+    throw youtubeError('YOUTUBE_INPUT_INVALID', 'options.stt must be a boolean.');
+  }
+  if (options.language === undefined) {
+    return { languages: ['pt', 'en'], stt: options.stt === true };
+  }
   if (typeof options.language !== 'string') {
     throw youtubeError('YOUTUBE_INPUT_INVALID', 'options.language must be a string.');
   }
@@ -197,7 +209,7 @@ function validatedLanguages(options: Readonly<Record<string, unknown>>): readonl
       'options.language must contain comma-separated language tags.',
     );
   }
-  return [...new Set(normalized as readonly string[])];
+  return { languages: [...new Set(normalized as readonly string[])], stt: options.stt === true };
 }
 
 async function ytDlpCheck(
@@ -268,6 +280,127 @@ async function extractVersionWithRunner(
   return { stdout: result.stdout, stderr: result.stderr };
 }
 
+async function publishCaptioned(
+  temporaryDirectory: string,
+  canonicalUri: string,
+  extraction: YoutubeExtraction,
+  caption: SelectedYoutubeCaption,
+): Promise<readonly SourceArtifact[]> {
+  const markdown = normalizeYoutubeMarkdown({
+    canonicalUri,
+    info: extraction.infoJson,
+    caption,
+    ytDlpVersion: extraction.ytDlpVersion,
+  });
+  let captionBytes: Uint8Array;
+  try {
+    captionBytes = new Uint8Array(await readFile(caption.candidate.path));
+  } catch {
+    throw youtubeError(
+      'YOUTUBE_EXTRACTION_FAILED',
+      'Unable to read the selected caption artifact.',
+    );
+  }
+  const captionPath = `assets/${captionArtifactName(caption.candidate.language, caption.candidate.kind)}`;
+  try {
+    await mkdir(temporaryDirectory, { recursive: true });
+    return [
+      await writeArtifact(
+        temporaryDirectory,
+        'original.info.json',
+        extraction.infoJsonBytes,
+        'application/json',
+        'original',
+        {
+          canonicalUri,
+          extractor: 'yt-dlp',
+          extractorVersion: extraction.ytDlpVersion,
+        },
+      ),
+      await writeArtifact(
+        temporaryDirectory,
+        'content.md',
+        markdown.content,
+        'text/markdown',
+        'normalized',
+        {
+          canonicalUri,
+          extractor: 'yt-dlp',
+          extractorVersion: extraction.ytDlpVersion,
+          format: 'youtube',
+          extractionStatus: 'complete',
+          language: caption.candidate.language,
+          captionKind: caption.candidate.kind,
+          warnings: markdown.warnings,
+        },
+      ),
+      await writeArtifact(temporaryDirectory, captionPath, captionBytes, 'text/vtt', 'asset', {
+        language: caption.candidate.language,
+        captionKind: caption.candidate.kind,
+      }),
+    ];
+  } catch (error) {
+    if (hasYoutubeCode(error)) throw error;
+    throw youtubeError('YOUTUBE_EXTRACTION_FAILED', 'Unable to materialize YouTube artifacts.');
+  }
+}
+
+async function publishTranscribed(
+  temporaryDirectory: string,
+  canonicalUri: string,
+  extraction: YoutubeExtraction,
+  transcript: string,
+): Promise<readonly SourceArtifact[]> {
+  const markdown = normalizeYoutubeMarkdown({
+    canonicalUri,
+    info: extraction.infoJson,
+    transcript,
+    ytDlpVersion: extraction.ytDlpVersion,
+  });
+  try {
+    await mkdir(temporaryDirectory, { recursive: true });
+    return [
+      await writeArtifact(
+        temporaryDirectory,
+        'original.info.json',
+        extraction.infoJsonBytes,
+        'application/json',
+        'original',
+        {
+          canonicalUri,
+          extractor: 'yt-dlp',
+          extractorVersion: extraction.ytDlpVersion,
+        },
+      ),
+      await writeArtifact(
+        temporaryDirectory,
+        'content.md',
+        markdown.content,
+        'text/markdown',
+        'normalized',
+        {
+          canonicalUri,
+          extractor: 'yt-dlp',
+          extractorVersion: extraction.ytDlpVersion,
+          format: 'youtube',
+          extractionStatus: 'complete',
+          warnings: markdown.warnings,
+        },
+      ),
+      await writeArtifact(
+        temporaryDirectory,
+        'assets/transcript.txt',
+        transcript,
+        'text/plain',
+        'asset',
+      ),
+    ];
+  } catch (error) {
+    if (hasYoutubeCode(error)) throw error;
+    throw youtubeError('YOUTUBE_EXTRACTION_FAILED', 'Unable to materialize YouTube artifacts.');
+  }
+}
+
 async function writeArtifact(
   temporaryDirectory: string,
   path: string,
@@ -315,7 +448,14 @@ type YoutubePluginErrorCode =
   | 'YOUTUBE_RUNTIME_UNAVAILABLE'
   | 'YOUTUBE_EXTRACTION_FAILED'
   | 'YOUTUBE_RESPONSE_INVALID'
-  | 'YOUTUBE_CAPTIONS_UNAVAILABLE';
+  | 'YOUTUBE_CAPTIONS_UNAVAILABLE'
+  | 'YOUTUBE_STT_UNAVAILABLE'
+  | 'YOUTUBE_STT_CONFIGURATION_INVALID'
+  | 'YOUTUBE_MEDIA_LIMIT_EXCEEDED';
+
+function isCaptionsUnavailable(error: unknown): boolean {
+  return hasYoutubeCode(error) && error.code === 'YOUTUBE_CAPTIONS_UNAVAILABLE';
+}
 
 function youtubeError(code: YoutubePluginErrorCode, message: string): YoutubePluginError {
   return new YoutubePluginError(code, message);

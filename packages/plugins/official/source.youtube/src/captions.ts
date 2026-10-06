@@ -16,7 +16,8 @@ export interface SelectYoutubeCaptionInput {
 export interface NormalizeYoutubeMarkdownInput {
   readonly canonicalUri: string;
   readonly info: Readonly<Record<string, unknown>>;
-  readonly caption: SelectedYoutubeCaption;
+  readonly caption?: SelectedYoutubeCaption;
+  readonly transcript?: string;
   readonly ytDlpVersion: string;
 }
 
@@ -54,7 +55,7 @@ export async function selectYoutubeCaption(
   }
   throw new YoutubeCaptionsError(
     'YOUTUBE_CAPTIONS_UNAVAILABLE',
-    'No usable requested captions were available. Local speech-to-text fallback is not implemented; retry with another requested language or provide a captioned source.',
+    'No usable requested captions were available. Pass --stt with SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS, retry with another requested language, or provide a captioned source.',
   );
 }
 
@@ -62,7 +63,7 @@ export function normalizeYoutubeMarkdown(input: NormalizeYoutubeMarkdownInput): 
   readonly content: string;
   readonly warnings: readonly string[];
 } {
-  const warnings = [...input.caption.warnings];
+  const warnings = [...(input.caption?.warnings ?? [])];
   const title = textValue(input.info.title);
   const lines = [`# ${escapeMarkdown(title ?? '')}`, ''];
   if (title === undefined) warnings.push('Missing video title metadata.');
@@ -79,14 +80,17 @@ export function normalizeYoutubeMarkdown(input: NormalizeYoutubeMarkdownInput): 
     warnings.push('Ignored invalid duration metadata.');
   }
   appendOptionalLine(lines, 'Duration', duration);
-  lines.push(`- Caption: ${input.caption.candidate.language} (${input.caption.candidate.kind})`);
+  if (input.caption !== undefined) {
+    lines.push(`- Caption: ${input.caption.candidate.language} (${input.caption.candidate.kind})`);
+  }
   lines.push(`- yt-dlp: ${input.ytDlpVersion}`);
 
   const description = textValue(input.info.description);
   if (description !== undefined) {
     lines.push('', '## Description', '', description);
   }
-  lines.push('', '## Transcript', '', input.caption.text.trimEnd(), '');
+  const transcript = (input.caption?.text ?? input.transcript ?? '').trimEnd();
+  lines.push('', '## Transcript', '', transcript, '');
   return { content: lines.join('\n'), warnings };
 }
 

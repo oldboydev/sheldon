@@ -98,10 +98,11 @@ describe('URL ingestion CLI flow', () => {
       exitCode: 1,
       stderr: expect.stringContaining('Error [YOUTUBE_CAPTIONS_UNAVAILABLE]'),
     });
-    expect(result.stderr).toContain('Local speech-to-text fallback is not implemented.');
-    expect(result.stderr).toContain(
-      'Recovery: Retry with another requested language or provide a captioned source.',
-    );
+    expect(result.stderr).toContain('No usable requested captions were available.');
+    expect(result.stderr).not.toContain('fallback is not implemented');
+    expect(result.stderr).toContain('--stt');
+    expect(result.stderr).toContain('SHELDON_LOCAL_STT_EXECUTABLE');
+    expect(result.stderr).toContain('SHELDON_LOCAL_STT_ARGUMENTS');
   }, 15_000);
 
   it.each([
@@ -179,6 +180,18 @@ describe('URL ingestion CLI flow', () => {
     });
     expect(result.stderr).not.toContain(secret);
   });
+
+  it('forwards --stt to a YouTube plugin that declares the local STT effect', async () => {
+    const plugin = await installYoutubePlugin(harness.root, undefined, { stt: true });
+
+    const result = await runCli(
+      [...ingestArguments('https://youtu.be/AbCdEf12345'), '--plugin', 'fixture.youtube', '--stt'],
+      harness.dependencies,
+    );
+
+    expect(result).toMatchObject({ exitCode: 0, stderr: '' });
+    await expect(plugin.lastOptions()).resolves.toEqual({ stt: true });
+  }, 15_000);
 
   it('forwards media and STT to a plugin based on declared capabilities, not its ID', async () => {
     const plugin = await installSocialPlugin(harness.root);
@@ -442,6 +455,7 @@ async function installSocialPlugin(root: string): Promise<UrlPluginFixtureHandle
 async function installYoutubePlugin(
   root: string,
   errorCode?: string,
+  extras: { readonly stt?: boolean } = {},
 ): Promise<YoutubePluginFixtureHandle> {
   const directory = join(root, 'plugin-fixtures', 'fixture.youtube');
   await mkdir(directory, { recursive: true });
@@ -455,6 +469,7 @@ async function installYoutubePlugin(
     priority: 200,
     platforms: [process.platform],
     permissions: { network: false, cookies: false },
+    ...(extras.stt === true ? { effects: { ocr: false, stt: true, modelDownload: false } } : {}),
     dependencies: [],
   };
   await writeFile(

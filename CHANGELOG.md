@@ -6,6 +6,14 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Added
+
+- `source.youtube` aceita `ingest url --stt` com o mesmo contrato local do Instagram
+  (`SHELDON_LOCAL_STT_EXECUTABLE` / `SHELDON_LOCAL_STT_ARGUMENTS`, áudio temporário até 50 MiB,
+  sem download de modelo). Sem `--stt`, vídeo sem legenda continua `YOUTUBE_CAPTIONS_UNAVAILABLE`,
+  agora apontando `--stt` e as variáveis de ambiente. `plugin doctor source.youtube` avisa que o
+  STT local é opcional.
+
 ## [0.2.4] - 2026-10-05
 
 Tag `v0.2.4`. Publica o npm `latest` e o catálogo oficial. O probe de `yt-dlp` do plugin doctor

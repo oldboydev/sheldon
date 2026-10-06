@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -126,20 +126,162 @@ describe('source.youtube', () => {
         { input: { url: 'https://youtu.be/AbCdEf12345' }, options: {}, temporaryDirectory },
         context,
       ),
-    ).rejects.toThrow('YOUTUBE_CAPTIONS_UNAVAILABLE');
+    ).rejects.toMatchObject({
+      code: 'YOUTUBE_CAPTIONS_UNAVAILABLE',
+      message: expect.stringMatching(
+        /Pass --stt with SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS/u,
+      ),
+    });
+    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('uses captions and skips local STT when captions exist', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const run = vi.fn(fixtureRunner.run);
+    const sttRunner = { run: vi.fn() };
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: { run },
+      sttRunner,
+      environment: {},
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://youtu.be/AbCdEf12345' },
+        options: { stt: true },
+        temporaryDirectory,
+      },
+      context,
+    );
+
+    expect(await readFile(join(temporaryDirectory, 'content.md'), 'utf8')).toContain('Olá mundo');
+    expect(artifacts[1]?.metadata).toMatchObject({ captionKind: 'manual' });
+    expect(sttRunner.run).not.toHaveBeenCalled();
+    expect(run.mock.calls.every(([, arguments_]) => !arguments_.includes('--format'))).toBe(true);
+  });
+
+  it('fails actionably when --stt is set without a local STT executable', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: noCaptionRunner,
+      environment: {},
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://youtu.be/AbCdEf12345' },
+          options: { stt: true },
+          temporaryDirectory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'YOUTUBE_STT_UNAVAILABLE' });
+    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('reports invalid local STT configuration distinctly from an absent configuration', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: noCaptionRunner,
+      environment: {
+        SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt',
+        SHELDON_LOCAL_STT_ARGUMENTS: '{not json}',
+      },
+    });
+
+    await expect(
+      plugin.ingest(
+        {
+          input: { url: 'https://youtu.be/AbCdEf12345' },
+          options: { stt: true },
+          temporaryDirectory,
+        },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'YOUTUBE_STT_CONFIGURATION_INVALID' });
+    await expect(plugin.healthcheck(context)).resolves.toMatchObject({
+      checks: expect.arrayContaining([
+        expect.objectContaining({ id: 'local-stt', severity: 'error' }),
+      ]),
+    });
+  });
+
+  it('runs a configured local STT runtime with a bounded local media input and never downloads a model', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const run = vi.fn(async (_file, arguments_, options) => {
+      if (arguments_.includes('--format')) {
+        await writeFile(join(options.cwd, 'stt-input.m4a'), 'audio');
+        return { stdout: '', stderr: '' };
+      }
+      return noCaptionRunner.run(_file, arguments_, options);
+    });
+    const sttRunner = { run: vi.fn().mockResolvedValue({ stdout: 'fala local', stderr: '' }) };
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: { run },
+      sttRunner,
+      environment: {
+        SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt',
+        SHELDON_LOCAL_STT_ARGUMENTS: JSON.stringify(['--offline', '{input}']),
+      },
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://youtu.be/AbCdEf12345' },
+        options: { stt: true },
+        temporaryDirectory,
+      },
+      context,
+    );
+
+    expect(await readFile(join(temporaryDirectory, 'content.md'), 'utf8')).toContain('fala local');
+    expect(artifacts[1]?.metadata).toMatchObject({ extractionStatus: 'complete' });
+    expect(sttRunner.run).toHaveBeenCalledWith(
+      'local-stt',
+      ['--offline', join(temporaryDirectory, 'stt-input.m4a')],
+      expect.objectContaining({ cwd: temporaryDirectory, shell: false }),
+    );
+    expect(run.mock.calls.some(([, arguments_]) => arguments_.includes('--max-filesize'))).toBe(
+      true,
+    );
+    expect(run.mock.calls.find(([, arguments_]) => arguments_.includes('--format'))?.[1]).toEqual(
+      expect.arrayContaining(['--format', 'bestaudio/best', '--max-filesize', '50M']),
+    );
+    expect(sttRunner.run.mock.calls[0]?.[2]).toMatchObject({ shell: false });
   });
 
   it('declares its yt-dlp runtime dependency and bounded version healthcheck', async () => {
-    const plugin = createOfficialSourceYoutubePlugin({ version: async () => '2026.01.01' });
+    const plugin = createOfficialSourceYoutubePlugin({
+      version: async () => '2026.01.01',
+      environment: {},
+    });
     await expect(plugin.describe(context)).resolves.toMatchObject({
       id: 'source.youtube',
       priority: 200,
       permissions: { network: true, cookies: false },
-      dependencies: [expect.objectContaining({ id: 'yt-dlp', kind: 'executable', required: true })],
+      effects: { ocr: false, stt: true, modelDownload: false },
+      dependencies: expect.arrayContaining([
+        expect.objectContaining({ id: 'yt-dlp', kind: 'executable', required: true }),
+        expect.objectContaining({ id: 'local-stt', kind: 'runtime', required: false }),
+      ]),
     });
     await expect(plugin.healthcheck(context)).resolves.toMatchObject({
-      checks: [expect.objectContaining({ id: 'yt-dlp', severity: 'info' })],
+      checks: [
+        expect.objectContaining({ id: 'yt-dlp', severity: 'info' }),
+        expect.objectContaining({
+          id: 'local-stt',
+          severity: 'warning',
+          message: 'Local STT is optional and no model is downloaded automatically.',
+        }),
+      ],
     });
+    const health = await plugin.healthcheck(context);
+    expect(health.checks.some((check) => check.severity === 'error')).toBe(false);
   });
 
   it('disables yt-dlp configuration while probing its version', async () => {
@@ -153,7 +295,7 @@ describe('source.youtube', () => {
     });
 
     await expect(plugin.healthcheck(context)).resolves.toMatchObject({
-      checks: [expect.objectContaining({ id: 'yt-dlp', severity: 'info' })],
+      checks: expect.arrayContaining([expect.objectContaining({ id: 'yt-dlp', severity: 'info' })]),
     });
     expect(run).toHaveBeenCalledWith(
       join('/managed/source.youtube', 'runtime', 'linux-x64', 'yt-dlp'),
@@ -180,13 +322,13 @@ describe('source.youtube', () => {
       await vi.advanceTimersByTimeAsync(1_500);
 
       await expect(health).resolves.toMatchObject({
-        checks: [
+        checks: expect.arrayContaining([
           {
             id: 'yt-dlp',
             severity: 'info',
             message: 'yt-dlp 2026.07.04 is available.',
           },
-        ],
+        ]),
       });
     });
 
@@ -210,14 +352,14 @@ describe('source.youtube', () => {
 
       await vi.advanceTimersByTimeAsync(1);
       await expect(health).resolves.toMatchObject({
-        checks: [
+        checks: expect.arrayContaining([
           {
             id: 'yt-dlp',
             severity: 'error',
             message: 'yt-dlp is unavailable or did not respond to the version probe.',
             remediation: 'Reinstall the official source.youtube plugin for this platform.',
           },
-        ],
+        ]),
       });
     });
   });
