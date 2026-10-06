@@ -31,7 +31,7 @@ const treeSha = '2'.repeat(40);
 const firstBlobSha = blobObjectId('HEAD');
 const secondBlobSha = blobObjectId('second');
 const execFile = promisify(execFileCallback);
-const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
+const nullDevice = '/dev/null';
 const hostileFilterProgram = [
   "import { writeFileSync } from 'node:fs';",
   "writeFileSync(new URL('filter-ran', import.meta.url), 'executed');",
@@ -537,7 +537,7 @@ describe('committed Git boundary', { timeout: 15_000 }, () => {
         GIT_OPTIONAL_LOCKS: '0',
         LC_ALL: 'C',
       });
-      expect(command.env.GIT_CONFIG_GLOBAL).toBeTruthy();
+      expect(command.env.GIT_CONFIG_GLOBAL).toBe('/dev/null');
       expect(command.env).not.toHaveProperty('GIT_DIR');
       expect(command.args).toContain('--no-pager');
       expect(command.args).toContain('core.fsmonitor=false');

@@ -19,7 +19,7 @@ import { selectCommittedSnapshot } from './snapshot.js';
 
 const gitRemediation = 'Install Git and ensure it is available on PATH.';
 const execFile = promisify(execFileCallback);
-const nullDevice = process.platform === 'win32' ? 'NUL' : '/dev/null';
+const nullDevice = '/dev/null';
 
 const description: PluginDescription = {
   id: 'source.repository',

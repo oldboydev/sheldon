@@ -368,7 +368,7 @@ async function execGit(repository: string, arguments_: readonly string[]): Promi
   await execFile('git', [...arguments_], {
     cwd: repository,
     env: {
-      GIT_CONFIG_GLOBAL: process.platform === 'win32' ? 'NUL' : '/dev/null',
+      GIT_CONFIG_GLOBAL: '/dev/null',
       GIT_CONFIG_NOSYSTEM: '1',
       GIT_TERMINAL_PROMPT: '0',
       PATH: process.env.PATH ?? process.env.Path ?? '',
