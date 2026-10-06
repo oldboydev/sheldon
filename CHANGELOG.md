@@ -6,6 +6,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Changed
+
+- `sheldon web` usa o design system do produto (navy `#001663`, magenta `#e74092`, Nunito Sans):
+  titlebar 48px, sidebar 232px agrupada em Bancada/Vault/Entrega/Sistema, CTA magenta, e Revisão
+  lista propostas pendentes por tópico. O wordmark é o texto Sheldon.
+
 ## [0.2.5] - 2026-10-06
 
 Tag `v0.2.5`. Publica o npm `latest` e o catálogo oficial. `source.youtube` ganha fallback STT

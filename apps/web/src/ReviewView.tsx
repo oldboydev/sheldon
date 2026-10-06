@@ -28,6 +28,7 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
   const [slug, setSlug] = useState('');
   const [proposalId, setProposalId] = useState('');
   const [preview, setPreview] = useState<readonly PreviewFile[]>();
+  const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string>();
 
   useEffect(() => {
@@ -59,11 +60,8 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
     })();
   }, []);
 
-  const selected = topics.find((topic) => topic.slug === slug);
-  const proposals = selected?.proposals ?? [];
-
-  const load = async (event: FormEvent) => {
-    event.preventDefault();
+  const load = async (event?: FormEvent) => {
+    event?.preventDefault();
     setMessage(undefined);
     setPreview(undefined);
     try {
@@ -100,68 +98,104 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
     }
   };
 
+  const reject = async () => {
+    if (!preview) return;
+    try {
+      await request(
+        `/reviews/topic/${encodeURIComponent(slug)}/${encodeURIComponent(proposalId)}/reject`,
+        {
+          method: 'POST',
+          body: { confirmation: proposalId, reason },
+        },
+      );
+      setMessage('Proposta rejeitada.');
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Não foi possível rejeitar a proposta.');
+    }
+  };
+
   return (
     <div className="page">
-      <p className="eyebrow">REVISÃO HUMANA</p>
+      <p className="eyebrow">Revisão humana</p>
       <h1>Nada entra na wiki por acaso.</h1>
       {topics.length === 0 ? (
         <p className="muted">{message ?? 'Nenhuma proposta pendente neste vault.'}</p>
       ) : (
-        <form className="source-form" onSubmit={(event) => void load(event)}>
-          <label>
-            Tópico
-            <select
-              name="topic"
-              value={slug}
-              onChange={(event) => {
-                const nextSlug = event.target.value;
-                setSlug(nextSlug);
-                const next = topics.find((topic) => topic.slug === nextSlug);
-                setProposalId(next?.proposals[0]?.id ?? '');
-                setPreview(undefined);
-                setMessage(undefined);
-              }}
-              required
-            >
-              {topics.map((topic) => (
-                <option key={topic.slug} value={topic.slug}>
-                  {topic.title}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            Proposta
-            <select
-              name="proposal"
-              value={proposalId}
-              onChange={(event) => {
-                setProposalId(event.target.value);
-                setPreview(undefined);
-                setMessage(undefined);
-              }}
-              required
-            >
-              {proposals.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.id} ({item.agent})
-                </option>
-              ))}
-            </select>
-          </label>
-          <button className="primary">Abrir revisão</button>
-        </form>
+        <>
+          <ul className="proposal-list">
+            {topics.map((topic) => (
+              <li key={topic.slug} className="card card__pad">
+                <p className="eyebrow">{topic.title}</p>
+                {topic.proposals.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className={
+                      slug === topic.slug && proposalId === item.id
+                        ? 'proposal-item is-active'
+                        : 'proposal-item'
+                    }
+                    data-proposal-id={item.id}
+                    aria-current={
+                      slug === topic.slug && proposalId === item.id ? 'true' : undefined
+                    }
+                    onClick={() => {
+                      setSlug(topic.slug);
+                      setProposalId(item.id);
+                      setPreview(undefined);
+                      setMessage(undefined);
+                    }}
+                  >
+                    {item.id}
+                    <small className="muted"> {item.agent}</small>
+                  </button>
+                ))}
+              </li>
+            ))}
+          </ul>
+          <form className="source-form" onSubmit={(event) => void load(event)}>
+            <button className="btn btn--primary primary">Abrir revisão</button>
+          </form>
+        </>
       )}
       {preview?.map((file) => (
-        <article className="panel" key={file.path}>
+        <article className="card card__pad panel" key={file.path}>
           <b>{file.path}</b>
           <pre className="output">{file.diff?.text}</pre>
         </article>
       ))}
       {preview && preview.length > 0 && (
-        <button className="primary" onClick={() => void approve()}>
-          Aprovar todos os arquivos
-        </button>
+        <div className="card card__pad">
+          <p>
+            Confirma a proposta <b>{proposalId}</b>.
+          </p>
+          <label className="field">
+            Motivo da rejeição
+            <textarea
+              className="textarea"
+              name="reason"
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+            />
+          </label>
+          <div className="review-actions">
+            <button
+              className="btn btn--primary primary"
+              type="button"
+              onClick={() => void approve()}
+            >
+              Aprovar
+            </button>
+            <button
+              className="btn btn--danger-soft"
+              type="button"
+              onClick={() => void reject()}
+              disabled={!reason.trim()}
+            >
+              Rejeitar
+            </button>
+          </div>
+        </div>
       )}
       {message && topics.length > 0 && <div className="notice">{message}</div>}
       <div className="panel">

@@ -42,8 +42,8 @@ sheldon web
 - Does not expose the vault on the LAN or internet.
 - **Revisão** lists topics that currently have a pending proposal, then the pending proposals of
   the chosen topic. **Abrir revisão** loads the file diffs; approve still writes only the selected
-  wiki paths. Compile from the CLI does not fill the job list — pick the proposal from those
-  selects.
+  wiki paths. Compile from the CLI does not fill the job list — pick the proposal from the pending
+  list.
 
 ## Common failures
 

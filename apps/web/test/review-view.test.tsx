@@ -67,21 +67,20 @@ afterEach(() => {
 });
 
 describe('ReviewView', () => {
-  it('offers topic and proposal selects from pending reviews and renders nested preview files', async () => {
+  it('lists pending proposals per topic and opens nested preview files', async () => {
     stubFetch({ list: pendingList, preview: nestedPreview });
     await renderView();
 
-    const topic = container!.querySelector('select[name="topic"]') as HTMLSelectElement;
-    const proposal = container!.querySelector('select[name="proposal"]') as HTMLSelectElement;
-    expect([...topic.options].map((option) => option.value)).toEqual(['observability']);
-    expect([...proposal.options].map((option) => option.value)).toEqual([
-      'proposal-observability-notes-3',
-    ]);
+    expect(container!.querySelectorAll('[data-proposal-id]').length).toBeGreaterThan(0);
+    expect(container!.textContent).toContain('Observability');
+    expect(container!.textContent).toContain('proposal-observability-notes-3');
+    expect(container!.querySelectorAll('select[name="topic"]').length).toBe(0);
 
     await clickNamed('Abrir revisão');
     expect(container!.textContent).toContain('wiki/wide-events.md');
     expect(container!.textContent).toContain('+Wide events body');
     expect(container!.textContent).toContain('wiki/canonical-log-lines.md');
+    expect(container!.querySelector('.card, .panel')).not.toBeNull();
   });
 
   it('shows the API error when preview fails', async () => {
@@ -102,7 +101,7 @@ describe('ReviewView', () => {
     expect(container!.querySelector('select[name="topic"]')).toBeNull();
   });
 
-  it('fills the proposal select from the chosen topic', async () => {
+  it('fills the proposal list from the chosen topic', async () => {
     stubFetch({
       list: {
         topics: [
@@ -132,28 +131,47 @@ describe('ReviewView', () => {
       },
     });
     await renderView();
-    const topic = container!.querySelector('select[name="topic"]') as HTMLSelectElement;
-    expect([...topic.options].map((option) => option.value)).toEqual(['observability', 'memory']);
-    await act(async () => {
-      topic.value = 'memory';
-      topic.dispatchEvent(new Event('change', { bubbles: true }));
-    });
-    const proposal = container!.querySelector('select[name="proposal"]') as HTMLSelectElement;
-    expect([...proposal.options].map((option) => option.value)).toEqual([
-      'proposal-memory-notes-1',
-    ]);
+    expect(container!.textContent).toContain('proposal-observability-notes-3');
+    expect(container!.textContent).toContain('proposal-memory-notes-1');
+    await clickNamed('proposal-memory-notes-1');
+    const selected = container!.querySelector(
+      '[data-proposal-id].is-active, [data-proposal-id][aria-current="true"]',
+    );
+    expect(selected?.getAttribute('data-proposal-id')).toBe('proposal-memory-notes-1');
   });
 
   it('approves the wiki paths from the nested preview files', async () => {
     stubFetch({ list: pendingList, preview: nestedPreview });
     await renderView();
     await clickNamed('Abrir revisão');
-    await clickNamed('Aprovar todos os arquivos');
+    expect(container!.textContent).toContain('proposal-observability-notes-3');
+    await clickNamed('Aprovar');
     expect(fetches.find((item) => item.url.includes('/approve'))).toMatchObject({
       method: 'POST',
       body: {
         confirmation: 'proposal-observability-notes-3',
         paths: ['wiki/wide-events.md', 'wiki/canonical-log-lines.md'],
+      },
+    });
+  });
+
+  it('rejects with confirmation equal to the proposal id and a reason', async () => {
+    stubFetch({ list: pendingList, preview: nestedPreview });
+    await renderView();
+    await clickNamed('Abrir revisão');
+    const reason = container!.querySelector('textarea[name="reason"]') as HTMLTextAreaElement;
+    expect(reason).toBeDefined();
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(reason, 'fora de escopo');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await clickNamed('Rejeitar');
+    expect(fetches.find((item) => item.url.includes('/reject'))).toMatchObject({
+      method: 'POST',
+      body: {
+        confirmation: 'proposal-observability-notes-3',
+        reason: 'fora de escopo',
       },
     });
   });
@@ -181,6 +199,7 @@ function stubFetch(options: {
       return json(200, options.list ?? { topics: [] });
     }
     if (url.includes('/approve')) return json(200, { approved: true });
+    if (url.includes('/reject')) return json(200, { rejected: true });
     if (url.includes('/api/v1/reviews/topic/')) {
       if (options.previewError) return json(400, options.previewError);
       return json(200, options.preview ?? {});

@@ -31,6 +31,10 @@ describe('local web server', () => {
       expect(dashboard.statusCode).toBe(200);
       expect(dashboard.headers['access-control-allow-origin']).toBeUndefined();
       expect(dashboard.json()).toMatchObject({ health: { vault: true, sqlite: true } });
+      expect(dashboard.json()).toMatchObject({
+        path: root,
+        jobs: { queued: 0, running: 0, failed: 0 },
+      });
 
       const rebinding = await server.inject({
         url: '/api/v1/dashboard',
@@ -66,6 +70,22 @@ describe('local web server', () => {
       expect(started.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/u);
     } finally {
       await started.server.close();
+    }
+  });
+
+  it('dashboard includes the vault path', async () => {
+    const root = await vault();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const dashboard = await server.inject('/api/v1/dashboard');
+      expect(dashboard.statusCode).toBe(200);
+      expect(dashboard.json()).toMatchObject({
+        path: root,
+        health: { vault: true, sqlite: true },
+        jobs: { queued: 0, running: 0, failed: 0 },
+      });
+    } finally {
+      await server.close();
     }
   });
 

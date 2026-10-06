@@ -22,6 +22,7 @@ export interface JobPage {
 }
 
 export interface Dashboard {
+  readonly path: string;
   readonly health: { readonly vault: boolean; readonly sqlite: boolean };
   readonly jobs: { readonly queued: number; readonly failed: number; readonly running: number };
   readonly activity: readonly Job[];
