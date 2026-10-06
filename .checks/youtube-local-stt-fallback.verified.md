@@ -57,7 +57,7 @@ Skipped (profile light).
 
 ## Gate
 
-```
+```bash
 npx vitest run packages/plugins/official/source.youtube/test/plugin.test.ts packages/plugins/official/source.youtube/test/captions.test.ts packages/plugin-host/test/process-runner-url-diagnostics.test.ts apps/cli/test/url-ingestion-acceptance.test.ts packages/plugin-host/test/doctor.test.ts --reporter=verbose -t "uses captions and skips local STT when captions exist|fails with an actionable stable code when no candidate produces text|reports unavailable captions with a stable diagnostic code|maps unavailable YouTube captions to a safe actionable remediation|shows an honest actionable diagnostic when YouTube captions are unavailable|fails actionably when --stt is set without a local STT executable|maps unavailable YouTube local STT to an actionable remediation|runs a configured local STT runtime with a bounded local media input and never downloads a model|reports invalid local STT configuration distinctly from an absent configuration|maps invalid YouTube local STT configuration to an actionable remediation|forwards --stt to a YouTube plugin that declares the local STT effect|declares its yt-dlp runtime dependency and bounded version healthcheck|runs only healthcheck, saves exact health, and keeps warnings healthy"
 ```
 
