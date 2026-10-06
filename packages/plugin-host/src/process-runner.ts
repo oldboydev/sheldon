@@ -129,6 +129,9 @@ const sourceDiagnosticCodes = new Set([
   'YOUTUBE_EXTRACTION_FAILED',
   'YOUTUBE_RESPONSE_INVALID',
   'YOUTUBE_CAPTIONS_UNAVAILABLE',
+  'YOUTUBE_STT_UNAVAILABLE',
+  'YOUTUBE_STT_CONFIGURATION_INVALID',
+  'YOUTUBE_MEDIA_LIMIT_EXCEEDED',
   'REPOSITORY_INPUT_INVALID',
   'REPOSITORY_INPUT_UNREADABLE',
   'REPOSITORY_SYMLINK_FORBIDDEN',
@@ -821,13 +824,8 @@ function forwardedSourceDiagnostic(
   message: string,
   request: PrimaryRequest,
 ): { readonly message: string; readonly recovery: string } {
-  if (code === 'YOUTUBE_CAPTIONS_UNAVAILABLE') {
-    return {
-      message:
-        'No usable requested captions were available. Local speech-to-text fallback is not implemented.',
-      recovery: 'Retry with another requested language or provide a captioned source.',
-    };
-  }
+  const youtubeDiagnostic = youtubeRecovery(code);
+  if (youtubeDiagnostic !== undefined) return youtubeDiagnostic;
   const instagramDiagnostic = instagramRecovery(code);
   if (instagramDiagnostic !== undefined) return instagramDiagnostic;
   const linkedInDiagnostic = linkedInRecovery(code);
@@ -860,6 +858,36 @@ function linkedInRecovery(
     LINKEDIN_PLATFORM_CHANGED: {
       message: 'The public LinkedIn page no longer has a safely identifiable content region.',
       recovery: 'Update the experimental plugin; do not bypass platform protections.',
+    },
+  };
+  return recoveryByCode[code];
+}
+
+function youtubeRecovery(
+  code: string,
+): { readonly message: string; readonly recovery: string } | undefined {
+  const recoveryByCode: Readonly<
+    Record<string, { readonly message: string; readonly recovery: string }>
+  > = {
+    YOUTUBE_CAPTIONS_UNAVAILABLE: {
+      message: 'No usable requested captions were available.',
+      recovery:
+        'Pass --stt with SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS, retry with another requested language, or provide a captioned source.',
+    },
+    YOUTUBE_STT_UNAVAILABLE: {
+      message: 'No local speech-to-text runtime is configured for source.youtube.',
+      recovery:
+        'Remove --stt or configure a local STT runtime; no model will be downloaded automatically.',
+    },
+    YOUTUBE_STT_CONFIGURATION_INVALID: {
+      message: 'The configured local speech-to-text runtime is invalid for source.youtube.',
+      recovery:
+        'Set SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS to a valid local command configuration.',
+    },
+    YOUTUBE_MEDIA_LIMIT_EXCEEDED: {
+      message: 'The local speech-to-text input exceeds 50 MiB.',
+      recovery:
+        'Retry with a shorter video; the plugin will not download more than 50 MiB of audio.',
     },
   };
   return recoveryByCode[code];
