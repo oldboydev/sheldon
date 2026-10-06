@@ -11,11 +11,11 @@
 
 Step 1 (checklist vs design, per-screen arrangement coverage) did **not** run — profile is `light`. Sources were opened so checks could be judged against named values.
 
-| Source                                         | Opened           | Contradiction                | Uncovered                    |
-| ---------------------------------------------- | ---------------- | ---------------------------- | ---------------------------- |
-| `.interface-design/system.md`                  | yes - local file | n/a — step 1 skipped (light) | n/a — step 1 skipped (light) |
-| https://github.com/oldboydev/sheldon/issues/39 | yes - issue body | n/a — step 1 skipped (light) | n/a — step 1 skipped (light) |
-| `.tasks/web-design-system-restyle.md`          | yes - local file | n/a — step 1 skipped (light) | n/a — step 1 skipped (light) |
+| Source                                                | Opened           | Contradiction                | Uncovered                    |
+| ----------------------------------------------------- | ---------------- | ---------------------------- | ---------------------------- |
+| `.interface-design/system.md`                         | yes - local file | n/a — step 1 skipped (light) | n/a — step 1 skipped (light) |
+| [#39](https://github.com/oldboydev/sheldon/issues/39) | yes - issue body | n/a — step 1 skipped (light) | n/a — step 1 skipped (light) |
+| `.tasks/web-design-system-restyle.md`                 | yes - local file | n/a — step 1 skipped (light) | n/a — step 1 skipped (light) |
 
 ## Checks
 
@@ -68,7 +68,7 @@ Skipped — profile `light`.
 
 ## Gate
 
-```
+```text
 npx vitest run apps/web/test/styles.test.ts apps/web/test/app-shell.test.tsx apps/web/test/knowledge-view.test.tsx apps/web/test/review-view.test.tsx apps/web/test/server.test.ts -t "<23 named proofs>" --reporter=verbose
 ```
 
