@@ -6,6 +6,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- Conhecimento em `sheldon web` formata listas, negrito, código inline e URLs no corpo da
+  wiki, omite o H1 duplicado quando coincide com o título, mostra o título do conceito na
+  árvore e rotula vizinhos como saindo/entrando, sem o chip de proveniência vazar do card.
+
 ## [0.2.6] - 2026-10-06
 
 Tag `v0.2.6`. Publica o npm `latest` e o catálogo oficial. `sheldon web` adota o design system do

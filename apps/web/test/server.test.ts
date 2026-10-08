@@ -176,14 +176,14 @@ describe('wiki read api', () => {
       const topic = await server.inject('/api/v1/entities/topic/memory/wiki');
       expect(topic.statusCode).toBe(200);
       expect(topic.json()).toEqual([
-        { path: 'wiki/concepts/nested.md' },
-        { path: 'wiki/recall.md' },
-        { path: 'wiki/support.md' },
+        { path: 'wiki/concepts/nested.md', title: 'Nested concept' },
+        { path: 'wiki/recall.md', title: 'Active recall' },
+        { path: 'wiki/support.md', title: 'Study support' },
       ]);
 
       const project = await server.inject('/api/v1/entities/project/sheldon-app/wiki');
       expect(project.statusCode).toBe(200);
-      expect(project.json()).toEqual([{ path: 'wiki/search.md' }]);
+      expect(project.json()).toEqual([{ path: 'wiki/search.md', title: 'Search strategy' }]);
     } finally {
       await server.close();
     }

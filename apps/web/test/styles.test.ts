@@ -43,6 +43,19 @@ describe('web design tokens', () => {
     expect(css).toMatch(/\.wiki-layout\s*\{[^}]*grid-template-columns:\s*260px/s);
   });
 
+  it('conhecimento article layout wraps paths and styles wiki lists', async () => {
+    const css = await readFile(stylesPath, 'utf8');
+    const pageMax = /max-width:\s*(\d+)px/u.exec(
+      css.match(/\.page\.wiki-page\s*\{[^}]*\}/s)?.[0] ?? '',
+    );
+    expect(Number(pageMax?.[1])).toBeGreaterThan(1100);
+    expect(css).toMatch(/\.wiki-body ul\b/);
+    expect(css).toMatch(/\.wiki-paths[\s\S]*\.is-active/);
+    expect(css).toMatch(/\.wiki-aside[\s\S]*overflow-wrap/);
+    const asideProvenance = css.match(/\.wiki-aside[\s\S]*?\.provenance\s*\{[^}]+\}/s)?.[0] ?? '';
+    expect(asideProvenance).toMatch(/flex-wrap:\s*wrap|white-space:\s*normal/);
+  });
+
   it('honors prefers-reduced-motion', async () => {
     const css = await readFile(stylesPath, 'utf8');
     expect(css).toMatch(/@media \(prefers-reduced-motion:\s*reduce\)/);

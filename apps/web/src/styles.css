@@ -329,6 +329,10 @@ button {
   max-width: 1100px;
 }
 
+.page.wiki-page {
+  max-width: 1360px;
+}
+
 .page.narrow {
   max-width: 700px;
 }
@@ -840,14 +844,35 @@ h2 {
   text-align: left;
   border: 0;
   background: transparent;
-  color: var(--brand-magenta);
   padding: var(--sp-4) 0;
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
   line-height: 1.4;
 }
 
-.wiki-article h2 {
+.wiki-paths button {
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: var(--t-sm);
+  font-weight: var(--fw-600);
+  overflow-wrap: anywhere;
+  border-radius: var(--r-control);
+  padding: var(--sp-6) var(--sp-8);
+}
+
+.wiki-paths button:hover {
+  background: var(--bg-sunken);
+}
+
+.wiki-paths button.is-active {
+  background: color-mix(in srgb, var(--brand-navy) 8%, transparent);
+  color: var(--brand-navy);
+}
+
+[data-theme='dark'] .wiki-paths button.is-active {
+  background: color-mix(in srgb, var(--brand-magenta) 16%, transparent);
+  color: #fff;
+}
+
+.wiki-article > h2 {
   font-size: var(--t-xl);
   letter-spacing: -0.01em;
 }
@@ -864,7 +889,51 @@ h2 {
 .wiki-body h3 {
   font-weight: var(--fw-800);
   max-width: none;
+  margin: var(--sp-20) 0 var(--sp-12);
+}
+
+.wiki-body h1:first-child,
+.wiki-body h2:first-child,
+.wiki-body h3:first-child {
+  margin-top: 0;
+}
+
+.wiki-body h1 {
+  font-size: var(--t-xl);
+}
+
+.wiki-body h2 {
+  font-size: var(--t-lg);
+}
+
+.wiki-body p {
   margin: 0 0 var(--sp-12);
+}
+
+.wiki-body ul,
+.wiki-body ol {
+  margin: 0 0 var(--sp-16);
+  padding-left: var(--sp-20);
+}
+
+.wiki-body li {
+  margin: 0 0 var(--sp-6);
+}
+
+.wiki-body li:last-child {
+  margin-bottom: 0;
+}
+
+.wiki-body code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-sunken);
+  padding: 1px 0.35em;
+  border-radius: var(--r-sm);
+}
+
+.wiki-body strong {
+  font-weight: var(--fw-700);
 }
 
 .wiki-body a {
@@ -874,7 +943,40 @@ h2 {
 
 .wiki-aside {
   display: grid;
-  gap: var(--sp-4);
+  gap: var(--sp-16);
+  overflow-wrap: anywhere;
+}
+
+.wiki-aside button {
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  height: auto;
+  overflow-wrap: anywhere;
+}
+
+.wiki-relation {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  margin-left: var(--sp-8);
+  padding: 0 var(--sp-8);
+  border-radius: var(--r-pill);
+  font-family: var(--font-sans);
+  font-size: var(--t-2xs);
+  font-weight: var(--fw-700);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  vertical-align: middle;
+}
+
+.wiki-aside .provenance {
+  flex-wrap: wrap;
+  white-space: normal;
+  max-width: 100%;
 }
 
 .wiki-aside .output {

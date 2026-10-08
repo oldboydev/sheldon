@@ -1,6 +1,11 @@
 import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
 
-import { parseWikiMarkdown, resolveWikiHref, type WikiInline } from './wiki-markdown.js';
+import {
+  omitLeadingTitleHeading,
+  parseWikiMarkdown,
+  resolveWikiHref,
+  type WikiInline,
+} from './wiki-markdown.js';
 
 interface EntityRef {
   readonly kind: 'topic' | 'project';
@@ -35,7 +40,7 @@ export function KnowledgeView({
     ...projects.map((project) => ({ kind: 'project' as const, ...project })),
   ];
   const [selected, setSelected] = useState<EntityRef>();
-  const [paths, setPaths] = useState<readonly string[]>([]);
+  const [entries, setEntries] = useState<readonly { path: string; title: string }[]>([]);
   const [page, setPage] = useState<WikiPage>();
   const [problem, setProblem] = useState<ApiProblem>();
   const [rawText, setRawText] = useState<string>();
@@ -50,12 +55,17 @@ export function KnowledgeView({
     if (selected === undefined) return;
     void (async () => {
       const response = await fetch(entityUrl(selected, 'wiki'));
-      const value = (await response.json()) as { path: string }[] | ApiProblem;
+      const value = (await response.json()) as { path: string; title?: string }[] | ApiProblem;
       if (!response.ok) {
-        setPaths([]);
+        setEntries([]);
         return;
       }
-      setPaths((value as { path: string }[]).map((item) => item.path));
+      setEntries(
+        (value as { path: string; title?: string }[]).map((item) => ({
+          path: item.path,
+          title: item.title !== undefined && item.title.length > 0 ? item.title : item.path,
+        })),
+      );
     })();
   }, [selected]);
 
@@ -88,7 +98,7 @@ export function KnowledgeView({
   };
 
   return (
-    <div className="page">
+    <div className="page wiki-page">
       <p className="eyebrow">Conhecimento aprovado</p>
       <h1>Uma árvore que mostra a origem.</h1>
       {entities.length === 0 ? (
@@ -118,10 +128,15 @@ export function KnowledgeView({
                 </button>
                 {selected?.kind === entity.kind && selected.slug === entity.slug && (
                   <ul className="wiki-paths">
-                    {paths.map((path) => (
-                      <li key={path}>
-                        <button data-wiki-path={path} onClick={() => void openPath(path)}>
-                          {path}
+                    {entries.map((entry) => (
+                      <li key={entry.path}>
+                        <button
+                          data-wiki-path={entry.path}
+                          title={entry.path}
+                          className={page?.path === entry.path ? 'is-active' : undefined}
+                          onClick={() => void openPath(entry.path)}
+                        >
+                          {entry.title}
                         </button>
                       </li>
                     ))}
@@ -135,12 +150,27 @@ export function KnowledgeView({
               <>
                 <h2>{page.title}</h2>
                 <div className="wiki-body">
-                  {parseWikiMarkdown(page.body).map((block, index) =>
-                    block.type === 'heading' ? (
-                      heading(block.level, inlines(block.children, page.path, openPath), index)
-                    ) : (
-                      <p key={index}>{inlines(block.children, page.path, openPath)}</p>
-                    ),
+                  {omitLeadingTitleHeading(parseWikiMarkdown(page.body), page.title).map(
+                    (block, index) => {
+                      if (block.type === 'heading') {
+                        return heading(
+                          block.level,
+                          inlines(block.children, page.path, openPath),
+                          index,
+                        );
+                      }
+                      if (block.type === 'list') {
+                        const ListTag = block.ordered ? 'ol' : 'ul';
+                        return (
+                          <ListTag key={index}>
+                            {block.items.map((item, itemIndex) => (
+                              <li key={itemIndex}>{inlines(item, page.path, openPath)}</li>
+                            ))}
+                          </ListTag>
+                        );
+                      }
+                      return <p key={index}>{inlines(block.children, page.path, openPath)}</p>;
+                    },
                   )}
                 </div>
               </>
@@ -160,11 +190,7 @@ export function KnowledgeView({
                   <section>
                     <p className="eyebrow">Fontes</p>
                     {page.sources.map((source) => (
-                      <button
-                        key={source}
-                        className="quiet"
-                        onClick={() => void openSource(source)}
-                      >
+                      <button key={source} title={source} onClick={() => void openSource(source)}>
                         {source}
                       </button>
                     ))}
@@ -179,10 +205,13 @@ export function KnowledgeView({
                       <button
                         key={`${neighbour.relation}:${neighbour.path}`}
                         data-wiki-path={neighbour.path}
-                        className="quiet"
+                        title={neighbour.path}
                         onClick={() => void openPath(neighbour.path)}
                       >
-                        {neighbour.path} {neighbour.relation}
+                        {neighbour.path}{' '}
+                        <span className="wiki-relation">
+                          {neighbour.relation === 'outgoing' ? 'saindo' : 'entrando'}
+                        </span>
                       </button>
                     ))}
                   </section>
@@ -230,6 +259,10 @@ function inlines(
 ): ReactNode {
   return nodes.map((node, index) => {
     if (node.type === 'text') return node.value;
+    if (node.type === 'code') return <code key={index}>{node.value}</code>;
+    if (node.type === 'strong') {
+      return <strong key={index}>{inlines(node.children, currentPath, openPath)}</strong>;
+    }
     if (!node.wiki) {
       return (
         <a key={index} href={node.href}>
