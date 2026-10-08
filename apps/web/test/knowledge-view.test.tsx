@@ -15,7 +15,15 @@ const recallPage = {
   id: 'recall',
   title: 'Active recall',
   path: 'wiki/recall.md',
-  body: '# Practice\n\nSee [Study support](support.md).\n',
+  body: `# Practice
+
+- Alpha
+- Bravo
+
+1. **First**
+
+See [Study support](support.md). Use **Query** and \`COUNT\` at https://example.com/x.
+`,
   sources: ['raw/source/content.md'],
   neighbours: [{ path: 'wiki/support.md', relation: 'outgoing' as const }],
 };
@@ -50,13 +58,13 @@ const pages: Record<string, unknown> = {
   },
 };
 
-const lists: Record<string, { path: string }[]> = {
+const lists: Record<string, { path: string; title: string }[]> = {
   'topic/memory': [
-    { path: 'wiki/concepts/nested.md' },
-    { path: 'wiki/recall.md' },
-    { path: 'wiki/support.md' },
+    { path: 'wiki/concepts/nested.md', title: 'Nested concept' },
+    { path: 'wiki/recall.md', title: 'Active recall' },
+    { path: 'wiki/support.md', title: 'Study support' },
   ],
-  'project/sheldon-app': [{ path: 'wiki/search.md' }],
+  'project/sheldon-app': [{ path: 'wiki/search.md', title: 'Search strategy' }],
 };
 
 let root: Root | undefined;
@@ -99,7 +107,7 @@ describe('KnowledgeView', () => {
   it('shows the concept title and heading html without yaml as the main content', async () => {
     stubFetch();
     await renderView();
-    await clickNamed('wiki/recall.md');
+    await clickWiki('wiki/recall.md');
     expect(container!.textContent).toContain('Active recall');
     const heading = container!.querySelector('.wiki-body h1, article h1, .wiki-body h2');
     expect(heading?.textContent).toContain('Practice');
@@ -110,8 +118,8 @@ describe('KnowledgeView', () => {
   it('follows a relative wiki link to the target page', async () => {
     stubFetch();
     await renderView();
-    await clickNamed('wiki/recall.md');
-    const link = [...container!.querySelectorAll('a, button')].find((node) =>
+    await clickWiki('wiki/recall.md');
+    const link = [...container!.querySelectorAll('.wiki-body a')].find((node) =>
       node.textContent?.includes('Study support'),
     );
     expect(link).toBeDefined();
@@ -123,8 +131,8 @@ describe('KnowledgeView', () => {
   it('keeps the current page and shows ApiProblem fields when the wiki target is missing', async () => {
     stubFetch({ missingWiki: true });
     await renderView();
-    await clickNamed('wiki/recall.md');
-    const link = [...container!.querySelectorAll('a, button')].find((node) =>
+    await clickWiki('wiki/recall.md');
+    const link = [...container!.querySelectorAll('.wiki-body a')].find((node) =>
       node.textContent?.includes('Study support'),
     );
     await click(link as HTMLElement);
@@ -137,7 +145,7 @@ describe('KnowledgeView', () => {
   it('does not render file contents from outside wiki', async () => {
     stubFetch();
     await renderView();
-    await clickNamed('wiki/recall.md');
+    await clickWiki('wiki/recall.md');
     expect(container!.textContent).not.toContain('LEAKED_ENTITY_SECRET');
     const leak = [...container!.querySelectorAll('a, button')].find((node) =>
       (node.getAttribute('href') ?? node.textContent ?? '').includes('../secret.md'),
@@ -149,7 +157,7 @@ describe('KnowledgeView', () => {
   it('lists a source path and shows raw text when opened', async () => {
     stubFetch();
     await renderView();
-    await clickNamed('wiki/recall.md');
+    await clickWiki('wiki/recall.md');
     expect(container!.textContent).toContain('raw/source/content.md');
     await clickNamed('raw/source/content.md');
     expect(container!.textContent).toContain('Cited raw source.');
@@ -158,7 +166,7 @@ describe('KnowledgeView', () => {
   it('lists a missing source and says it was not found', async () => {
     stubFetch({ missingRaw: true });
     await renderView();
-    await clickNamed('wiki/recall.md');
+    await clickWiki('wiki/recall.md');
     expect(container!.textContent).toContain('raw/source/content.md');
     await clickNamed('raw/source/content.md');
     expect(container!.textContent).toContain('não encontr');
@@ -168,27 +176,75 @@ describe('KnowledgeView', () => {
   it('lists outgoing and incoming neighbours and opens one', async () => {
     stubFetch();
     await renderView();
-    await clickNamed('wiki/recall.md');
+    await clickWiki('wiki/recall.md');
     expect(container!.textContent).toMatch(/wiki\/support\.md/);
-    expect(container!.textContent).toMatch(/outgoing/);
-    await clickNamed('wiki/support.md');
+    await clickWiki('wiki/support.md');
     expect(container!.querySelector('.wiki-body')?.textContent).toContain('Support body');
-    expect(container!.textContent).toMatch(/incoming/);
   });
 
   it('does not post wiki edits or queue an agent from conhecimento', async () => {
     stubFetch();
     await renderView();
-    await clickNamed('wiki/recall.md');
-    await clickNamed('wiki/support.md');
+    await clickWiki('wiki/recall.md');
+    await clickWiki('wiki/support.md');
     expect(fetches.every((item) => item.method === 'GET')).toBe(true);
     expect(fetches.some((item) => item.url.includes('/jobs'))).toBe(false);
     expect(fetches.some((item) => item.method !== 'GET')).toBe(false);
     expect(container!.querySelector('textarea, input[type="text"]')).toBeNull();
   });
+
+  it('does not repeat the page title as a body h1', async () => {
+    stubFetch({ recallBody: '# Active recall\n\nBody copy.\n' });
+    await renderView();
+    await clickWiki('wiki/recall.md');
+    expect(container!.querySelector('.wiki-article > h2')?.textContent).toBe('Active recall');
+    expect(container!.querySelector('.wiki-body h1')).toBeNull();
+    expect(container!.querySelector('.wiki-body')?.textContent).toContain('Body copy.');
+  });
+
+  it('renders lists strong code and autolinks in the wiki body', async () => {
+    stubFetch();
+    await renderView();
+    await clickWiki('wiki/recall.md');
+    const body = container!.querySelector('.wiki-body');
+    expect([...body!.querySelectorAll('ul li')].map((item) => item.textContent)).toEqual([
+      'Alpha',
+      'Bravo',
+    ]);
+    expect([...body!.querySelectorAll('ol li')].map((item) => item.textContent)).toEqual(['First']);
+    expect(body!.querySelector('p strong')?.textContent).toBe('Query');
+    expect(body!.querySelector('code')?.textContent).toBe('COUNT');
+    expect(body!.querySelector('a[href="https://example.com/x"]')).not.toBeNull();
+  });
+
+  it('shows concept titles in the tree and marks the open path active', async () => {
+    stubFetch();
+    await renderView();
+    const recall = container!.querySelector('[data-wiki-path="wiki/recall.md"]');
+    expect(recall?.textContent?.trim()).toBe('Active recall');
+    expect(
+      container!.querySelector('[data-wiki-path="wiki/support.md"]')?.textContent?.trim(),
+    ).toBe('Study support');
+    await clickWiki('wiki/recall.md');
+    expect(recall?.classList.contains('is-active')).toBe(true);
+  });
+
+  it('labels neighbours saindo and entrando without quiet buttons', async () => {
+    stubFetch();
+    await renderView();
+    await clickWiki('wiki/recall.md');
+    expect(container!.textContent).toMatch(/saindo/);
+    expect(container!.textContent).not.toMatch(/\boutgoing\b/);
+    expect(container!.querySelector('.wiki-aside .quiet')).toBeNull();
+    await clickWiki('wiki/support.md');
+    expect(container!.textContent).toMatch(/entrando/);
+    expect(container!.textContent).not.toMatch(/\bincoming\b/);
+  });
 });
 
-function stubFetch(options: { missingWiki?: boolean; missingRaw?: boolean } = {}): void {
+function stubFetch(
+  options: { missingWiki?: boolean; missingRaw?: boolean; recallBody?: string } = {},
+): void {
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -217,6 +273,9 @@ function stubFetch(options: { missingWiki?: boolean; missingRaw?: boolean } = {}
       if (options.missingWiki && path === 'wiki/support.md') return notFound;
       const page = pages[path];
       if (page === undefined) return notFound;
+      if (options.recallBody !== undefined && path === 'wiki/recall.md') {
+        return json(200, { ...recallPage, body: options.recallBody });
+      }
       return json(200, page);
     }
     const raw = /\/api\/v1\/entities\/(topic|project)\/([^/]+)\/raw\/(.+)$/u.exec(url);
@@ -250,6 +309,12 @@ async function renderView(
     root!.render(createElement(KnowledgeView, { topics: nextTopics, projects: nextProjects }));
     await Promise.resolve();
   });
+}
+
+async function clickWiki(path: string): Promise<void> {
+  const node = container!.querySelector(`[data-wiki-path="${path}"]`);
+  expect(node, `wiki path ${path}`).not.toBeNull();
+  await click(node as HTMLElement);
 }
 
 async function clickNamed(text: string): Promise<void> {

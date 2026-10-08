@@ -8,6 +8,7 @@ import { parse } from 'yaml';
 
 export interface WikiPath {
   readonly path: string;
+  readonly title: string;
 }
 
 export interface WikiNeighbour {
@@ -45,9 +46,13 @@ export async function listWikiPaths(
   const entityRoot = await requireEntityRoot(vaultRoot, kind, slug);
   const wikiRoot = join(entityRoot, 'wiki');
   const files = await findMarkdownFiles(wikiRoot);
-  return files
-    .map((file) => ({ path: toPosix(join('wiki', relative(wikiRoot, file))) }))
-    .sort((left, right) => comparePaths(left.path, right.path));
+  const items: WikiPath[] = [];
+  for (const file of files) {
+    const path = toPosix(join('wiki', relative(wikiRoot, file)));
+    const title = await conceptTitle(file);
+    items.push({ path, title: title.length > 0 ? title : titleFromPath(path) });
+  }
+  return items.sort((left, right) => comparePaths(left.path, right.path));
 }
 
 export async function readWikiPage(
@@ -224,6 +229,19 @@ function stripPrefix(path: string, prefix: string): string {
 
 function toPosix(path: string): string {
   return path.replaceAll('\\', '/');
+}
+
+function titleFromPath(path: string): string {
+  const leaf = path.split('/').pop() ?? path;
+  return leaf.replace(/\.md$/iu, '');
+}
+
+async function conceptTitle(file: string): Promise<string> {
+  try {
+    return parseConcept(await readFile(file, 'utf8')).title;
+  } catch {
+    return '';
+  }
 }
 
 function comparePaths(left: string, right: string): number {
