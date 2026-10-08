@@ -7,6 +7,7 @@ import { VaultService, entityDirectory } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { listPendingReviews } from '../src/commands/memory.js';
+import { rejectProposal } from '../src/commands/workflow.js';
 import type { CommandContext } from '../src/runtime.js';
 import { testApplicationEnvironment, testPlatform } from './app-state.js';
 
@@ -116,6 +117,77 @@ describe('listPendingReviews', () => {
       }),
     );
 
+    await expect(captureList(root, vaultPath)).resolves.toEqual({ topics: [] });
+  });
+});
+
+describe('rejectProposal', () => {
+  it('rejects a pending proposal even when the wiki files fail schema validation', async () => {
+    const { root, vaultPath } = await createVault();
+    const vault = await VaultService.discover(vaultPath);
+    await vault.createEntity({ kind: 'topic', title: 'Observability' });
+    const entity = entityDirectory(vaultPath, 'topic', 'observability');
+    const directory = join(entity, 'outputs', 'proposals', 'proposal-observability-notes');
+    await mkdir(directory, { recursive: true });
+    const timestamp = '2026-10-02T22:15:56.775Z';
+    await writeFile(
+      join(directory, 'metadata.json'),
+      `${JSON.stringify(
+        {
+          id: 'proposal-observability-notes',
+          status: 'pending',
+          agent: 'grok',
+          prompt: 'Compile notes.',
+          promptVersion: 'm2/v1',
+          rawSources: ['raw/source-001/content.md'],
+          createdAt: timestamp,
+          completedAt: timestamp,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    await writeFile(
+      join(directory, 'proposal.json'),
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          id: 'proposal-observability-notes',
+          files: [
+            {
+              path: 'wiki/.placeholder',
+              operation: 'create',
+              citations: ['raw/source-001/content.md'],
+              content: '',
+            },
+          ],
+          sources: [
+            {
+              rawPath: 'raw/source-001/content.md',
+              citation: 'raw/source-001/content.md',
+            },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const messages: string[] = [];
+    await rejectProposal(
+      'topic',
+      'observability',
+      'proposal-observability-notes',
+      'Stub sem conceito wiki.',
+      { vault: vaultPath },
+      context(root, (message) => messages.push(message)),
+    );
+
+    expect(JSON.parse(messages.join(''))).toMatchObject({
+      proposalId: 'proposal-observability-notes',
+      status: 'rejected',
+      reason: 'Stub sem conceito wiki.',
+    });
     await expect(captureList(root, vaultPath)).resolves.toEqual({ topics: [] });
   });
 });

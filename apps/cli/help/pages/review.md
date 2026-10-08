@@ -56,7 +56,9 @@ Proposal files live under `outputs/proposals/<proposal-id>/`.
 
 ## Common failures
 
-- Proposal missing or already rejected — compile a new attempt (`compile` / `compile-retry`) or pick another id.
+- Proposal missing, already rejected, or invalid wiki concept (missing frontmatter / empty body) —
+  reject the pending stub and compile a new attempt, or pick another id. Preview of an invalid
+  pending proposal returns `PROPOSAL_INVALID` instead of a generic failure.
 - Path not in the proposal — preview first, then approve exact paths from that listing.
 - No configured vault — pass `--vault <path>` or run `sheldon init`.
 - Empty `--reason` on reject — supply a non-empty reason.

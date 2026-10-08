@@ -35,7 +35,7 @@ export async function rejectProposal(
 ): Promise<void> {
   const entity = await resolveEntity(kind, slug, options.vault, context);
   const proposal = await new ProposalStore(entity).load(proposalId);
-  new ProposalStore(entity).assertPromotable(proposal);
+  new ProposalStore(entity).assertPending(proposal);
   const normalizedReason = reason.trim();
   if (normalizedReason === '') throw new Error('A non-empty rejection reason is required.');
 

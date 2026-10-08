@@ -2,6 +2,7 @@ import { mkdir, mkdtemp, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
+import { ProposalValidationError } from '@sheldon/agent-runtime';
 import { SearchIndex } from '@sheldon/search';
 import { VaultService } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
@@ -129,6 +130,35 @@ describe('local web server', () => {
           },
         ],
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('returns 400 PROPOSAL_INVALID when preview rejects a malformed pending proposal', async () => {
+    const root = await vault();
+    const server = await createWebServer({
+      vaultRoot: root,
+      application: application({
+        previewProposal: async () => {
+          throw new ProposalValidationError([
+            "File wiki/.placeholder wiki concept frontmatter is invalid: Missing required frontmatter field 'id'.",
+            'File wiki/.placeholder must include a concept body.',
+          ]);
+        },
+      }),
+    });
+    try {
+      const previewed = await server.inject(
+        '/api/v1/reviews/topic/observability/proposal-observability-notes',
+      );
+      expect(previewed.statusCode).toBe(400);
+      expect(previewed.json()).toMatchObject({
+        code: 'PROPOSAL_INVALID',
+        message: expect.stringContaining('Proposal is invalid:'),
+        recovery: expect.stringContaining('reject'),
+      });
+      expect(previewed.json().message).not.toBe('A operação local falhou inesperadamente.');
     } finally {
       await server.close();
     }

@@ -213,12 +213,17 @@ describe('ReviewView', () => {
   it('shows the API error when preview fails', async () => {
     stubFetch({
       list: pendingList,
-      previewError: { message: 'A proposal with status error cannot be promoted.' },
+      previewError: {
+        code: 'PROPOSAL_INVALID',
+        message:
+          "Proposal is invalid: File wiki/.placeholder wiki concept frontmatter is invalid: Missing required frontmatter field 'id'. File wiki/.placeholder must include a concept body.",
+      },
     });
     await renderView();
     await clickNamed('Abrir revisão');
-    expect(container!.textContent).toContain('A proposal with status error cannot be promoted.');
-    expect(container!.textContent).not.toContain('wiki/wide-events.md');
+    expect(container!.textContent).toContain('Proposal is invalid:');
+    expect(container!.textContent).toContain('wiki/.placeholder');
+    expect(container!.textContent).not.toContain('A operação local falhou inesperadamente.');
   });
 
   it('shows an empty state when no topic has a pending proposal', async () => {
@@ -356,7 +361,7 @@ describe('ReviewView', () => {
 function stubFetch(options: {
   readonly list?: unknown;
   readonly preview?: unknown;
-  readonly previewError?: { readonly message: string };
+  readonly previewError?: { readonly code?: string; readonly message: string };
   readonly listAfterDecide?: unknown;
 }): void {
   let decided = false;

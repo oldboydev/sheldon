@@ -98,7 +98,9 @@ Ela informa uma URL em `http://127.0.0.1:<porta>`. A interface só aceita conex�
 máquina. O chrome segue o design system do produto (navy/magenta, Nunito Sans, wordmark
 Sheldon). A seção Conhecimento navega a wiki aprovada em HTML (árvore, página, fontes e
 vizinhos) sem editar o vault. Revisão mostra a página wiki proposta (sem o dump de unified
-diff) e tira da lista as propostas já aprovadas ou rejeitadas.
+diff) e tira da lista as propostas já aprovadas ou rejeitadas. Uma proposta pendente inválida
+(conceito wiki sem frontmatter) mostra `PROPOSAL_INVALID` em vez de um erro genérico; rejeitar
+ainda a tira da lista.
 
 Confira o ambiente quando necessário:
 

@@ -201,6 +201,14 @@ describe('proposal validation', () => {
     const invalid = proposal({ files: [{ ...proposal().files[0], path }] });
 
     expect(() => validateProposal(invalid)).toThrow(ProposalValidationError);
+    try {
+      validateProposal(invalid);
+    } catch (error) {
+      expect(error).toMatchObject({
+        name: 'ProposalValidationError',
+        code: 'PROPOSAL_INVALID',
+      });
+    }
   });
 
   it('requires declared raw sources and file-level citations', () => {
