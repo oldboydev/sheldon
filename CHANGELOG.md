@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.7] - 2026-10-08
+
+Tag `v0.2.7`. Publica o npm `latest` e o catálogo oficial. Conhecimento em `sheldon web` formata
+o corpo da wiki e o layout da árvore.
+
 ### Fixed
 
 - Conhecimento em `sheldon web` formata listas, negrito, código inline e URLs no corpo da
