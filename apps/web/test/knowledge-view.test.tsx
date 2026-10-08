@@ -20,6 +20,8 @@ const recallPage = {
 - Alpha
 - Bravo
 
+1. **First**
+
 See [Study support](support.md). Use **Query** and \`COUNT\` at https://example.com/x.
 `,
   sources: ['raw/source/content.md'],
@@ -209,7 +211,8 @@ describe('KnowledgeView', () => {
       'Alpha',
       'Bravo',
     ]);
-    expect(body!.querySelector('strong')?.textContent).toBe('Query');
+    expect([...body!.querySelectorAll('ol li')].map((item) => item.textContent)).toEqual(['First']);
+    expect(body!.querySelector('p strong')?.textContent).toBe('Query');
     expect(body!.querySelector('code')?.textContent).toBe('COUNT');
     expect(body!.querySelector('a[href="https://example.com/x"]')).not.toBeNull();
   });
