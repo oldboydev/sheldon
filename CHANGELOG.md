@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.10] - 2026-10-09
+
+Tag `v0.2.10`. Publica o npm `latest` e o catálogo oficial. Consulta grava respostas citadas
+quase válidas do Grok e mostra falha de validação em português.
+
 ### Fixed
 
 - Consulta em `sheldon web` traduz falha de validação da resposta citada (seções `## Wiki facts` /
