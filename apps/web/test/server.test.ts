@@ -427,7 +427,9 @@ describe('query answer api', () => {
       expect(missing.statusCode).toBe(404);
       expect(missing.json()).toMatchObject({ code: 'WEB_NOT_FOUND' });
 
-      const invalid = await server.inject('/api/v1/entities/topic/memory/answers/../secret');
+      const invalid = await server.inject(
+        `/api/v1/entities/topic/memory/answers/${encodeURIComponent('../secret')}`,
+      );
       expect(invalid.statusCode).toBe(400);
       expect(invalid.json()).toMatchObject({ code: 'WEB_REQUEST_INVALID' });
     } finally {
