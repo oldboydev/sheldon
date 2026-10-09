@@ -399,6 +399,45 @@ describe('wiki read api', () => {
   });
 });
 
+describe('query answer api', () => {
+  it('reads a stored query answer for a topic', async () => {
+    const root = await vaultWithWiki();
+    await writeAnswer(root, 'memory', 'answer-001', sampleAnswer());
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const response = await server.inject('/api/v1/entities/topic/memory/answers/answer-001');
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        id: 'answer-001',
+        question: 'What is recall?',
+        agent: 'grok',
+        concepts: [{ path: 'wiki/recall.md' }],
+      });
+      expect(response.json().text).toContain('## Wiki facts');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects missing and invalid query answer ids', async () => {
+    const root = await vaultWithWiki();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      const missing = await server.inject('/api/v1/entities/topic/memory/answers/answer-missing');
+      expect(missing.statusCode).toBe(404);
+      expect(missing.json()).toMatchObject({ code: 'WEB_NOT_FOUND' });
+
+      const invalid = await server.inject(
+        `/api/v1/entities/topic/memory/answers/${encodeURIComponent('../secret')}`,
+      );
+      expect(invalid.statusCode).toBe(400);
+      expect(invalid.json()).toMatchObject({ code: 'WEB_REQUEST_INVALID' });
+    } finally {
+      await server.close();
+    }
+  });
+});
+
 async function vault(): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'sheldon-web-'));
   directories.push(root);
@@ -504,6 +543,40 @@ Search body.
   await mkdir(dirname(raw), { recursive: true });
   await writeFile(raw, 'Cited raw source.\n', 'utf8');
   return root;
+}
+
+function sampleAnswer() {
+  return {
+    schemaVersion: 1,
+    id: 'answer-001',
+    question: 'What is recall?',
+    agent: 'grok',
+    concepts: [{ path: 'wiki/recall.md', citation: 'Active recall is documented.' }],
+    raws: [],
+    createdAt: '2026-10-09T12:00:00.000Z',
+    truncated: false,
+    text: [
+      '## Wiki facts',
+      '- Retrieval practice is documented in wiki/recall.md.',
+      '',
+      '## Inferences',
+      '- None.',
+      '',
+      '## Gaps',
+      '- None.',
+    ].join('\n'),
+  };
+}
+
+async function writeAnswer(
+  root: string,
+  slug: string,
+  id: string,
+  answer: ReturnType<typeof sampleAnswer>,
+): Promise<void> {
+  const path = join(root, 'topics', slug, 'outputs', 'answers', id, 'answer.json');
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${JSON.stringify(answer, null, 2)}\n`, 'utf8');
 }
 
 async function writeWiki(

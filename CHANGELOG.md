@@ -6,6 +6,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Changed
+
+- Consulta em `sheldon web` acompanha o job na própria tela (fila, execução, erro) e mostra a
+  resposta citada (`text`, agente, paths de `wiki/`) quando o trabalho termina, sem gravar a
+  wiki. `GET /api/v1/entities/{kind}/{slug}/answers/{id}` lê `outputs/answers/<id>/answer.json`.
+
 ## [0.2.8] - 2026-10-09
 
 Tag `v0.2.8`. Publica o npm `latest` e o catálogo oficial. Revisão em `sheldon web` mostra a

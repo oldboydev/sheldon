@@ -14,6 +14,7 @@ import type { EntityKind } from '@sheldon/core';
 import type { WebApplication } from './application.js';
 import { webOpenApi } from './contract.js';
 import { InvalidWebJobRequestError, WebJobService } from './jobs.js';
+import { readQueryAnswer } from './answers.js';
 import { listWikiPaths, readRawFile, readWikiPage, WikiNotFoundError } from './wiki.js';
 
 export type { WebApplication } from './application.js';
@@ -99,6 +100,12 @@ export async function createWebServer(options: WebServerOptions): Promise<Fastif
     const params = request.params as { kind: string; slug: string; '*': string };
     return sendWiki(reply, () =>
       readWikiPage(root, entityKind(params.kind), params.slug, params['*']),
+    );
+  });
+  server.get('/api/v1/entities/:kind/:slug/answers/*', async (request, reply) => {
+    const params = request.params as { kind: string; slug: string; '*': string };
+    return sendWiki(reply, () =>
+      readQueryAnswer(root, entityKind(params.kind), params.slug, params['*']),
     );
   });
   server.get('/api/v1/entities/:kind/:slug/raw/*', async (request, reply) => {

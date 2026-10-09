@@ -722,6 +722,36 @@ h2 {
   color: var(--erro);
 }
 
+.query-answer {
+  margin-top: var(--sp-16);
+}
+
+.query-answer pre {
+  margin: var(--sp-12) 0 0;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.query-answer__citations {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-8);
+  list-style: none;
+  margin: var(--sp-12) 0 0;
+  padding: 0;
+}
+
+.query-answer__citations li {
+  padding: var(--sp-4) var(--sp-8);
+  border-radius: var(--r-pill);
+  background: var(--bg-sunken);
+  color: var(--ink-soft);
+  font-family: Consolas, ui-monospace, monospace;
+  font-size: 12px;
+}
+
 .banner--info {
   background: var(--info-bg);
   border-color: var(--info-line);
