@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.9] - 2026-10-09
+
+Tag `v0.2.9`. Publica o npm `latest` e o catálogo oficial. Consulta em `sheldon web` mostra a
+resposta citada.
+
 ### Changed
 
 - Consulta em `sheldon web` acompanha o job na própria tela (fila, execução, erro) e mostra a
