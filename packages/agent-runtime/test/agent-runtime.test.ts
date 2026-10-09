@@ -267,6 +267,11 @@ describe('query answer persistence and promotion', () => {
         'text',
       ]),
     });
+    expect(queryAnswerJsonSchema.properties.text).toMatchObject({
+      type: 'string',
+      minLength: 1,
+      description: expect.stringContaining('## Wiki facts'),
+    });
   });
 
   it('accepts grok query answers and rejects agents outside the registry', () => {
@@ -374,7 +379,7 @@ describe('query answer persistence and promotion', () => {
     }
     expect(() => validateQueryAnswer(answer({ truncated: undefined }))).toThrow('truncated');
     expect(() => validateQueryAnswer(answer({ text: 'A free-form answer.' }))).toThrow(
-      'Wiki facts',
+      'must cite a supplied wiki path',
     );
     expect(() =>
       validateQueryAnswer(
@@ -383,6 +388,48 @@ describe('query answer persistence and promotion', () => {
         }),
       ),
     ).toThrow('must cite a supplied wiki path');
+  });
+
+  it('canonicalizes grok query answers that omit ATX sections or repeat a wiki path', () => {
+    const result = validateQueryAnswer(
+      answer({
+        concepts: [
+          { path: 'wiki/harness-conceitos-determinismo.md', citation: 'first' },
+          { path: 'wiki/harness-conceitos-determinismo.md', citation: 'duplicate' },
+          { path: 'wiki/harness-conceitos-determinismo.md', citation: 'again' },
+          { path: 'wiki/harness-app-cli-diretrizes.md', citation: 'other' },
+        ],
+        text: 'Harness is defined in wiki/harness-conceitos-determinismo.md.',
+      }),
+    );
+    expect(result.answer.concepts).toEqual([
+      { path: 'wiki/harness-conceitos-determinismo.md', citation: 'first' },
+      { path: 'wiki/harness-app-cli-diretrizes.md', citation: 'other' },
+    ]);
+    expect(result.answer.text).toMatch(/^## Wiki facts\r?$/m);
+    expect(result.answer.text).toMatch(/^## Inferences\r?$/m);
+    expect(result.answer.text).toMatch(/^## Gaps\r?$/m);
+    expect(result.answer.text).toContain('wiki/harness-conceitos-determinismo.md');
+  });
+
+  it('rewrites close heading variants into the required ATX section names', () => {
+    const result = validateQueryAnswer(
+      answer({
+        text: [
+          '# Wiki facts:',
+          '- wiki/concepts/example.md records a fact.',
+          '',
+          '**Inferences**',
+          '- None.',
+          '',
+          '### Gaps',
+          '- None.',
+        ].join('\n'),
+      }),
+    );
+    expect(result.answer.text).toMatch(/^## Wiki facts\r?$/m);
+    expect(result.answer.text).toMatch(/^## Inferences\r?$/m);
+    expect(result.answer.text).toMatch(/^## Gaps\r?$/m);
   });
 
   it('does not mistake prose mentioning a section name for a Markdown heading', () => {
@@ -582,6 +629,10 @@ describe('command adapters and runtime', () => {
     expect(commands[0]?.arguments).toEqual(requireAgentProfile('grok').arguments);
     expect(queryCommands[0]?.arguments).toEqual(requireAgentProfile('grok').arguments);
     expect(commands[0]?.arguments).not.toContain('--');
+    expect(queryCommands[0]?.prompt).toContain('## Wiki facts');
+    expect(queryCommands[0]?.prompt).toContain('## Inferences');
+    expect(queryCommands[0]?.prompt).toContain('## Gaps');
+    expect(queryCommands[0]?.prompt).toMatch(/at most once/i);
   });
 
   it('builds Codex and Claude query commands with the query-answer schema', async () => {

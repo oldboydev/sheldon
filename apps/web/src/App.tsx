@@ -396,6 +396,22 @@ function readLastQuery(): LastQuery | undefined {
   }
 }
 
+function queryJobErrorNotice(error: string, agent: AgentKind): string {
+  const who = agentLabel[agent];
+  if (
+    error.includes('Wiki facts') ||
+    error.includes('Inferences') ||
+    error.includes('Gaps') ||
+    error.includes('cited more than once')
+  ) {
+    return `${who} devolveu JSON, mas Sheldon não gravou a resposta: o texto precisa das seções ## Wiki facts, ## Inferences e ## Gaps, cada uma em uma linha, e cada página wiki só pode ser citada uma vez. Tente de novo.`;
+  }
+  if (error.includes('did not produce a valid cited query answer')) {
+    return `${who} não devolveu uma resposta citada válida. Tente de novo ou escolha outro agente.`;
+  }
+  return error;
+}
+
 function QueryView({
   topics,
   jobs,
@@ -405,10 +421,11 @@ function QueryView({
   readonly jobs: readonly Job[];
   readonly onQueued: () => Promise<void>;
 }) {
-  const [slug, setSlug] = useState(topics[0]?.slug ?? '');
-  const [question, setQuestion] = useState('');
-  const [agent, setAgent] = useState<AgentKind>('codex');
-  const [tracked, setTracked] = useState<LastQuery | undefined>(() => readLastQuery());
+  const last = readLastQuery();
+  const [slug, setSlug] = useState(last?.slug ?? topics[0]?.slug ?? '');
+  const [question, setQuestion] = useState(last?.question ?? '');
+  const [agent, setAgent] = useState<AgentKind>(last?.agent ?? 'codex');
+  const [tracked, setTracked] = useState<LastQuery | undefined>(last);
   const [answer, setAnswer] = useState<QueryAnswer>();
   const job = jobs.find((item) => item.id === tracked?.jobId);
 
@@ -431,7 +448,10 @@ function QueryView({
       : tracked !== undefined && job?.status === 'running'
         ? 'Consulta em execução.'
         : undefined;
-  const errorNotice = job?.status === 'failed' ? job.error : undefined;
+  const errorNotice =
+    job?.status === 'failed' && job.error !== undefined
+      ? queryJobErrorNotice(job.error, tracked?.agent ?? agent)
+      : undefined;
 
   return (
     <div className="page narrow">
