@@ -42,35 +42,37 @@ export function validateQueryAnswer(candidate: unknown): QueryAnswerValidationRe
     throw new ProposalValidationError(['A query answer must be an object.']);
   }
 
-  if (answer.schemaVersion !== QUERY_ANSWER_SCHEMA_VERSION) {
+  const canonical = canonicalizeQueryAnswer(answer);
+
+  if (canonical.schemaVersion !== QUERY_ANSWER_SCHEMA_VERSION) {
     issues.push('The query answer schema version is unsupported.');
   }
-  if (!isAnswerId(answer.id)) issues.push('The query answer id is invalid.');
-  if (typeof answer.question !== 'string' || answer.question.trim().length === 0) {
+  if (!isAnswerId(canonical.id)) issues.push('The query answer id is invalid.');
+  if (typeof canonical.question !== 'string' || canonical.question.trim().length === 0) {
     issues.push('A query answer must include a question.');
   }
-  if (!isAgentKind(answer.agent)) {
+  if (!isAgentKind(canonical.agent)) {
     issues.push('The query answer agent is unsupported.');
   }
-  if (!isTimestamp(answer.createdAt)) {
+  if (!isTimestamp(canonical.createdAt)) {
     issues.push('The query answer timestamp must be ISO-8601.');
   }
-  if (typeof answer.truncated !== 'boolean') {
+  if (typeof canonical.truncated !== 'boolean') {
     issues.push(
       'A query answer must explicitly record whether its selected context was truncated.',
     );
   }
-  if (typeof answer.text !== 'string' || answer.text.trim().length === 0) {
+  if (typeof canonical.text !== 'string' || canonical.text.trim().length === 0) {
     issues.push('A query answer must include final text.');
   } else {
-    validateAnswerText(answer.text, answer.concepts, issues);
+    validateAnswerText(canonical.text, canonical.concepts, issues);
   }
 
-  validateCitations(answer.concepts, 'wiki', 'concept', issues);
-  validateCitations(answer.raws, 'raw', 'raw', issues);
+  validateCitations(canonical.concepts, 'wiki', 'concept', issues);
+  validateCitations(canonical.raws, 'raw', 'raw', issues);
 
   if (issues.length > 0) throw new ProposalValidationError(issues);
-  return { answer };
+  return { answer: canonical };
 }
 
 export function isAnswerId(value: string): boolean {
@@ -123,6 +125,53 @@ function isPathUnder(path: string, root: string): boolean {
     parts.length > 1 &&
     parts.every((part) => part.length > 0 && part !== '.' && part !== '..')
   );
+}
+
+function canonicalizeQueryAnswer(answer: QueryAnswer): QueryAnswer {
+  return {
+    ...answer,
+    concepts: uniqueCitations(answer.concepts),
+    raws: uniqueCitations(answer.raws),
+    text:
+      typeof answer.text === 'string'
+        ? ensureAnswerSections(canonicalizeHeadings(answer.text))
+        : answer.text,
+  };
+}
+
+function uniqueCitations(value: readonly QueryCitation[]): readonly QueryCitation[];
+function uniqueCitations(value: unknown): unknown;
+function uniqueCitations(value: unknown): unknown {
+  if (!Array.isArray(value)) return value;
+  const seen = new Set<string>();
+  const unique: QueryCitation[] = [];
+  for (const candidate of value) {
+    const citation = asCitation(candidate);
+    if (citation === undefined) {
+      unique.push(candidate as QueryCitation);
+      continue;
+    }
+    if (seen.has(citation.path)) continue;
+    seen.add(citation.path);
+    unique.push(citation);
+  }
+  return unique;
+}
+
+function canonicalizeHeadings(text: string): string {
+  return ['Wiki facts', 'Inferences', 'Gaps'].reduce((current, section) => {
+    const atx = new RegExp(`^#{1,6}[\\t ]*${section}:?[\\t ]*$`, 'gim');
+    const bold = new RegExp(`^\\*\\*[\\t ]*${section}:?[\\t ]*\\*\\*[\\t ]*$`, 'gim');
+    return current.replace(atx, `## ${section}`).replace(bold, `## ${section}`);
+  }, text);
+}
+
+function ensureAnswerSections(text: string): string {
+  const missingAll = ['Wiki facts', 'Inferences', 'Gaps'].every(
+    (section) => text.search(sectionPattern(section)) < 0,
+  );
+  if (!missingAll) return text;
+  return `## Wiki facts\n${text.trim()}\n\n## Inferences\n- None.\n\n## Gaps\n- None.`;
 }
 
 function validateAnswerText(text: string, concepts: unknown, issues: string[]): void {

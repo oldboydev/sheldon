@@ -62,32 +62,39 @@ renders the question, the agent `Grok`, a citation `wiki/recall.md`, and body te
 Proof: `npx vitest run apps/web/test/app-shell.test.tsx -t "consulta shows cited answer when the query job succeeds"`
 
 **C5** - When the tracked query job is `failed` with
-`The agent command did not produce a valid cited query answer.`, Consulta shows that
-message in `.notice.error`
+`The agent command did not produce a valid cited query answer.`, Consulta shows a
+Portuguese notice that the agent did not return a valid cited answer, not the English
+executor string
 Proof: `npx vitest run apps/web/test/app-shell.test.tsx -t "consulta shows job error when the query fails"`
 
 **C6** - With `sheldon-web-last-query` in `sessionStorage` pointing at a succeeded job
-and a stored answer, opening Consulta shows the cited card without posting `/jobs`
+and a stored answer, opening Consulta shows the cited card without posting `/jobs`,
+and the form question/agent match the stored query
 Proof: `npx vitest run apps/web/test/app-shell.test.tsx -t "consulta restores the last cited answer from sessionStorage"`
+
+**C7** - When the tracked query job fails with `Proposal is invalid:` plus missing
+Wiki facts/Inferences/Gaps sections and a duplicate wiki citation, Consulta shows
+Portuguese `Sheldon não gravou a resposta` and `Tente de novo`, without `Proposal is invalid`
+Proof: `npx vitest run apps/web/test/app-shell.test.tsx -t "consulta translates grok query-answer validation failure into Portuguese"`
 
 ## Swept
 
 - validation: C2
-- failure modes: C5
+- failure modes: C5, C7
 - idempotency: C6 - restore does not enqueue again
 - authorization: existing loopback origin gate
 - concurrency: not in scope - one tracked job
 - data lifecycle: C1 reads vault file; no extra store
 - dependency failure: C5
-- state transitions: C3 queued, C4 succeeded, C5 failed
+- state transitions: C3 queued, C4 succeeded, C5 failed, C7 validation failed
 - observability: not in scope
 
 ## Coverage
 
-| Set (size)                       | Member -> proof                      | Unproven |
-| -------------------------------- | ------------------------------------ | -------- |
-| job status shown on Consulta (3) | queued C3 · succeeded C4 · failed C5 | -        |
-| GET answer outcomes (3)          | 200 C1 · 404 C2 · 400 C2             | -        |
+| Set (size)                       | Member -> proof                                      | Unproven |
+| -------------------------------- | ---------------------------------------------------- | -------- |
+| job status shown on Consulta (4) | queued C3 · succeeded C4 · failed C5 · validation C7 | -        |
+| GET answer outcomes (3)          | 200 C1 · 404 C2 · 400 C2                             | -        |
 
 - Claims naming a status code, route or response shape: C1, C2
 - No other check claims more than the single case its proof exercises

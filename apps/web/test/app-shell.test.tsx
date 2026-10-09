@@ -200,9 +200,38 @@ describe('App shell', () => {
     });
     await clickNamed('Atualizar');
     const notice = container!.querySelector('.notice.error');
-    expect(notice?.textContent).toContain(
+    expect(notice?.textContent).toContain('não devolveu uma resposta citada válida');
+    expect(notice?.textContent).not.toContain(
       'The agent command did not produce a valid cited query answer.',
     );
+  });
+
+  it('consulta translates grok query-answer validation failure into Portuguese', async () => {
+    const stub = stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    const agent = container!.querySelectorAll('select')[1] as HTMLSelectElement;
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+      agent.value = 'grok';
+      agent.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await clickNamed('Consultar com citações');
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'failed',
+      createdAt: new Date().toISOString(),
+      error:
+        'Proposal is invalid: A query answer text must include an explicit Wiki facts section. A query answer text must include an explicit Inferences section. A query answer text must include an explicit Gaps section. Query answer concept wiki/harness-conceitos-determinismo.md is cited more than once.',
+    });
+    await clickNamed('Atualizar');
+    const notice = container!.querySelector('.notice.error');
+    expect(notice?.textContent).toContain('Sheldon não gravou a resposta');
+    expect(notice?.textContent).toContain('## Wiki facts');
+    expect(notice?.textContent).toContain('Tente de novo');
+    expect(notice?.textContent).not.toContain('Proposal is invalid');
   });
 
   it('consulta restores the last cited answer from sessionStorage', async () => {
@@ -227,6 +256,10 @@ describe('App shell', () => {
     stub.answerId = 'answer-001';
     await renderApp();
     await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    const agent = container!.querySelectorAll('select')[1] as HTMLSelectElement;
+    expect(question.value).toBe('What is recall?');
+    expect(agent.value).toBe('grok');
     expect(container!.textContent).toContain('## Wiki facts');
     expect(container!.textContent).toContain('wiki/recall.md');
     expect(fetches.some((item) => item.method === 'POST' && item.url.endsWith('/jobs'))).toBe(

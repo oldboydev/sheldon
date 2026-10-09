@@ -33,7 +33,12 @@ export const queryAnswerJsonSchema = {
       description:
         'Must exactly reflect whether matching index results were omitted from the selected context.',
     },
-    text: { type: 'string', minLength: 1 },
+    text: {
+      type: 'string',
+      minLength: 1,
+      description:
+        'Final answer body with ATX headings exactly "## Wiki facts", then "## Inferences", then "## Gaps", each on its own line.',
+    },
   },
   $defs: {
     citations: {

@@ -100,7 +100,10 @@ Sheldon). A seção Conhecimento navega a wiki aprovada em HTML (árvore, págin
 vizinhos) sem editar o vault. Revisão mostra a página wiki proposta (sem o dump de unified
 diff) e tira da lista as propostas já aprovadas ou rejeitadas. Uma proposta pendente inválida
 (conceito wiki sem frontmatter) mostra `PROPOSAL_INVALID` em vez de um erro genérico; rejeitar
-ainda a tira da lista.
+ainda a tira da lista. Consulta pergunta à wiki aprovada, acompanha o job na própria tela
+(fila, execução, erro) e mostra a resposta citada. JSON quase válido do agente (headings ATX
+próximos ou path `wiki/` repetido) é canonicalizado antes de gravar; falha de validação
+aparece em português e a última pergunta volta no formulário.
 
 Confira o ambiente quando necessário:
 

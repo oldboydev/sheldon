@@ -6,6 +6,16 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- Consulta em `sheldon web` traduz falha de validação da resposta citada (seções `## Wiki facts` /
+  `## Inferences` / `## Gaps`, citação duplicada) para português e restaura a última pergunta no
+  formulário. O prompt e o schema JSON do agente pedem esses headings ATX e um path `wiki/` por
+  citação.
+- `validateQueryAnswer` reescreve headings ATX próximos (`# Wiki facts:`, `**Inferences**`) e
+  remove paths `wiki/` repetidos no JSON do agente antes de validar, para a Consulta gravar a
+  resposta em vez de descartá-la.
+
 ## [0.2.9] - 2026-10-09
 
 Tag `v0.2.9`. Publica o npm `latest` e o catálogo oficial. Consulta em `sheldon web` mostra a
