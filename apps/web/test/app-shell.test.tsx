@@ -30,6 +30,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
   document.documentElement.removeAttribute('data-theme');
   window.localStorage.clear();
+  window.sessionStorage.clear();
 });
 
 beforeEach(() => {
@@ -142,6 +143,97 @@ describe('App shell', () => {
     expect(namedButton('Revisão')?.querySelector('.navitem__count')).toBeNull();
   });
 
+  it('consulta shows in-page queued status after submit', async () => {
+    stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+    });
+    await clickNamed('Consultar com citações');
+    expect(container!.textContent).toContain('Consulta na fila.');
+    expect(container!.textContent).not.toContain('Consulta adicionada à fila.');
+  });
+
+  it('consulta shows cited answer when the query job succeeds', async () => {
+    const stub = stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'What is recall?');
+    });
+    await clickNamed('Consultar com citações');
+    const posted = fetches.find((item) => item.method === 'POST' && item.url.endsWith('/jobs'));
+    const answerId = (posted?.body as { answerId?: string } | undefined)?.answerId;
+    expect(answerId).toMatch(/^resposta-/);
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'succeeded',
+      createdAt: new Date().toISOString(),
+    });
+    stub.answerId = answerId!;
+    await clickNamed('Atualizar');
+    expect(container!.textContent).toContain('What is recall?');
+    expect(container!.textContent).toContain('Grok');
+    expect(container!.textContent).toContain('wiki/recall.md');
+    expect(container!.textContent).toContain('## Wiki facts');
+  });
+
+  it('consulta shows job error when the query fails', async () => {
+    const stub = stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+    });
+    await clickNamed('Consultar com citações');
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'failed',
+      createdAt: new Date().toISOString(),
+      error: 'The agent command did not produce a valid cited query answer.',
+    });
+    await clickNamed('Atualizar');
+    const notice = container!.querySelector('.notice.error');
+    expect(notice?.textContent).toContain(
+      'The agent command did not produce a valid cited query answer.',
+    );
+  });
+
+  it('consulta restores the last cited answer from sessionStorage', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'succeeded',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    stub.answerId = 'answer-001';
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.textContent).toContain('## Wiki facts');
+    expect(container!.textContent).toContain('wiki/recall.md');
+    expect(fetches.some((item) => item.method === 'POST' && item.url.endsWith('/jobs'))).toBe(
+      false,
+    );
+  });
+
   it('chrome has no milestone leak and theme toggle sets data-theme dark', async () => {
     stubFetch();
     await renderApp();
@@ -156,8 +248,27 @@ describe('App shell', () => {
   });
 });
 
-function stubFetch(): void {
+function stubFetch(): {
+  jobs: {
+    id: string;
+    type: string;
+    status: string;
+    createdAt: string;
+    error?: string;
+  }[];
+  answerId: string;
+} {
   let reviewsDecided = false;
+  const stub = {
+    jobs: [] as {
+      id: string;
+      type: string;
+      status: string;
+      createdAt: string;
+      error?: string;
+    }[],
+    answerId: 'answer-001',
+  };
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -176,6 +287,17 @@ function stubFetch(): void {
       });
     if (url.endsWith('/api/v1/dashboard')) return json(200, dashboard);
     if (url.endsWith('/api/v1/jobs') && method === 'POST') {
+      const body = init?.body === undefined ? undefined : (JSON.parse(String(init.body)) as { type?: string });
+      if (body?.type === 'query') {
+        const job = {
+          id: 'job-query',
+          type: 'query',
+          status: 'queued',
+          createdAt: new Date().toISOString(),
+        };
+        stub.jobs.splice(0, stub.jobs.length, job);
+        return json(202, job);
+      }
       return json(202, {
         id: 'job-1',
         type: 'ingest-url',
@@ -183,7 +305,29 @@ function stubFetch(): void {
         createdAt: new Date().toISOString(),
       });
     }
-    if (url.endsWith('/api/v1/jobs')) return json(200, { jobs: [] });
+    if (url.includes('/answers/')) {
+      return json(200, {
+        schemaVersion: 1,
+        id: stub.answerId,
+        question: 'What is recall?',
+        agent: 'grok',
+        concepts: [{ path: 'wiki/recall.md', citation: 'Active recall is documented.' }],
+        raws: [],
+        createdAt: '2026-10-09T12:00:00.000Z',
+        truncated: false,
+        text: [
+          '## Wiki facts',
+          '- Retrieval practice is documented in wiki/recall.md.',
+          '',
+          '## Inferences',
+          '- None.',
+          '',
+          '## Gaps',
+          '- None.',
+        ].join('\n'),
+      });
+    }
+    if (url.endsWith('/api/v1/jobs')) return json(200, { jobs: stub.jobs });
     if (url.endsWith('/api/v1/entities/topic'))
       return json(200, [{ title: 'Memory', slug: 'memory' }]);
     if (url.endsWith('/api/v1/entities/project')) return json(200, []);
@@ -237,6 +381,7 @@ function stubFetch(): void {
     }
     return json(404, { message: 'missing' });
   });
+  return stub;
 }
 
 async function renderApp(): Promise<void> {
