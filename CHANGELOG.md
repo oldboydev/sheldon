@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.8] - 2026-10-09
+
+Tag `v0.2.8`. Publica o npm `latest` e o catálogo oficial. Revisão em `sheldon web` mostra a
+página wiki proposta e omite propostas já decididas.
+
 ### Fixed
 
 - Revisão em `sheldon web` renderiza a página wiki proposta (frontmatter YAML removido, HTML
