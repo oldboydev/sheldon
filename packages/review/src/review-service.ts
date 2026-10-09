@@ -47,6 +47,7 @@ export interface ReviewPreviewFile {
   readonly changed: boolean;
   readonly sources: readonly string[];
   readonly diff: ReviewDiff;
+  readonly content?: string;
 }
 
 /** Everything a reviewer needs to assess a proposal without reading its stored JSON. */
@@ -175,12 +176,16 @@ export class ReviewService {
         }
         const next = file.operation === 'delete' ? '' : file.content!;
         const changed = existing !== next;
+        const operation = file.operation ?? (existing === '' ? 'create' : 'modify');
         return {
           path: file.path,
-          operation: file.operation ?? (existing === '' ? 'create' : 'modify'),
+          operation,
           changed,
           sources: [...file.sources],
           diff: makeDiff(file.path, existing, next),
+          ...(operation === 'delete' || typeof file.content !== 'string'
+            ? {}
+            : { content: file.content }),
         };
       }),
     );

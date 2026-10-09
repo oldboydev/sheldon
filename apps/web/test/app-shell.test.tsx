@@ -130,6 +130,18 @@ describe('App shell', () => {
     expect(container!.textContent).toContain('"bundleId"');
   });
 
+  it('sidebar pending count drops after a successful approve without a full reload', async () => {
+    stubFetch();
+    await renderApp();
+    const review = namedButton('Revisão');
+    expect(review?.textContent).toMatch(/2/);
+    await clickNamed('Revisão');
+    await clickNamed('Abrir revisão');
+    await clickNamed('Aprovar');
+    expect(container!.textContent).toContain('Arquivos aprovados e promovidos para a wiki.');
+    expect(namedButton('Revisão')?.querySelector('.navitem__count')).toBeNull();
+  });
+
   it('chrome has no milestone leak and theme toggle sets data-theme dark', async () => {
     stubFetch();
     await renderApp();
@@ -145,6 +157,7 @@ describe('App shell', () => {
 });
 
 function stubFetch(): void {
+  let reviewsDecided = false;
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
     const method = init?.method ?? 'GET';
@@ -174,7 +187,26 @@ function stubFetch(): void {
     if (url.endsWith('/api/v1/entities/topic'))
       return json(200, [{ title: 'Memory', slug: 'memory' }]);
     if (url.endsWith('/api/v1/entities/project')) return json(200, []);
+    if (url.includes('/approve')) {
+      reviewsDecided = true;
+      return json(200, { approved: true });
+    }
+    if (url.includes('/api/v1/reviews/topic/')) {
+      return json(200, {
+        files: {
+          files: [
+            {
+              path: 'wiki/wide-events.md',
+              operation: 'create',
+              content: '# Wide events\n',
+              diff: { text: '+# Wide events', addedLines: 1, removedLines: 0 },
+            },
+          ],
+        },
+      });
+    }
     if (url.endsWith('/api/v1/reviews') || url.endsWith('/api/v1/reviews/')) {
+      if (reviewsDecided) return json(200, { topics: [] });
       return json(200, {
         topics: [
           {
@@ -237,7 +269,6 @@ async function clickNamed(text: string): Promise<void> {
   expect(node, `clickable "${text}"`).toBeDefined();
   await act(async () => {
     (node as HTMLElement).click();
-    await Promise.resolve();
-    await Promise.resolve();
+    for (let step = 0; step < 8; step += 1) await Promise.resolve();
   });
 }

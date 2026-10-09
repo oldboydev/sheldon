@@ -1014,6 +1014,51 @@ h2 {
   margin-top: var(--sp-16);
 }
 
+.review-context {
+  display: grid;
+  gap: var(--sp-16);
+}
+
+.review-context ul {
+  margin: 0;
+  padding-left: var(--sp-20);
+}
+
+.review-diff {
+  margin-top: var(--sp-16);
+}
+
+.review-diff__body {
+  margin: var(--sp-8) 0 0;
+  padding: var(--sp-12);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  line-height: var(--lh-normal);
+  background: var(--bg-sunken);
+  border: 1px solid var(--line);
+  border-radius: var(--r-control);
+}
+
+.review-diff__line {
+  display: block;
+  white-space: pre-wrap;
+}
+
+.review-diff__line.is-add {
+  color: var(--ok);
+  background: var(--ok-bg);
+}
+
+.review-diff__line.is-remove {
+  color: var(--erro);
+  background: var(--erro-bg);
+}
+
+.review-diff__line.is-context {
+  color: var(--ink-soft);
+}
+
 @media (max-width: 760px) {
   .appbody {
     grid-template-columns: 1fr;

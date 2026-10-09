@@ -1,4 +1,4 @@
-import { lstat, mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { basename, join, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -480,7 +480,8 @@ export async function listPendingReviews(
   }[] = [];
   for (const entity of await vault.listEntities('topic')) {
     if (entity.status !== 'active') continue;
-    const store = new ProposalStore(entityDirectory(root, 'topic', entity.slug));
+    const entityRoot = entityDirectory(root, 'topic', entity.slug);
+    const store = new ProposalStore(entityRoot);
     const proposals: {
       readonly id: string;
       readonly agent: AgentKind;
@@ -488,6 +489,7 @@ export async function listPendingReviews(
     }[] = [];
     for (const metadata of await store.list()) {
       if (metadata.status !== 'pending') continue;
+      if (await isDecidedProposal(entityRoot, metadata.id)) continue;
       const stored = await store.load(metadata.id);
       if (stored.proposal === undefined) continue;
       proposals.push({
@@ -681,6 +683,22 @@ async function assertRawSource(entity: string, source: string): Promise<void> {
   if (!target.startsWith(root)) throw new Error('Raw source must be a regular file below raw/.');
   if (!(await stat(target)).isFile())
     throw new Error('Raw source must be a regular file below raw/.');
+}
+
+async function isDecidedProposal(entityRoot: string, proposalId: string): Promise<boolean> {
+  return (
+    (await pathExists(join(entityRoot, 'history', 'reviews', `${proposalId}.json`))) ||
+    (await pathExists(join(entityRoot, 'outputs', 'proposals', proposalId, 'review.json')))
+  );
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await access(path);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function toReviewProposal(proposal: {

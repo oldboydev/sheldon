@@ -150,7 +150,7 @@ export function App() {
             )}
             {section === 'fontes' && <SourceView topics={topics} onQueued={refresh} />}
             {section === 'conhecimento' && <KnowledgeView topics={topics} projects={projects} />}
-            {section === 'revisão' && <ReviewView jobs={jobs} />}
+            {section === 'revisão' && <ReviewView jobs={jobs} onReviewsChanged={refresh} />}
             {section === 'consulta' && <QueryView topics={topics} onQueued={refresh} />}
             {section === 'bundles' && <BundleView />}
             {section === 'configurações' && <SettingsView onQueued={refresh} />}

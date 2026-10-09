@@ -98,10 +98,17 @@ export class ProposalStore {
   }
 
   public assertPromotable(proposal: StoredProposal): StructuredProposal {
-    if (proposal.metadata.status !== 'pending' || proposal.proposal === undefined) {
+    this.assertPending(proposal);
+    if (proposal.proposal === undefined) {
       throw new ProposalPromotionError(proposal.metadata.status);
     }
     return validateProposal(proposal.proposal).proposal;
+  }
+
+  public assertPending(proposal: StoredProposal): void {
+    if (proposal.metadata.status !== 'pending') {
+      throw new ProposalPromotionError(proposal.metadata.status);
+    }
   }
 
   private async diffs(proposal: StructuredProposal): Promise<readonly FileDiffSummary[]> {

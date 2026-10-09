@@ -11,6 +11,12 @@ export type WikiBlock =
   | { readonly type: 'paragraph'; readonly children: readonly WikiInline[] }
   | { readonly type: 'list'; readonly ordered: boolean; readonly items: readonly WikiListItem[] };
 
+export function stripWikiFrontmatter(markdown: string): string {
+  const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/u.exec(markdown);
+  if (!match) return markdown;
+  return markdown.slice(match[0].length).replace(/^\r?\n/u, '');
+}
+
 export function parseWikiMarkdown(markdown: string): readonly WikiBlock[] {
   const blocks: WikiBlock[] = [];
   let paragraph: string[] = [];

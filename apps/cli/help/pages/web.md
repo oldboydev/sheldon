@@ -41,9 +41,9 @@ sheldon web
 - Serves the local UI until you press Ctrl+C.
 - Does not expose the vault on the LAN or internet.
 - **Revisão** lists topics that currently have a pending proposal, then the pending proposals of
-  the chosen topic. **Abrir revisão** loads the file diffs; approve still writes only the selected
-  wiki paths. Compile from the CLI does not fill the job list — pick the proposal from the pending
-  list.
+  the chosen topic. **Abrir revisão** renders the proposed wiki page (YAML frontmatter stripped)
+  with a compact per-file diff; approve still writes only the selected wiki paths. Compile from
+  the CLI does not fill the job list — pick the proposal from the pending list.
 
 ## Common failures
 

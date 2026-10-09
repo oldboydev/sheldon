@@ -76,6 +76,40 @@ describe('ReviewService', () => {
     );
   });
 
+  it('includes proposed markdown content on create and modify preview files and omits it on delete', async () => {
+    const { root, proposal } = await fixture();
+    await writeFile(join(root, 'wiki', 'concept-a.md'), concept('concept-a', 'Old A'));
+    const preview = await new ReviewService(root).preview({
+      ...proposal,
+      files: [
+        { ...proposal.files[0]!, operation: 'modify' },
+        proposal.files[1]!,
+        {
+          path: 'wiki/gone.md',
+          operation: 'delete',
+          sources: ['raw/source-a/content.md'],
+        },
+      ],
+    });
+    const modified = preview.files.find((file) => file.path === 'wiki/concept-a.md');
+    const created = preview.files.find((file) => file.path === 'wiki/concept-b.md');
+    const deleted = preview.files.find((file) => file.path === 'wiki/gone.md');
+    expect(modified).toEqual(
+      expect.objectContaining({
+        operation: 'modify',
+        content: proposal.files[0]!.content,
+      }),
+    );
+    expect(created).toEqual(
+      expect.objectContaining({
+        operation: 'create',
+        content: proposal.files[1]!.content,
+      }),
+    );
+    expect(deleted).toEqual(expect.objectContaining({ operation: 'delete' }));
+    expect(deleted).not.toHaveProperty('content');
+  });
+
   it('exposes diffs and all supplied agent context without mutating the wiki', async () => {
     const { root, proposal } = await fixture();
     const preview = await new ReviewService(root).preview(proposal);
