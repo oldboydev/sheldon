@@ -287,7 +287,8 @@ function stubFetch(): {
       });
     if (url.endsWith('/api/v1/dashboard')) return json(200, dashboard);
     if (url.endsWith('/api/v1/jobs') && method === 'POST') {
-      const body = init?.body === undefined ? undefined : (JSON.parse(String(init.body)) as { type?: string });
+      const body =
+        init?.body === undefined ? undefined : (JSON.parse(String(init.body)) as { type?: string });
       if (body?.type === 'query') {
         const job = {
           id: 'job-query',
