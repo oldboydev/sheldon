@@ -62,6 +62,7 @@ Proposal files live under `outputs/proposals/<proposal-id>/`.
 - Empty `--reason` on reject — supply a non-empty reason.
 
 The local web UI (`sheldon web` → **Revisão**) lists pending proposals by topic and opens the
-same preview; approve still requires the confirmation token and selected paths.
+proposed wiki page plus a compact diff; approve still requires the confirmation token and
+selected paths.
 
 See [Compile then review](flow-compile-review.html) for the end-to-end raw → approve path.

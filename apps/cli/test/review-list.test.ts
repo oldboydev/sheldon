@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -63,6 +63,59 @@ describe('listPendingReviews', () => {
 
   it('returns an empty topic list when the vault has no pending proposals', async () => {
     const { root, vaultPath } = await createVault();
+    await expect(captureList(root, vaultPath)).resolves.toEqual({ topics: [] });
+  });
+
+  it('omits a proposal after history/reviews id json exists', async () => {
+    const { root, vaultPath } = await createVault();
+    const vault = await VaultService.discover(vaultPath);
+    await vault.createEntity({ kind: 'topic', title: 'Observability' });
+    const entity = entityDirectory(vaultPath, 'topic', 'observability');
+    const store = new ProposalStore(entity);
+    await store.savePending(
+      {
+        id: 'proposal-observability-notes-3',
+        agent: 'grok',
+        prompt: 'Compile notes.',
+        promptVersion: 'm2/v1',
+        rawSources: ['raw/source-001/content.md'],
+      },
+      proposal('proposal-observability-notes-3'),
+    );
+    await mkdir(join(entity, 'history', 'reviews'), { recursive: true });
+    await writeFile(
+      join(entity, 'history', 'reviews', 'proposal-observability-notes-3.json'),
+      '{}\n',
+    );
+
+    await expect(captureList(root, vaultPath)).resolves.toEqual({ topics: [] });
+  });
+
+  it('omits a proposal after outputs/proposals id/review.json exists', async () => {
+    const { root, vaultPath } = await createVault();
+    const vault = await VaultService.discover(vaultPath);
+    await vault.createEntity({ kind: 'topic', title: 'Observability' });
+    const entity = entityDirectory(vaultPath, 'topic', 'observability');
+    const store = new ProposalStore(entity);
+    await store.savePending(
+      {
+        id: 'proposal-observability-notes-3',
+        agent: 'grok',
+        prompt: 'Compile notes.',
+        promptVersion: 'm2/v1',
+        rawSources: ['raw/source-001/content.md'],
+      },
+      proposal('proposal-observability-notes-3'),
+    );
+    await writeFile(
+      join(entity, 'outputs', 'proposals', 'proposal-observability-notes-3', 'review.json'),
+      JSON.stringify({
+        schemaVersion: 1,
+        proposalId: 'proposal-observability-notes-3',
+        status: 'rejected',
+      }),
+    );
+
     await expect(captureList(root, vaultPath)).resolves.toEqual({ topics: [] });
   });
 });

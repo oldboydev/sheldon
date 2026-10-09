@@ -6,6 +6,14 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- Revisão em `sheldon web` renderiza a página wiki proposta (frontmatter YAML removido, HTML
+  via o mesmo parser de Conhecimento) com diff compacto por arquivo, fontes, afirmações e
+  contradições. Depois de aprovar ou rejeitar, `GET /api/v1/reviews` omite aquele id — usando
+  `history/reviews/<id>.json` e `outputs/proposals/<id>/review.json` — e a lista e o contador
+  da sidebar atualizam sem recarregar a página.
+
 ## [0.2.7] - 2026-10-08
 
 Tag `v0.2.7`. Publica o npm `latest` e o catálogo oficial. Conhecimento em `sheldon web` formata

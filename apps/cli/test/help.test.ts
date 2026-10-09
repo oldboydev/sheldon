@@ -180,6 +180,13 @@ describe('html help', () => {
     expect(source).not.toContain('wiki/recall.md');
   });
 
+  it('web help describes abrir revisao as proposed wiki page plus compact diff', async () => {
+    const source = await readFile(join('apps', 'cli', 'help', 'pages', 'web.md'), 'utf8');
+    expect(source).toMatch(/Abrir revisão/i);
+    expect(source.toLowerCase()).toContain('wiki');
+    expect(source.toLowerCase()).toContain('diff');
+  });
+
   it('keeps Commander text help for help and help init', async () => {
     const helpRoot = await createTempHelpRoot();
     const deps = dependencies(helpRoot);

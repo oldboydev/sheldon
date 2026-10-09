@@ -1,11 +1,6 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 
-import {
-  omitLeadingTitleHeading,
-  parseWikiMarkdown,
-  resolveWikiHref,
-  type WikiInline,
-} from './wiki-markdown.js';
+import { WikiBody } from './WikiBody.js';
 
 interface EntityRef {
   readonly kind: 'topic' | 'project';
@@ -149,30 +144,12 @@ export function KnowledgeView({
             {page && (
               <>
                 <h2>{page.title}</h2>
-                <div className="wiki-body">
-                  {omitLeadingTitleHeading(parseWikiMarkdown(page.body), page.title).map(
-                    (block, index) => {
-                      if (block.type === 'heading') {
-                        return heading(
-                          block.level,
-                          inlines(block.children, page.path, openPath),
-                          index,
-                        );
-                      }
-                      if (block.type === 'list') {
-                        const ListTag = block.ordered ? 'ol' : 'ul';
-                        return (
-                          <ListTag key={index}>
-                            {block.items.map((item, itemIndex) => (
-                              <li key={itemIndex}>{inlines(item, page.path, openPath)}</li>
-                            ))}
-                          </ListTag>
-                        );
-                      }
-                      return <p key={index}>{inlines(block.children, page.path, openPath)}</p>;
-                    },
-                  )}
-                </div>
+                <WikiBody
+                  markdown={page.body}
+                  currentPath={page.path}
+                  title={page.title}
+                  onWikiLink={(target) => void openPath(target, true)}
+                />
               </>
             )}
             {problem && (
@@ -233,57 +210,6 @@ export function KnowledgeView({
       )}
     </div>
   );
-}
-
-function heading(level: number, children: ReactNode, key: number): ReactNode {
-  switch (level) {
-    case 1:
-      return <h1 key={key}>{children}</h1>;
-    case 2:
-      return <h2 key={key}>{children}</h2>;
-    case 3:
-      return <h3 key={key}>{children}</h3>;
-    case 4:
-      return <h4 key={key}>{children}</h4>;
-    case 5:
-      return <h5 key={key}>{children}</h5>;
-    default:
-      return <h6 key={key}>{children}</h6>;
-  }
-}
-
-function inlines(
-  nodes: readonly WikiInline[],
-  currentPath: string,
-  openPath: (path: string, keepOnError?: boolean) => Promise<void>,
-): ReactNode {
-  return nodes.map((node, index) => {
-    if (node.type === 'text') return node.value;
-    if (node.type === 'code') return <code key={index}>{node.value}</code>;
-    if (node.type === 'strong') {
-      return <strong key={index}>{inlines(node.children, currentPath, openPath)}</strong>;
-    }
-    if (!node.wiki) {
-      return (
-        <a key={index} href={node.href}>
-          {node.text}
-        </a>
-      );
-    }
-    const target = resolveWikiHref(currentPath, node.href);
-    return (
-      <a
-        key={index}
-        href={node.href}
-        onClick={(event: MouseEvent<HTMLAnchorElement>) => {
-          event.preventDefault();
-          void openPath(target, true);
-        }}
-      >
-        {node.text}
-      </a>
-    );
-  });
 }
 
 function entityUrl(entity: EntityRef, leaf: 'wiki'): string {

@@ -23,7 +23,13 @@ describe('web design tokens', () => {
     expect(css.toLowerCase()).not.toContain('stix');
     expect(css).not.toContain('--gradient-brand');
     expect(css).not.toMatch(/\.eq\b/);
-    const sources = ['src/App.tsx', 'src/KnowledgeView.tsx', 'src/ReviewView.tsx', 'src/main.tsx'];
+    const sources = [
+      'src/App.tsx',
+      'src/KnowledgeView.tsx',
+      'src/ReviewView.tsx',
+      'src/WikiBody.tsx',
+      'src/main.tsx',
+    ];
     for (const relative of sources) {
       const text = await readFile(join(webRoot, relative), 'utf8');
       expect(text.toLowerCase(), relative).not.toContain('stix');

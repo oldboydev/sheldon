@@ -1,6 +1,8 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 
 import type { Job } from './client.generated.js';
+import { WikiBody } from './WikiBody.js';
+import { stripWikiFrontmatter } from './wiki-markdown.js';
 
 interface PendingProposal {
   readonly id: string;
@@ -16,10 +18,34 @@ interface PendingTopic {
 
 interface PreviewFile {
   readonly path: string;
-  readonly diff?: { readonly text: string };
+  readonly operation?: 'create' | 'modify' | 'delete';
+  readonly content?: string;
+  readonly diff?: {
+    readonly text: string;
+    readonly addedLines?: number;
+    readonly removedLines?: number;
+  };
 }
 
-export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
+interface PreviewSource {
+  readonly rawPath: string;
+  readonly citation?: string;
+}
+
+interface PreviewState {
+  readonly files: readonly PreviewFile[];
+  readonly sources: readonly PreviewSource[];
+  readonly claims: readonly string[];
+  readonly contradictions: readonly string[];
+}
+
+export function ReviewView({
+  jobs,
+  onReviewsChanged,
+}: {
+  readonly jobs: readonly Job[];
+  readonly onReviewsChanged?: () => void | Promise<void>;
+}) {
   const candidates = useMemo(
     () => jobs.filter((job) => job.type === 'compile' || job.type === 'query'),
     [jobs],
@@ -27,24 +53,28 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
   const [topics, setTopics] = useState<readonly PendingTopic[]>([]);
   const [slug, setSlug] = useState('');
   const [proposalId, setProposalId] = useState('');
-  const [preview, setPreview] = useState<readonly PreviewFile[]>();
+  const [preview, setPreview] = useState<PreviewState>();
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string>();
+
+  const refreshTopics = async (): Promise<readonly PendingTopic[]> => {
+    const response = await fetch('/api/v1/reviews');
+    const value = (await response.json()) as {
+      topics?: readonly PendingTopic[];
+      message?: string;
+    };
+    if (!response.ok) {
+      throw new Error(value.message ?? 'Não foi possível listar as propostas pendentes.');
+    }
+    const next = value.topics ?? [];
+    setTopics(next);
+    return next;
+  };
 
   useEffect(() => {
     void (async () => {
       try {
-        const response = await fetch('/api/v1/reviews');
-        const value = (await response.json()) as {
-          topics?: readonly PendingTopic[];
-          message?: string;
-        };
-        if (!response.ok) {
-          setMessage(value.message ?? 'Não foi possível listar as propostas pendentes.');
-          return;
-        }
-        const next = value.topics ?? [];
-        setTopics(next);
+        const next = await refreshTopics();
         const first = next[0];
         if (first) {
           setSlug(first.slug);
@@ -70,16 +100,30 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
       );
       const value = (await response.json()) as {
         files?: unknown;
+        sources?: unknown;
+        claims?: unknown;
+        contradictions?: unknown;
         message?: string;
       };
       if (!response.ok) {
         setMessage(value.message ?? 'Não foi possível abrir a revisão.');
         return;
       }
-      setPreview(previewFiles(value));
+      setPreview(unwrapPreview(value));
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Não foi possível abrir a revisão.');
     }
+  };
+
+  const afterDecide = async (notice: string) => {
+    const next = await refreshTopics();
+    if (!next.some((topic) => topic.proposals.some((item) => item.id === proposalId))) {
+      const first = next[0];
+      setSlug(first?.slug ?? '');
+      setProposalId(first?.proposals[0]?.id ?? '');
+    }
+    setMessage(notice);
+    await onReviewsChanged?.();
   };
 
   const approve = async () => {
@@ -89,10 +133,10 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
         `/reviews/topic/${encodeURIComponent(slug)}/${encodeURIComponent(proposalId)}/approve`,
         {
           method: 'POST',
-          body: { confirmation: proposalId, paths: preview.map((file) => file.path) },
+          body: { confirmation: proposalId, paths: preview.files.map((file) => file.path) },
         },
       );
-      setMessage('Arquivos aprovados e promovidos para a wiki.');
+      await afterDecide('Arquivos aprovados e promovidos para a wiki.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Não foi possível aprovar a proposta.');
     }
@@ -108,7 +152,7 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
           body: { confirmation: proposalId, reason },
         },
       );
-      setMessage('Proposta rejeitada.');
+      await afterDecide('Proposta rejeitada.');
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Não foi possível rejeitar a proposta.');
     }
@@ -119,7 +163,7 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
       <p className="eyebrow">Revisão humana</p>
       <h1>Nada entra na wiki por acaso.</h1>
       {topics.length === 0 ? (
-        <p className="muted">{message ?? 'Nenhuma proposta pendente neste vault.'}</p>
+        <p className="muted">Nenhuma proposta pendente neste vault.</p>
       ) : (
         <>
           <ul className="proposal-list">
@@ -158,13 +202,63 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
           </form>
         </>
       )}
-      {preview?.map((file) => (
-        <article className="card card__pad panel" key={file.path}>
-          <b>{file.path}</b>
-          <pre className="output">{file.diff?.text}</pre>
-        </article>
-      ))}
-      {preview && preview.length > 0 && (
+      {preview && (
+        <>
+          {(preview.sources.length > 0 ||
+            preview.claims.length > 0 ||
+            preview.contradictions.length > 0) && (
+            <aside className="card card__pad review-context">
+              {preview.sources.length > 0 && (
+                <section>
+                  <p className="eyebrow">Fontes</p>
+                  <ul>
+                    {preview.sources.map((source) => (
+                      <li key={source.rawPath}>
+                        {source.rawPath}
+                        {source.citation ? ` — ${source.citation}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {preview.claims.length > 0 && (
+                <section>
+                  <p className="eyebrow">Afirmações</p>
+                  <ul>
+                    {preview.claims.map((claim) => (
+                      <li key={claim}>{claim}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {preview.contradictions.length > 0 && (
+                <section>
+                  <p className="eyebrow">Contradições</p>
+                  <ul>
+                    {preview.contradictions.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </aside>
+          )}
+          {preview.files.map((file) => (
+            <article className="card card__pad panel" key={file.path}>
+              <b>{file.path}</b>
+              {file.operation === 'delete' ? (
+                <p>Este caminho será removido.</p>
+              ) : (
+                file.content !== undefined && (
+                  <WikiBody markdown={stripWikiFrontmatter(file.content)} currentPath={file.path} />
+                )
+              )}
+              <CompactDiff file={file} />
+            </article>
+          ))}
+        </>
+      )}
+      {preview && preview.files.length > 0 && (
         <div className="card card__pad">
           <p>
             Confirma a proposta <b>{proposalId}</b>.
@@ -197,7 +291,7 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
           </div>
         </div>
       )}
-      {message && topics.length > 0 && <div className="notice">{message}</div>}
+      {message && <div className="notice">{message}</div>}
       <div className="panel">
         <p>Trabalhos que podem gerar propostas:</p>
         <JobList jobs={candidates} />
@@ -206,13 +300,97 @@ export function ReviewView({ jobs }: { readonly jobs: readonly Job[] }) {
   );
 }
 
-function previewFiles(value: { readonly files?: unknown }): readonly PreviewFile[] {
-  const files = value.files;
-  if (Array.isArray(files)) return files as PreviewFile[];
-  if (files && typeof files === 'object' && Array.isArray((files as { files?: unknown }).files)) {
-    return (files as { files: PreviewFile[] }).files;
+function CompactDiff({ file }: { readonly file: PreviewFile }) {
+  const diff = file.diff;
+  if (diff === undefined) return null;
+  const added = diff.addedLines ?? 0;
+  const removed = diff.removedLines ?? 0;
+  const lines = compactDiffLines(diff.text);
+  return (
+    <div className="review-diff">
+      <p className="muted">
+        {file.path} +{added} −{removed}
+      </p>
+      {lines.length > 0 && (
+        <pre className="review-diff__body">
+          {lines.map((line, index) => (
+            <span key={`${line.kind}:${index}`} className={`review-diff__line is-${line.kind}`}>
+              {line.text}
+              {'\n'}
+            </span>
+          ))}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function compactDiffLines(
+  text: string,
+): readonly { readonly kind: 'add' | 'remove' | 'context'; readonly text: string }[] {
+  const lines: { kind: 'add' | 'remove' | 'context'; text: string }[] = [];
+  for (const line of text.split('\n')) {
+    if (line.startsWith('--- ') || line.startsWith('+++ ') || line.startsWith('@@')) continue;
+    if (line.startsWith('+')) lines.push({ kind: 'add', text: line });
+    else if (line.startsWith('-')) lines.push({ kind: 'remove', text: line });
+    else if (line.startsWith(' ')) lines.push({ kind: 'context', text: line });
   }
-  return [];
+  return lines;
+}
+
+function unwrapPreview(value: {
+  readonly files?: unknown;
+  readonly sources?: unknown;
+  readonly claims?: unknown;
+  readonly contradictions?: unknown;
+}): PreviewState {
+  const nested =
+    value.files && typeof value.files === 'object' && !Array.isArray(value.files)
+      ? (value.files as {
+          readonly files?: unknown;
+          readonly sources?: unknown;
+          readonly claims?: unknown;
+          readonly contradictions?: unknown;
+        })
+      : undefined;
+  const files = Array.isArray(value.files)
+    ? value.files
+    : Array.isArray(nested?.files)
+      ? nested.files
+      : [];
+  return {
+    files: files as PreviewFile[],
+    sources: asSources(nested?.sources ?? value.sources),
+    claims: asStrings(nested?.claims ?? value.claims),
+    contradictions: asStrings(nested?.contradictions ?? value.contradictions),
+  };
+}
+
+function asStrings(value: unknown): readonly string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === 'string')
+    : [];
+}
+
+function asSources(value: unknown): readonly PreviewSource[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (typeof item === 'string') return [{ rawPath: item }];
+    if (
+      item &&
+      typeof item === 'object' &&
+      typeof (item as { rawPath?: unknown }).rawPath === 'string'
+    ) {
+      const source = item as { rawPath: string; citation?: unknown };
+      return [
+        {
+          rawPath: source.rawPath,
+          ...(typeof source.citation === 'string' ? { citation: source.citation } : {}),
+        },
+      ];
+    }
+    return [];
+  });
 }
 
 function JobList({ jobs }: { readonly jobs: readonly Job[] }) {
