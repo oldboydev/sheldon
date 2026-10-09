@@ -32,6 +32,9 @@ export const webOpenApi = {
     '/api/v1/entities/{kind}/{slug}/wiki/{path}': {
       get: { summary: 'Read one approved wiki page as Markdown', responses: apiResponses },
     },
+    '/api/v1/entities/{kind}/{slug}/answers/{id}': {
+      get: { summary: 'Read one stored cited query answer', responses: apiResponses },
+    },
     '/api/v1/entities/{kind}/{slug}/raw/{path}': {
       get: { summary: 'Read a cited raw file inside the entity', responses: apiResponses },
     },

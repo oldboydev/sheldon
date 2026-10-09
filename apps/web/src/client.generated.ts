@@ -21,6 +21,16 @@ export interface JobPage {
   readonly nextOffset?: number;
 }
 
+export interface QueryAnswer {
+  readonly id: string;
+  readonly question: string;
+  readonly agent: string;
+  readonly text: string;
+  readonly truncated: boolean;
+  readonly concepts: readonly { readonly path: string; readonly citation: string }[];
+  readonly raws: readonly { readonly path: string; readonly citation: string }[];
+}
+
 export interface Dashboard {
   readonly path: string;
   readonly health: { readonly vault: boolean; readonly sqlite: boolean };
@@ -45,6 +55,8 @@ export const client = {
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     }),
+  queryAnswer: (kind: 'topic' | 'project', slug: string, id: string) =>
+    request<QueryAnswer>(`/entities/${kind}/${slug}/answers/${encodeURIComponent(id)}`),
   cancelJob: (id: string) => request<Job>(`/jobs/${id}/cancel`, { method: 'POST' }),
   retryJob: (id: string) => request<Job>(`/jobs/${id}/retry`, { method: 'POST' }),
 };

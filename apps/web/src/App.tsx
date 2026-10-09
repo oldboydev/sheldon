@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from 'react';
 
-import { client, type Dashboard, type Job } from './client.generated.js';
+import { client, type Dashboard, type Job, type QueryAnswer } from './client.generated.js';
 import { KnowledgeView } from './KnowledgeView.js';
 import { ReviewView } from './ReviewView.js';
 import './styles.css';
@@ -151,7 +151,7 @@ export function App() {
             {section === 'fontes' && <SourceView topics={topics} onQueued={refresh} />}
             {section === 'conhecimento' && <KnowledgeView topics={topics} projects={projects} />}
             {section === 'revisão' && <ReviewView jobs={jobs} onReviewsChanged={refresh} />}
-            {section === 'consulta' && <QueryView topics={topics} onQueued={refresh} />}
+            {section === 'consulta' && <QueryView topics={topics} jobs={jobs} onQueued={refresh} />}
             {section === 'bundles' && <BundleView />}
             {section === 'configurações' && <SettingsView onQueued={refresh} />}
           </div>
@@ -367,17 +367,72 @@ function SourceView({
   );
 }
 
+const lastQueryKey = 'sheldon-web-last-query';
+
+type LastQuery = {
+  readonly jobId: string;
+  readonly answerId: string;
+  readonly kind: 'topic';
+  readonly slug: string;
+  readonly question: string;
+  readonly agent: AgentKind;
+};
+
+const agentLabel: Record<AgentKind, string> = {
+  codex: 'Codex',
+  claude: 'Claude',
+  grok: 'Grok',
+};
+
+function readLastQuery(): LastQuery | undefined {
+  try {
+    const raw = window.sessionStorage.getItem(lastQueryKey);
+    if (raw === null) return undefined;
+    const value = JSON.parse(raw) as LastQuery;
+    if (typeof value.jobId !== 'string' || typeof value.answerId !== 'string') return undefined;
+    return value;
+  } catch {
+    return undefined;
+  }
+}
+
 function QueryView({
   topics,
+  jobs,
   onQueued,
 }: {
   readonly topics: readonly { title: string; slug: string }[];
+  readonly jobs: readonly Job[];
   readonly onQueued: () => Promise<void>;
 }) {
   const [slug, setSlug] = useState(topics[0]?.slug ?? '');
   const [question, setQuestion] = useState('');
   const [agent, setAgent] = useState<AgentKind>('codex');
-  const [message, setMessage] = useState<string>();
+  const [tracked, setTracked] = useState<LastQuery | undefined>(() => readLastQuery());
+  const [answer, setAnswer] = useState<QueryAnswer>();
+  const job = jobs.find((item) => item.id === tracked?.jobId);
+
+  useEffect(() => {
+    if (tracked === undefined) return;
+    if (job?.status === 'failed') {
+      setAnswer(undefined);
+      return;
+    }
+    if (job?.status !== 'succeeded') return;
+    void client
+      .queryAnswer(tracked.kind, tracked.slug, tracked.answerId)
+      .then((value) => setAnswer(value))
+      .catch(() => setAnswer(undefined));
+  }, [job, tracked]);
+
+  const queuedNotice =
+    tracked !== undefined && (job === undefined || job.status === 'queued') && answer === undefined
+      ? 'Consulta na fila.'
+      : tracked !== undefined && job?.status === 'running'
+        ? 'Consulta em execução.'
+        : undefined;
+  const errorNotice = job?.status === 'failed' ? job.error : undefined;
+
   return (
     <div className="page narrow">
       <p className="eyebrow">Consulta citada</p>
@@ -387,15 +442,26 @@ function QueryView({
         onSubmit={(event) => {
           event.preventDefault();
           void (async () => {
-            await client.queueJob({
+            const answerId = `resposta-${Date.now()}`;
+            const queued = await client.queueJob({
               type: 'query',
               kind: 'topic',
               slug,
-              answerId: `resposta-${Date.now()}`,
+              answerId,
               agent,
               question,
             });
-            setMessage('Consulta adicionada à fila.');
+            const next: LastQuery = {
+              jobId: queued.id,
+              answerId,
+              kind: 'topic',
+              slug,
+              question,
+              agent,
+            };
+            window.sessionStorage.setItem(lastQueryKey, JSON.stringify(next));
+            setTracked(next);
+            setAnswer(undefined);
             await onQueued();
           })();
         }}
@@ -440,7 +506,26 @@ function QueryView({
           Consultar com citações
         </button>
       </form>
-      {message && <div className="notice">{message}</div>}
+      {queuedNotice && <div className="notice">{queuedNotice}</div>}
+      {errorNotice && <div className="notice error">{errorNotice}</div>}
+      {answer && (
+        <article className="panel query-answer">
+          <p className="eyebrow">Resposta citada</p>
+          <h2>{answer.question}</h2>
+          <p className="muted">{agentLabel[answer.agent as AgentKind] ?? answer.agent}</p>
+          {answer.truncated && (
+            <p className="notice">O índice omitiu trechos por limite de contexto.</p>
+          )}
+          <pre>{answer.text}</pre>
+          {answer.concepts.length > 0 && (
+            <ul className="query-answer__citations">
+              {answer.concepts.map((concept) => (
+                <li key={concept.path}>{concept.path}</li>
+              ))}
+            </ul>
+          )}
+        </article>
+      )}
     </div>
   );
 }
