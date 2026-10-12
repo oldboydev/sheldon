@@ -1,0 +1,46 @@
+name: 'Trabalho técnico / investigação'
+description: 'Refatoração, dívida técnica, automação, documentação ou investigação.'
+body:
+  - type: dropdown
+    id: categoria
+    attributes:
+      label: 'Categoria'
+      options:
+        - 'Refatoração'
+        - 'Débito técnico'
+        - 'Infraestrutura / CI'
+        - 'Investigação'
+        - 'Documentação'
+    validations:
+      required: true
+  - type: textarea
+    id: problema
+    attributes:
+      label: 'Problema ou oportunidade'
+      description: 'O que motiva este trabalho?'
+    validations:
+      required: true
+  - type: textarea
+    id: resultado
+    attributes:
+      label: 'Resultado verificável'
+      description: 'Como comprovar que o trabalho foi concluído?'
+    validations:
+      required: true
+  - type: textarea
+    id: aceite
+    attributes:
+      label: 'Critérios de aceite'
+      description: 'Condições que comprovam a conclusão; use uma lista de itens verificáveis.'
+      placeholder: |
+        - [ ] Primeiro resultado verificável
+        - [ ] Segundo resultado verificável
+    validations:
+      required: true
+  - type: textarea
+    id: restricoes
+    attributes:
+      label: 'Restrições e fora do escopo'
+      description: 'Que comportamento, contratos ou dados precisam permanecer intactos?'
+    validations:
+      required: false

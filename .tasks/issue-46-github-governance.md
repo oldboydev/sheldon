@@ -26,12 +26,12 @@ Preservar os quatro workflows atuais e seus scripts/aliases de qualidade, releas
 
 ## Observable
 
-| Surface | Decision | Landing |
-| --- | --- | --- |
-| Issue/PR | Problema e aceite na issue; plano e provas versionados; resumo no PR | 1, 2 |
-| Agente | Grok lê AGENTS; Claude importa o mesmo arquivo; revisor não escreve | 3 |
-| CLI | Reutilizar contrato e saídas do motor aprovado; erro bloqueia entrega | 4, 5 |
-| CI | Check obrigatório separado, sem IA nem release | 6, 7 |
+| Surface  | Decision                                                              | Landing |
+| -------- | --------------------------------------------------------------------- | ------- |
+| Issue/PR | Problema e aceite na issue; plano e provas versionados; resumo no PR  | 1, 2    |
+| Agente   | Grok lê AGENTS; Claude importa o mesmo arquivo; revisor não escreve   | 3       |
+| CLI      | Reutilizar contrato e saídas do motor aprovado; erro bloqueia entrega | 4, 5    |
+| CI       | Check obrigatório separado, sem IA nem release                        | 6, 7    |
 
 ## Swept
 
@@ -61,7 +61,7 @@ Base local: d99fb462bd4d5611f02e34f36ee61b16da8bb3d4. Workflows antigos serão c
 - Conversa: “eu tenho o repo sheldon e skill-me faça as configs de governança neles tbm”.
 - Sheldon: “Grok implementa; Codex local revisa antes do PR”; Claude preparado como alternativa.
 - Sheldon: “no sheldon tem os CI para deploy e publish isso não pode ser alterado”.
-- Issue: https://github.com/oldboydev/sheldon/issues/46.
+- Issue: [#46](https://github.com/oldboydev/sheldon/issues/46).
 - Referência aprovada: ERP dd031d6b1bd9bbd29a8bd2c049f284923af4da45, scripts/code-review/.
 
 ## Unresolved

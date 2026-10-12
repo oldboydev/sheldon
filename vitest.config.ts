@@ -54,7 +54,13 @@ export default defineConfig({
     // Git Bash, Node child processes, and the native Job Object supervisor contend for
     // temporary files on Windows. File-level parallelism makes their integration tests flaky.
     fileParallelism: process.platform !== 'win32',
-    exclude: ['**/node_modules/**', '**/.git/**', '**/.worktrees/**'],
+    exclude: [
+      '**/node_modules/**',
+      '**/.git/**',
+      '**/.worktrees/**',
+      'scripts/code-review/**',
+      'scripts/governance-ci.test.mjs',
+    ],
     globalSetup: ['./vitest.global-setup.ts'],
     coverage: {
       provider: 'v8',

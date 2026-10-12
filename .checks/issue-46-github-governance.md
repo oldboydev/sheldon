@@ -5,7 +5,7 @@ Sources:
 - Conversa: “eu tenho o repo sheldon e skill-me faça as configs de governança neles tbm”.
 - Sheldon: “Grok implementa; Codex local revisa antes do PR”; Claude preparado como alternativa.
 - Sheldon: “no sheldon tem os CI para deploy e publish isso não pode ser alterado”.
-- Issue: https://github.com/oldboydev/sheldon/issues/46.
+- Issue: [#46](https://github.com/oldboydev/sheldon/issues/46).
 - Referência aprovada: ERP dd031d6b1bd9bbd29a8bd2c049f284923af4da45, scripts/code-review/.
 
 ## Out of scope

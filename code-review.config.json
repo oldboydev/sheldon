@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "base": "origin/main",
+  "profiles": {
+    "light": {
+      "maxRounds": 2,
+      "requireEvidence": true
+    },
+    "ui": {
+      "maxRounds": 2,
+      "requireEvidence": true
+    },
+    "direct": {
+      "maxRounds": 2,
+      "requireEvidence": false
+    }
+  }
+}
