@@ -134,6 +134,71 @@ function fixture(t) {
   return { cwd, git, put, options, deps, calls, locations };
 }
 
+test("C10 falha de limpeza libera lock e preserva aprovação e contador", async (t) => {
+  const f = fixture(t);
+  let checkout;
+  const deps = {
+    ...f.deps,
+    cleanup: (_cwd, location) => {
+      checkout = location;
+      throw Object.assign(new Error("EPERM cleanup"), { code: "EPERM" });
+    },
+  };
+  try {
+    await assert.rejects(review(f.cwd, f.options, deps), /EPERM cleanup/);
+    assert.equal(
+      existsSync(join(f.cwd, ".git/code-review/issue-7.lock")),
+      false,
+    );
+    const checked = await check(f.cwd, f.options, f.deps);
+    assert.equal(checked.report.status, "ready");
+    assert.equal((await review(f.cwd, f.options, deps)).status, "ready");
+    assert.equal(f.calls.length, 1);
+    const state = JSON.parse(
+      readFileSync(join(f.cwd, ".git/code-review/issue-7.state.json"), "utf8"),
+    );
+    assert.equal(state.attempts.length, 1);
+  } finally {
+    if (checkout) f.git("worktree", "remove", "--force", checkout);
+  }
+  const failed = fixture(t);
+  let failedCheckout;
+  try {
+    await assert.rejects(
+      review(failed.cwd, failed.options, {
+        ...failed.deps,
+        execute: async () => {
+          throw new Error("falha de revisão");
+        },
+        cleanup: (_cwd, location) => {
+          failedCheckout = location;
+          throw new Error("EPERM cleanup");
+        },
+      }),
+      /EPERM cleanup/,
+    );
+    assert.equal(
+      existsSync(join(failed.cwd, ".git/code-review/issue-7.lock")),
+      false,
+    );
+    await assert.rejects(
+      check(failed.cwd, failed.options, failed.deps),
+      /sem relatório/,
+    );
+    const state = JSON.parse(
+      readFileSync(
+        join(failed.cwd, ".git/code-review/issue-7.state.json"),
+        "utf8",
+      ),
+    );
+    assert.equal(state.attempts.length, 1);
+    assert.equal(state.attempts[0].report, null);
+  } finally {
+    if (failedCheckout)
+      failed.git("worktree", "remove", "--force", failedCheckout);
+  }
+});
+
 async function inContinuedWorktree(f, operation) {
   const next = join(f.cwd, ".checks/code-review/continued");
   f.git("switch", "--detach");

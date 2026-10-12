@@ -359,7 +359,25 @@ export function readRemoteRefs(cwd, branch, baseRef) {
   return { head: refs[headRef], base: refs[base] };
 }
 
+function cleanupCheckout(cwd, checkout) {
+  const target = resolve(checkout);
+  const within = relative(resolve(tmpdir()), target);
+  requireThat(
+    within.startsWith("codex-code-review-") &&
+      !within.includes("..") &&
+      !within.includes("/") &&
+      !within.includes("\\"),
+    "Limpeza recusada fora do diretório temporário da revisão.",
+  );
+  try {
+    git(cwd, "worktree", "remove", "--force", target);
+  } finally {
+    if (existsSync(target)) rmSync(target, { recursive: true, force: true });
+  }
+}
+
 const defaults = {
+  cleanup: cleanupCheckout,
   fetch: (cwd, baseRef) => {
     requireThat(
       /^origin\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(baseRef) &&
@@ -706,24 +724,13 @@ export async function review(cwd, options, dependencies = {}) {
     return report;
   } finally {
     try {
-      if (checkout) {
-        git(cwd, "worktree", "remove", "--force", checkout);
-      }
+      if (checkout) deps.cleanup(cwd, checkout);
     } finally {
-      if (checkout && existsSync(checkout)) {
-        const target = resolve(checkout);
-        const within = relative(resolve(tmpdir()), target);
-        requireThat(
-          within.startsWith("codex-code-review-") &&
-            !within.includes("..") &&
-            !within.includes("/") &&
-            !within.includes("\\"),
-          "Limpeza recusada fora do diretório temporário da revisão.",
-        );
-        rmSync(target, { recursive: true, force: true });
+      try {
+        closeSync(lock);
+      } finally {
+        unlinkSync(p.lock);
       }
-      closeSync(lock);
-      unlinkSync(p.lock);
     }
   }
 }

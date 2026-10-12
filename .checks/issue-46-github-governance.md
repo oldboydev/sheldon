@@ -55,3 +55,7 @@ dependency failure: C3/C5; transitions: C1/C7; observability: C1/C5.
 ## Handoff
 
 Uma única implementação, abaixo de 150k; Verifier independente cobre a entrega inteira.
+
+## Atualização autorizada do motor comum
+
+Proprietário autorizou: “entendi, pode aplicar a correção nos quatro projetos e concluir os PRs, mantendo o deploy e publish do Sheldon intactos”. A referência anterior ERP dd031d6 é atualizada uniformemente com a correção de finalização aprovada: review.mjs/review.test.mjs. CLI/schema/README permanecem iguais. Os cinco blobs continuam idênticos entre todos os consumidores; C2 usa a referência corrigida, sem relaxar paridade. C10 prova lock liberado após limpeza falha, aprovação/cache/contador preservados e falha de revisão sem aprovação. Core configurado mantém limites/histórico; nenhuma exceção adicional. Filtro adicional já corrigido; toda a entrega exige conferência atual antes do PR. A proposta antes pendente está autorizada por esta resposta humana.
