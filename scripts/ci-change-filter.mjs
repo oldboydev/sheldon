@@ -21,14 +21,16 @@ export function requiresVerification(files) {
   return (
     files === null ||
     files.length === 0 ||
-    files.some(
-      (file) =>
-        !DOCUMENTATION_PATTERNS.some((pattern) =>
-          pattern.endsWith("/**")
-            ? file.startsWith(pattern.slice(0, -2))
-            : file === pattern,
-        ),
-    )
+    files.some((entry) => {
+      const file = typeof entry === "string" ? entry : entry.path;
+      if (typeof entry !== "string" && !["A", "M"].includes(entry.status))
+        return true;
+      return !DOCUMENTATION_PATTERNS.some((pattern) =>
+        pattern.endsWith("/**")
+          ? file.startsWith(pattern.slice(0, -2))
+          : file === pattern,
+      );
+    })
   );
 }
 
@@ -64,17 +66,28 @@ export function changedFiles(
     throw new Error("Referências de CI inválidas");
   }
   if (base === "0".repeat(40)) return null;
-  // Sem renomes: mover código para docs também precisa validar a exclusão do código.
-  return runGit([
+  // Sem renomes: toda movimentação também contém uma exclusão que exige validação.
+  const raw = runGit([
     "diff",
     "--no-renames",
-    "--name-only",
+    "--name-status",
     "-z",
     base + separator + head,
     "--",
-  ])
-    .split("\0")
-    .filter(Boolean);
+  ]);
+  if (raw === "") return [];
+  const parts = raw.split("\0");
+  if (parts.pop() !== "" || parts.length % 2 !== 0)
+    throw new Error("Formato do diff inválido");
+  const files = [];
+  for (let index = 0; index < parts.length; index += 2) {
+    const status = parts[index];
+    const file = parts[index + 1];
+    if (!/^[AMDTUXB]$/.test(status) || !file)
+      throw new Error("Operação do diff inválida");
+    files.push({ status, path: file });
+  }
+  return files;
 }
 
 if (

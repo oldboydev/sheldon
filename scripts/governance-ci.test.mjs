@@ -106,9 +106,12 @@ test("governance-C2 diff real inclui exclusões, renomes e caminhos com espaços
       "docs/code.js",
       "docs/com espaços.md",
     ])
-      assert.ok(files.includes(file), file);
+      assert.ok(
+        files.some((entry) => entry.path === file),
+        file,
+      );
     assert.equal(
-      files.filter((file) => file.startsWith("docs/item-")).length,
+      files.filter((entry) => entry.path.startsWith("docs/item-")).length,
       3100,
     );
     assert.equal(requiresVerification(files), true);
@@ -140,6 +143,23 @@ test("governance-C2 diff real inclui exclusões, renomes e caminhos com espaços
     assert.equal(path.dirname(scratch), path.resolve(tmpdir()));
     rmSync(scratch, { recursive: true, force: true });
   }
+});
+
+test("governance-C2 exclusão e renome apenas documentais exigem validação", () => {
+  const event = { before: "a".repeat(40), after: "b".repeat(40) };
+  const entries = (raw) => changedFiles("push", event, () => raw);
+  assert.equal(requiresVerification(entries("M\0README.md\0")), false);
+  assert.equal(requiresVerification(entries("A\0docs/new.md\0")), false);
+  assert.equal(requiresVerification(entries("D\0README.md\0")), true);
+  assert.equal(
+    requiresVerification(entries("D\0.checks/old.md\0A\0.checks/new.md\0")),
+    true,
+  );
+  assert.throws(() => entries("M\0README.md"), /Formato/);
+  assert.throws(
+    () => entries("R100\0docs/old.md\0docs/new.md\0"),
+    /Formato|Operação/,
+  );
 });
 
 test("governance-C2 eventos manuais e referências inválidas não dispensam verificação", () => {

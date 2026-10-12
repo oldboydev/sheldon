@@ -67,3 +67,9 @@ Base local: d99fb462bd4d5611f02e34f36ee61b16da8bb3d4. Workflows antigos serão c
 ## Unresolved
 
 None — escopo e preservação dos pipelines confirmados pelo proprietário.
+
+## Achados da revisão e correções
+
+O Codex local de skill-me encontrou dois defeitos concretos. O filtro adicional de governança foi corrigido para preservar status da operação: exclusão ou renome, mesmo documental, exige validação; edição e adição apenas documentais mantêm caminho leve. Seis testes do filtro/assembly passaram em ambos repositórios. Os workflows anteriores do Sheldon continuam preservados.
+
+Achado no motor herdado: falha de limpeza pode impedir liberação do lock. A proposta isolada libera a trava em finally, preservando relatório/cache/contador e mantendo falhas sem aprovação. Dez testes passaram na proposta, mas ela ainda NÃO foi aplicada ao motor canônico. Aplicação uniforme nos quatro consumidores exige autorização do proprietário para atualizar a referência aprovada. Não resetar contadores/histórico e não fazer fork local.
