@@ -12,3 +12,6 @@ native/**/build/
 packages/plugin-host/native/windows-job/build/
 *.node
 *.tsbuildinfo
+
+# Relatórios de runtime; histórico autoritativo fica no Git comum.
+.checks/code-review/

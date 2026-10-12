@@ -34,7 +34,12 @@
     "lint:domain": "node scripts/verify-domain.mjs",
     "verify:plugin-contract": "node scripts/verify-plugin-contract.mjs",
     "lint:repo": "node scripts/verify-change-policy.mjs",
-    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run lint:md && npm run test && npm run coverage && npm run build && npm run verify:plugin-contract && npm run lint:domain && npm run lint:repo && git diff --check"
+    "verify": "npm run format:check && npm run lint && npm run typecheck && npm run lint:md && npm run test && npm run coverage && npm run build && npm run verify:plugin-contract && npm run lint:domain && npm run lint:repo && git diff --check",
+    "review:run": "node scripts/code-review/cli.mjs review",
+    "review:check": "node scripts/code-review/cli.mjs check",
+    "pr:create": "node scripts/code-review/cli.mjs pr",
+    "test:code-review": "node --test scripts/code-review/review.test.mjs",
+    "test:governance": "node --test scripts/governance-ci.test.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.1",

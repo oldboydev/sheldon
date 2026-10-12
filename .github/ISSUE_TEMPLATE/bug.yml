@@ -1,0 +1,47 @@
+name: 'Bug / regressão'
+description: 'Comportamento incorreto, problema funcional ou regressão.'
+title: 'fix: '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Descreva o defeito e o resultado esperado. Causa, arquivos e solução
+        pertencem ao Planning, no `.tasks/` quando a tarefa exigir plano.
+  - type: textarea
+    id: observado
+    attributes:
+      label: 'Comportamento observado'
+      description: 'O que acontece de errado? Em qual fluxo ou operação?'
+    validations:
+      required: true
+  - type: textarea
+    id: esperado
+    attributes:
+      label: 'Comportamento esperado'
+      description: 'Como deveria funcionar?'
+    validations:
+      required: true
+  - type: textarea
+    id: reproducao
+    attributes:
+      label: 'Passos para reproduzir'
+      description: 'Passos, dados sintéticos e condições relevantes, se disponíveis.'
+    validations:
+      required: false
+  - type: textarea
+    id: impacto
+    attributes:
+      label: 'Impacto e evidências'
+      description: 'Usuário afetado, frequência, logs ou capturas. Não inclua segredos ou dados pessoais.'
+    validations:
+      required: false
+  - type: textarea
+    id: aceite
+    attributes:
+      label: 'Critérios de correção'
+      description: 'Comportamentos que devem estar comprovadamente corretos; use uma lista de itens verificáveis.'
+      placeholder: |
+        - [ ] Primeiro comportamento corrigido
+        - [ ] Segundo comportamento corrigido
+    validations:
+      required: true

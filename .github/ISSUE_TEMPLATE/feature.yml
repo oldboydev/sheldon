@@ -1,0 +1,40 @@
+name: 'Funcionalidade / melhoria'
+description: 'Novo comportamento ou melhoria de produto; plano em .tasks/ quando a raia exigir Planning.'
+title: 'feat: '
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Registre **o que** precisa mudar e **por quê**. Não copie o planejamento técnico aqui:
+        quando a raia exigir Planning, ele ficará em `.tasks/issue-N-<assunto>.md`.
+  - type: textarea
+    id: contexto
+    attributes:
+      label: 'Problema e contexto'
+      description: 'Qual necessidade real ou comportamento atual motivou o pedido?'
+    validations:
+      required: true
+  - type: textarea
+    id: resultado
+    attributes:
+      label: 'Resultado esperado'
+      description: 'Qual resultado observável deve existir quando a entrega estiver concluída?'
+    validations:
+      required: true
+  - type: textarea
+    id: aceite
+    attributes:
+      label: 'Critérios de aceite'
+      description: 'Condições verificáveis. Evite prescrever a implementação.'
+      placeholder: |
+        - [ ] Comportamento A é observável
+        - [ ] Cenário B continua funcionando
+    validations:
+      required: true
+  - type: textarea
+    id: limites
+    attributes:
+      label: 'Restrições e fora do escopo'
+      description: 'Contratos a preservar, comportamentos que não devem mudar ou decisões já tomadas.'
+    validations:
+      required: false
