@@ -15,6 +15,8 @@ maxBuffer (#49), playlists, Git remoto, outros conectores.
 
 Passe com JSON válido e 429 nas legendas devolve extração parcial (`rateLimited: true`) para o STT reutilizar o `infoJson`. Alternativa rejeitada: `infoJson` vazio no catch do plugin.
 
+O passe que tomou 429 tenta cada língua mesmo se o outro kind já devolveu ficheiros. VTT sem fala + 429 falha `YOUTUBE_RATE_LIMITED`. Catch STT sem JSON do yt-dlp grava `{ id, webpage_url }` para o `sourceId` não colidir.
+
 ## Checks
 
 ### S1 — Rate limit de legendas · ~40 KB

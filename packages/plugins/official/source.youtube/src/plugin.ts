@@ -119,9 +119,10 @@ async function ingestYoutube(
     );
   } catch (error) {
     if (!isRateLimited(error) || !options.stt) throw error;
+    const infoJson = { id: video.id, webpage_url: video.canonicalUri };
     extraction = {
-      infoJson: {},
-      infoJsonBytes: new Uint8Array(),
+      infoJson,
+      infoJsonBytes: new TextEncoder().encode(JSON.stringify(infoJson)),
       captions: [],
       ytDlpVersion: 'unknown',
       rateLimited: true,
@@ -138,7 +139,11 @@ async function ingestYoutube(
       readCaption: async (path) => readFile(path, 'utf8'),
     });
   } catch (error) {
-    if (!isCaptionsUnavailable(error) || !options.stt) throw error;
+    if (!isCaptionsUnavailable(error)) throw error;
+    if (extraction.rateLimited && !options.stt) {
+      throw youtubeError('YOUTUBE_RATE_LIMITED', 'YouTube rate-limited caption extraction.');
+    }
+    if (!options.stt) throw error;
   }
   if (caption !== undefined) {
     return publishCaptioned(request.temporaryDirectory, video.canonicalUri, extraction, caption);

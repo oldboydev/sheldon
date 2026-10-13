@@ -30,7 +30,7 @@ maxBuffer (#49), playlists, Git remoto, Instagram.
 
 ## Decided
 
-PR separado de #49. Sem retry com sleep (os testes são síncronos); só fallback por língua. Passe com JSON válido e 429 nas legendas devolve extração parcial (`rateLimited: true`) para o `--stt` reutilizar o `infoJson`; só lança `YOUTUBE_RATE_LIMITED` quando nenhum passe conclui.
+PR separado de #49. Sem retry com sleep (os testes são síncronos); só fallback por língua. Passe com JSON válido e 429 nas legendas devolve extração parcial (`rateLimited: true`) para o `--stt` reutilizar o `infoJson`; só lança `YOUTUBE_RATE_LIMITED` quando nenhum passe conclui. Catch STT sem JSON do yt-dlp grava `{ id, webpage_url }`. VTT sem fala após 429 falha `YOUTUBE_RATE_LIMITED`.
 
 ## Sources
 

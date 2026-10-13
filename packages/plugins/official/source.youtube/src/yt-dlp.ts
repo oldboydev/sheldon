@@ -95,11 +95,6 @@ export async function extractYoutubeVideo(
     await attemptCaptionPass(executable, runner, input, 'manual', input.languages),
     await attemptCaptionPass(executable, runner, input, 'automatic', input.languages),
   ];
-  const combinedExtraction = extractionFromOutcomes(combined, false);
-  if (combinedExtraction !== undefined && combinedExtraction.captions.length > 0) {
-    return combinedExtraction;
-  }
-
   const retries: CaptionPassOutcome[] = [];
   if (input.languages.length > 1) {
     for (const kind of ['manual', 'automatic'] as const) {
@@ -111,22 +106,18 @@ export async function extractYoutubeVideo(
       }
     }
   }
-  const retriedExtraction = extractionFromOutcomes([...combined, ...retries], false);
-  if (retriedExtraction !== undefined && retriedExtraction.captions.length > 0) {
-    return retriedExtraction;
-  }
-
-  const rateLimited = combined.some(isRateLimitedOutcome) || retries.some(isRateLimitedOutcome);
+  const outcomes = [...combined, ...retries];
+  const rateLimited = outcomes.some(isRateLimitedOutcome);
+  const extraction = extractionFromOutcomes(outcomes, rateLimited);
+  if (extraction !== undefined && extraction.captions.length > 0) return extraction;
   if (rateLimited) {
-    const partial = extractionFromOutcomes([...combined, ...retries], true);
-    if (partial !== undefined) return partial;
+    if (extraction !== undefined) return extraction;
     throw youtubeError('YOUTUBE_RATE_LIMITED', 'YouTube rate-limited caption extraction.');
   }
 
   const error = combined.find((outcome) => outcome.status === 'error');
   if (error !== undefined) throw error.error;
-  if (retriedExtraction !== undefined) return retriedExtraction;
-  if (combinedExtraction !== undefined) return combinedExtraction;
+  if (extraction !== undefined) return extraction;
   throw youtubeError('YOUTUBE_EXTRACTION_FAILED', 'No yt-dlp caption pass completed.');
 }
 

@@ -80,7 +80,7 @@ describe('extractYoutubeVideo', () => {
   it('retries each requested language when the combined caption pass is rate-limited', async () => {
     const outputDirectory = await createOutputDirectory();
     const englishPath = join(outputDirectory, 'automatic.en.vtt');
-    await writeFile(englishPath, 'WEBVTT\n');
+    await writeFile(englishPath, 'WEBVTT\n\n00:00.000 --> 00:01.000\nHello recovered\n');
     const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
       code: 1,
       stderr:
@@ -106,6 +106,54 @@ describe('extractYoutubeVideo', () => {
 
     await expect(extractYoutubeVideo(request(outputDirectory), { runner })).resolves.toMatchObject({
       captions: [{ path: englishPath, language: 'en', kind: 'automatic' }],
+    });
+    const languageArgs = runner.run.mock.calls.map(
+      (call) => call[1][call[1].indexOf('--sub-langs') + 1],
+    );
+    expect(languageArgs).toEqual(['pt,en', 'pt,en', 'pt', 'en']);
+  });
+
+  it('retries a rate-limited caption kind even when the other kind already returned captions', async () => {
+    const outputDirectory = await createOutputDirectory();
+    const manualPath = join(outputDirectory, 'manual.en.vtt');
+    const automaticPath = join(outputDirectory, 'automatic.pt.vtt');
+    await writeFile(manualPath, 'WEBVTT\n\n00:00.000 --> 00:01.000\nEnglish manual\n');
+    await writeFile(automaticPath, 'WEBVTT\n\n00:00.000 --> 00:01.000\nPortuguês automático\n');
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const runner = {
+      run: vi.fn(async (_file: string, arguments_: readonly string[]) => {
+        const automatic = arguments_.includes('--write-auto-subs');
+        const languages = arguments_[arguments_.indexOf('--sub-langs') + 1];
+        if (!automatic) {
+          return {
+            stdout: JSON.stringify({
+              id: 'AbCdEf12345',
+              requested_subtitles: { en: { filepath: manualPath, ext: 'vtt' } },
+            }),
+            stderr: '',
+          };
+        }
+        if (typeof languages === 'string' && (languages.includes(',') || languages === 'en')) {
+          throw rateLimited;
+        }
+        return {
+          stdout: JSON.stringify({
+            id: 'AbCdEf12345',
+            requested_subtitles: { pt: { filepath: automaticPath, ext: 'vtt' } },
+          }),
+          stderr: '',
+        };
+      }),
+    };
+
+    await expect(extractYoutubeVideo(request(outputDirectory), { runner })).resolves.toMatchObject({
+      captions: expect.arrayContaining([
+        { path: manualPath, language: 'en', kind: 'manual' },
+        { path: automaticPath, language: 'pt', kind: 'automatic' },
+      ]),
     });
     const languageArgs = runner.run.mock.calls.map(
       (call) => call[1][call[1].indexOf('--sub-langs') + 1],
