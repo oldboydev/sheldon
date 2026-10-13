@@ -26,7 +26,7 @@ No name filter matched 0 tests.
 
 ### C1
 
-```
+```bash
 npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test.ts -t "declares a yt-dlp stdout maxBuffer"
 ```
 
@@ -34,7 +34,7 @@ exit 0. `✓ packages/plugins/official/source.youtube/test/yt-dlp.test.ts (16 te
 
 ### C2
 
-```
+```bash
 npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test.ts -t "accepts yt-dlp JSON stdout larger than the Node execFile default maxBuffer"
 ```
 
@@ -42,7 +42,7 @@ exit 0. `✓ packages/plugins/official/source.youtube/test/yt-dlp.test.ts (16 te
 
 ### C3
 
-```
+```bash
 npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test.ts -t "maps execFile maxBuffer overflow to YOUTUBE_RESPONSE_INVALID"
 ```
 
@@ -50,7 +50,7 @@ exit 0. `✓ packages/plugins/official/source.youtube/test/yt-dlp.test.ts (16 te
 
 ### C4
 
-```
+```bash
 npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test.ts
 ```
 
@@ -58,13 +58,13 @@ exit 0. `✓ packages/plugins/official/source.youtube/test/yt-dlp.test.ts (16 te
 
 ### prettier --check
 
-```
+```bash
 npx prettier --check packages/plugins/official/source.youtube/src/yt-dlp.ts packages/plugins/official/source.youtube/test/yt-dlp.test.ts CHANGELOG.md README.md .checks/issue-49-youtube-ytdlp-maxbuffer.md .tasks/issue-49-youtube-ytdlp-maxbuffer.md
 ```
 
 exit 1.
 
-```
+```text
 Checking formatting...
 [warn] .tasks/issue-49-youtube-ytdlp-maxbuffer.md
 [warn] Code style issues found in the above file. Run Prettier with --write to fix.
