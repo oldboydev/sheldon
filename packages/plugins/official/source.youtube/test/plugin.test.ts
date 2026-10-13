@@ -118,6 +118,150 @@ describe('source.youtube', () => {
     },
   );
 
+  it('reports rate-limited captions with YOUTUBE_RATE_LIMITED', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: { run: vi.fn().mockRejectedValue(rateLimited) },
+    });
+    await expect(
+      plugin.ingest(
+        { input: { url: 'https://youtu.be/AbCdEf12345' }, options: {}, temporaryDirectory },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'YOUTUBE_RATE_LIMITED' });
+    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('falls back to local STT when caption extraction is rate-limited', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const run = vi.fn(async (_file: string, arguments_: readonly string[], options) => {
+      if (arguments_.includes('--format')) {
+        await writeFile(join(options.cwd, 'stt-input.m4a'), 'audio');
+        return { stdout: '', stderr: '' };
+      }
+      throw rateLimited;
+    });
+    const sttRunner = { run: vi.fn().mockResolvedValue({ stdout: 'fala local', stderr: '' }) };
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: { run },
+      sttRunner,
+      environment: {
+        SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt',
+        SHELDON_LOCAL_STT_ARGUMENTS: JSON.stringify(['--offline', '{input}']),
+      },
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://youtu.be/AbCdEf12345' },
+        options: { stt: true },
+        temporaryDirectory,
+      },
+      context,
+    );
+
+    expect(await readFile(join(temporaryDirectory, 'content.md'), 'utf8')).toContain('fala local');
+    expect(artifacts[1]?.metadata).toMatchObject({ extractionStatus: 'complete' });
+    expect(sttRunner.run).toHaveBeenCalled();
+    expect(await readFile(join(temporaryDirectory, 'original.info.json'), 'utf8')).toContain(
+      'AbCdEf12345',
+    );
+  });
+
+  it('publishes captions recovered after a combined caption pass is rate-limited', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const englishPath = join(temporaryDirectory, 'automatic.en.vtt');
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: {
+        run: vi.fn(async (_file: string, arguments_: readonly string[]) => {
+          const automatic = arguments_.includes('--write-auto-subs');
+          const languages = arguments_[arguments_.indexOf('--sub-langs') + 1];
+          if (!automatic) return { stdout: '{"id":"AbCdEf12345"}', stderr: '' };
+          if (typeof languages === 'string' && (languages.includes(',') || languages === 'pt')) {
+            throw rateLimited;
+          }
+          await writeFile(englishPath, 'WEBVTT\n\n00:00.000 --> 00:01.000\nHello recovered\n');
+          return {
+            stdout: JSON.stringify({
+              id: 'AbCdEf12345',
+              title: 'Fixture video',
+              _version: { version: '2026.01.01' },
+              requested_subtitles: { en: { filepath: englishPath, ext: 'vtt' } },
+            }),
+            stderr: '',
+          };
+        }),
+      },
+    });
+
+    const artifacts = await plugin.ingest(
+      { input: { url: 'https://youtu.be/AbCdEf12345' }, options: {}, temporaryDirectory },
+      context,
+    );
+
+    expect(await readFile(join(temporaryDirectory, 'content.md'), 'utf8')).toContain(
+      'Hello recovered',
+    );
+    expect(artifacts.map(({ path }) => path)).toEqual([
+      'original.info.json',
+      'content.md',
+      'assets/en.automatic.vtt',
+    ]);
+  });
+
+  it('reports YOUTUBE_RATE_LIMITED when recovered caption files have no usable text', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const emptyPath = join(temporaryDirectory, 'automatic.en.vtt');
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: {
+        run: vi.fn(async (_file: string, arguments_: readonly string[]) => {
+          const automatic = arguments_.includes('--write-auto-subs');
+          const languages = arguments_[arguments_.indexOf('--sub-langs') + 1];
+          if (!automatic) return { stdout: '{"id":"AbCdEf12345"}', stderr: '' };
+          if (typeof languages === 'string' && (languages.includes(',') || languages === 'pt')) {
+            throw rateLimited;
+          }
+          await writeFile(emptyPath, 'WEBVTT\n');
+          return {
+            stdout: JSON.stringify({
+              id: 'AbCdEf12345',
+              requested_subtitles: { en: { filepath: emptyPath, ext: 'vtt' } },
+            }),
+            stderr: '',
+          };
+        }),
+      },
+    });
+
+    await expect(
+      plugin.ingest(
+        { input: { url: 'https://youtu.be/AbCdEf12345' }, options: {}, temporaryDirectory },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'YOUTUBE_RATE_LIMITED' });
+    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
   it('reports unavailable captions with a stable diagnostic code', async () => {
     const temporaryDirectory = await temporaryDirectoryForTest();
     const plugin = createOfficialSourceYoutubePlugin({ runner: noCaptionRunner });

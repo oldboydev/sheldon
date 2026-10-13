@@ -129,6 +129,7 @@ const sourceDiagnosticCodes = new Set([
   'YOUTUBE_EXTRACTION_FAILED',
   'YOUTUBE_RESPONSE_INVALID',
   'YOUTUBE_CAPTIONS_UNAVAILABLE',
+  'YOUTUBE_RATE_LIMITED',
   'YOUTUBE_STT_UNAVAILABLE',
   'YOUTUBE_STT_CONFIGURATION_INVALID',
   'YOUTUBE_MEDIA_LIMIT_EXCEEDED',
@@ -873,6 +874,10 @@ function youtubeRecovery(
       message: 'No usable requested captions were available.',
       recovery:
         'Pass --stt with SHELDON_LOCAL_STT_EXECUTABLE and optional SHELDON_LOCAL_STT_ARGUMENTS, retry with another requested language, or provide a captioned source.',
+    },
+    YOUTUBE_RATE_LIMITED: {
+      message: 'YouTube rate-limited caption extraction.',
+      recovery: 'Wait before retrying; the plugin will not loop indefinitely.',
     },
     YOUTUBE_STT_UNAVAILABLE: {
       message: 'No local speech-to-text runtime is configured for source.youtube.',
