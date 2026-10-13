@@ -35,3 +35,12 @@ Proof: `npx vitest run packages/plugins/official/source.youtube/test/plugin.test
 
 **C5** — Host mapeia `YOUTUBE_RATE_LIMITED` com recuperação de esperar e repetir.
 Proof: `npx vitest run packages/plugin-host/test/process-runner-url-diagnostics.test.ts -t "maps YouTube caption rate limits"`
+
+**C6** — Ingest publica o texto da legenda recuperada após 429 combinado.
+Proof: `npx vitest run packages/plugins/official/source.youtube/test/plugin.test.ts -t "publishes captions recovered after a combined caption pass is rate-limited"`
+
+**C7** — VTT recuperado sem fala falha `YOUTUBE_RATE_LIMITED`.
+Proof: `npx vitest run packages/plugins/official/source.youtube/test/plugin.test.ts -t "reports YOUTUBE_RATE_LIMITED when recovered caption files have no usable text"`
+
+**C8** — Passe limitado tenta cada língua mesmo se o outro kind já devolveu legendas.
+Proof: `npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test.ts -t "retries a rate-limited caption kind even when the other kind already returned captions"`
