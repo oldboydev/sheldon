@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.11] - 2026-10-13
+
+Tag `v0.2.11`. Publica o npm `latest` e o catálogo oficial. YouTube aceita JSON grande do
+`yt-dlp` e trata HTTP 429 nas legendas.
+
 ### Fixed
 
 - `source.youtube` aceita o JSON do `yt-dlp --print-json` até 32 MiB (`maxBuffer`). Estouro do
