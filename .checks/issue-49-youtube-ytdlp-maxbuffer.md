@@ -25,3 +25,6 @@ Proof: `npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test
 
 **C3** — Estouro de `maxBuffer` (`ERR_CHILD_PROCESS_STDIO_MAXBUFFER`) mapeia para `YOUTUBE_RESPONSE_INVALID`.
 Proof: `npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test.ts -t "maps execFile maxBuffer overflow to YOUTUBE_RESPONSE_INVALID"`
+
+**C4** — A suíte `yt-dlp.test.ts` completa passa (casos de falha real, cancelamento e caminhos).
+Proof: `npx vitest run packages/plugins/official/source.youtube/test/yt-dlp.test.ts`

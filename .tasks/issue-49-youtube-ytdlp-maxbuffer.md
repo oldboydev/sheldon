@@ -19,10 +19,10 @@ HTTP 429 (#50), playlists, STT, Instagram, publicação npm (depois do merge).
 
 ## Observable
 
-| Surface     | Decision                                      | Landing |
-| ----------- | --------------------------------------------- | ------- |
-| yt-dlp.ts   | Constante ≥ 32 MiB no `systemRunner`          | 1, 3    |
-| yt-dlp.test | Stdout > 1 MiB e constante visível            | 2       |
+| Surface     | Decision                             | Landing |
+| ----------- | ------------------------------------ | ------- |
+| yt-dlp.ts   | Constante ≥ 32 MiB no `systemRunner` | 1, 3    |
+| yt-dlp.test | Stdout > 1 MiB e constante visível   | 2       |
 
 ## Decided
 
