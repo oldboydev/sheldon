@@ -6,6 +6,11 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- `source.youtube` aceita o JSON do `yt-dlp --print-json` até 32 MiB (`maxBuffer`). Estouro do
+  buffer local vira `YOUTUBE_RESPONSE_INVALID`, não `YOUTUBE_EXTRACTION_FAILED`.
+
 ### Added
 
 - Governança GitHub com issue/PR, regras compartilhadas para Grok/Claude e revisão local

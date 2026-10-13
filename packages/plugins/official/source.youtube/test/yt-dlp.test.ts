@@ -5,7 +5,12 @@ import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { canonicalYoutubeVideo } from '../src/youtube-url.js';
-import { extractYoutubeVideo, type YoutubeRunner } from '../src/yt-dlp.js';
+import {
+  extractYoutubeVideo,
+  YT_DLP_STDOUT_MAX_BUFFER_BYTES,
+  ytDlpExecFileOptions,
+  type YoutubeRunner,
+} from '../src/yt-dlp.js';
 
 const temporaryDirectories: string[] = [];
 
@@ -40,6 +45,38 @@ function request(outputDirectory: string) {
 }
 
 describe('extractYoutubeVideo', () => {
+  it('declares a yt-dlp stdout maxBuffer of at least 32 MiB', () => {
+    expect(YT_DLP_STDOUT_MAX_BUFFER_BYTES).toBeGreaterThanOrEqual(32 * 1024 * 1024);
+    expect(ytDlpExecFileOptions({ cwd: '.', shell: false }).maxBuffer).toBe(
+      YT_DLP_STDOUT_MAX_BUFFER_BYTES,
+    );
+  });
+
+  it('accepts yt-dlp JSON stdout larger than the Node execFile default maxBuffer', async () => {
+    const outputDirectory = await createOutputDirectory();
+    const stdout = JSON.stringify({ id: 'AbCdEf12345', pad: 'x'.repeat(2 * 1024 * 1024) });
+    expect(Buffer.byteLength(stdout)).toBeGreaterThan(1024 * 1024);
+
+    await expect(
+      extractYoutubeVideo(request(outputDirectory), { runner: fixtureRunner(stdout) }),
+    ).resolves.toMatchObject({
+      infoJson: { id: 'AbCdEf12345' },
+    });
+  });
+
+  it('maps execFile maxBuffer overflow to YOUTUBE_RESPONSE_INVALID', async () => {
+    const outputDirectory = await createOutputDirectory();
+    const overflow = Object.assign(new Error('stdout maxBuffer exceeded'), {
+      code: 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER',
+    });
+    const runner = { run: vi.fn().mockRejectedValue(overflow) };
+
+    await expect(extractYoutubeVideo(request(outputDirectory), { runner })).rejects.toMatchObject({
+      code: 'YOUTUBE_RESPONSE_INVALID',
+      message: expect.stringContaining('capture buffer'),
+    });
+  });
+
   it('runs a fixed no-media yt-dlp command and parses its JSON response', async () => {
     const outputDirectory = await createOutputDirectory();
     const runner = fixtureRunner('{"id":"AbCdEf12345"}\n');

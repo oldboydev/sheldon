@@ -45,6 +45,28 @@ export interface ExtractYoutubeVideoDependencies {
 
 const textEncoder = new TextEncoder();
 
+export const YT_DLP_STDOUT_MAX_BUFFER_BYTES = 32 * 1024 * 1024;
+
+export function ytDlpExecFileOptions(options: {
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+  readonly shell: false;
+}): {
+  readonly cwd: string;
+  readonly signal?: AbortSignal;
+  readonly shell: false;
+  readonly encoding: 'utf8';
+  readonly maxBuffer: number;
+} {
+  return {
+    cwd: options.cwd,
+    ...(options.signal === undefined ? {} : { signal: options.signal }),
+    shell: options.shell,
+    encoding: 'utf8',
+    maxBuffer: YT_DLP_STDOUT_MAX_BUFFER_BYTES,
+  };
+}
+
 interface CaptionPassSuccess {
   readonly status: 'success';
   readonly infoJson: Readonly<Record<string, unknown>>;
@@ -138,6 +160,9 @@ async function runCaptionPass(
         'YOUTUBE_RUNTIME_UNAVAILABLE',
         'The yt-dlp executable could not be started.',
       );
+    }
+    if (isMaxBufferError(error)) {
+      throw youtubeError('YOUTUBE_RESPONSE_INVALID', 'yt-dlp output exceeded the capture buffer.');
     }
     throw youtubeError('YOUTUBE_EXTRACTION_FAILED', `yt-dlp ${kind} caption extraction failed.`);
   }
@@ -270,15 +295,19 @@ const execFileAsync = promisify(execFile);
 
 const systemRunner: YoutubeRunner = {
   async run(file, arguments_, options) {
-    const result = await execFileAsync(file, [...arguments_], {
-      cwd: options.cwd,
-      signal: options.signal,
-      shell: options.shell,
-      encoding: 'utf8',
-    });
+    const result = await execFileAsync(file, [...arguments_], ytDlpExecFileOptions(options));
     return { stdout: result.stdout, stderr: result.stderr };
   },
 };
+
+function isMaxBufferError(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+  );
+}
 
 type YoutubeErrorCode =
   'YOUTUBE_RUNTIME_UNAVAILABLE' | 'YOUTUBE_EXTRACTION_FAILED' | 'YOUTUBE_RESPONSE_INVALID';
