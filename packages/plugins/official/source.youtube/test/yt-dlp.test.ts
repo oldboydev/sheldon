@@ -77,6 +77,55 @@ describe('extractYoutubeVideo', () => {
     });
   });
 
+  it('retries each requested language when the combined caption pass is rate-limited', async () => {
+    const outputDirectory = await createOutputDirectory();
+    const englishPath = join(outputDirectory, 'automatic.en.vtt');
+    await writeFile(englishPath, 'WEBVTT\n');
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr:
+        "ERROR: Unable to download video subtitles for 'pt': HTTP Error 429: Too Many Requests",
+    });
+    const runner = {
+      run: vi.fn(async (_file: string, arguments_: readonly string[]) => {
+        const automatic = arguments_.includes('--write-auto-subs');
+        const languages = arguments_[arguments_.indexOf('--sub-langs') + 1];
+        if (!automatic) return { stdout: '{"id":"AbCdEf12345"}', stderr: '' };
+        if (typeof languages === 'string' && (languages.includes(',') || languages === 'pt')) {
+          throw rateLimited;
+        }
+        return {
+          stdout: JSON.stringify({
+            id: 'AbCdEf12345',
+            requested_subtitles: { en: { filepath: englishPath, ext: 'vtt' } },
+          }),
+          stderr: '',
+        };
+      }),
+    };
+
+    await expect(extractYoutubeVideo(request(outputDirectory), { runner })).resolves.toMatchObject({
+      captions: [{ path: englishPath, language: 'en', kind: 'automatic' }],
+    });
+    const languageArgs = runner.run.mock.calls.map(
+      (call) => call[1][call[1].indexOf('--sub-langs') + 1],
+    );
+    expect(languageArgs).toEqual(['pt,en', 'pt,en', 'pt', 'en']);
+  });
+
+  it('fails with YOUTUBE_RATE_LIMITED when every caption pass is rate-limited', async () => {
+    const outputDirectory = await createOutputDirectory();
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const runner = { run: vi.fn().mockRejectedValue(rateLimited) };
+
+    await expect(extractYoutubeVideo(request(outputDirectory), { runner })).rejects.toMatchObject({
+      code: 'YOUTUBE_RATE_LIMITED',
+    });
+  });
+
   it('runs a fixed no-media yt-dlp command and parses its JSON response', async () => {
     const outputDirectory = await createOutputDirectory();
     const runner = fixtureRunner('{"id":"AbCdEf12345"}\n');

@@ -137,5 +137,6 @@ sheldon ingest repository topic learning ~/src/my-repo --vault ~/knowledge/sheld
 - No configured vault — pass `--vault <path>` or run `sheldon init`.
 - Unreadable input path / invalid URL / dirty Git working tree (repository) — fix the input and retry.
 - Topic or project slug missing — create it with `sheldon topic create` / `sheldon project create` first.
+- YouTube HTTP 429 on captions (`YOUTUBE_RATE_LIMITED`) — wait and retry; pass `--stt` with a configured local STT runtime if you need a transcript now.
 
 See [Compile then review](flow-compile-review.html) for turning raws into approved wiki notes.

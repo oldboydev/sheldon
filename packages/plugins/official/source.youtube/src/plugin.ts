@@ -106,15 +106,30 @@ async function ingestYoutube(
 ): Promise<readonly SourceArtifact[]> {
   const video = validatedInput(request.input);
   const options = validatedOptions(request.options);
-  const extraction = await extractYoutubeVideo(
-    {
-      video,
-      outputDirectory: request.temporaryDirectory,
-      languages: options.languages,
-      signal,
-    },
-    { executable, runner },
-  );
+  let extraction: YoutubeExtraction;
+  try {
+    extraction = await extractYoutubeVideo(
+      {
+        video,
+        outputDirectory: request.temporaryDirectory,
+        languages: options.languages,
+        signal,
+      },
+      { executable, runner },
+    );
+  } catch (error) {
+    if (!isRateLimited(error) || !options.stt) throw error;
+    extraction = {
+      infoJson: {},
+      infoJsonBytes: new Uint8Array(),
+      captions: [],
+      ytDlpVersion: 'unknown',
+      rateLimited: true,
+    };
+  }
+  if (extraction.rateLimited && extraction.captions.length === 0 && !options.stt) {
+    throw youtubeError('YOUTUBE_RATE_LIMITED', 'YouTube rate-limited caption extraction.');
+  }
   let caption: SelectedYoutubeCaption | undefined;
   try {
     caption = await selectYoutubeCaption({
@@ -449,12 +464,17 @@ type YoutubePluginErrorCode =
   | 'YOUTUBE_EXTRACTION_FAILED'
   | 'YOUTUBE_RESPONSE_INVALID'
   | 'YOUTUBE_CAPTIONS_UNAVAILABLE'
+  | 'YOUTUBE_RATE_LIMITED'
   | 'YOUTUBE_STT_UNAVAILABLE'
   | 'YOUTUBE_STT_CONFIGURATION_INVALID'
   | 'YOUTUBE_MEDIA_LIMIT_EXCEEDED';
 
 function isCaptionsUnavailable(error: unknown): boolean {
   return hasYoutubeCode(error) && error.code === 'YOUTUBE_CAPTIONS_UNAVAILABLE';
+}
+
+function isRateLimited(error: unknown): boolean {
+  return hasYoutubeCode(error) && error.code === 'YOUTUBE_RATE_LIMITED';
 }
 
 function youtubeError(code: YoutubePluginErrorCode, message: string): YoutubePluginError {

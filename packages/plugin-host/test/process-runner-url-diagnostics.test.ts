@@ -104,6 +104,26 @@ describe('PluginProcessRunner URL diagnostics', () => {
     expect(JSON.stringify(retainedRun)).not.toContain('fragment-secret');
   });
 
+  it('maps YouTube caption rate limits to a wait-and-retry remediation', async () => {
+    const state = stateDatabase();
+    const runner = new PluginProcessRunner({ state, processLauncher });
+    const unsafeUrl = 'https://youtu.be/AbCdEf12345?credential=query-secret';
+
+    await expect(
+      runner.probe(await pluginForFixture(), {
+        errorCode: 'YOUTUBE_RATE_LIMITED',
+        secret: unsafeUrl,
+        url: unsafeUrl,
+      }),
+    ).rejects.toMatchObject({
+      code: 'YOUTUBE_RATE_LIMITED',
+      message: 'YouTube rate-limited caption extraction.',
+      recovery: 'Wait before retrying; the plugin will not loop indefinitely.',
+      target: 'fixture.node',
+    });
+    expect(JSON.stringify(state.listRuns().at(-1))).not.toContain('query-secret');
+  });
+
   it('maps unavailable YouTube captions to a safe actionable remediation', async () => {
     const state = stateDatabase();
     const runner = new PluginProcessRunner({ state, processLauncher });

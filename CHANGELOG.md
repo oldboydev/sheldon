@@ -10,6 +10,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 - `source.youtube` aceita o JSON do `yt-dlp --print-json` até 32 MiB (`maxBuffer`). Estouro do
   buffer local vira `YOUTUBE_RESPONSE_INVALID`, não `YOUTUBE_EXTRACTION_FAILED`.
+- HTTP 429 nas legendas do YouTube passa a `YOUTUBE_RATE_LIMITED`; o plugin tenta cada língua
+  pedida em separado e, com `--stt`, segue o fallback de transcrição local.
 
 ### Added
 

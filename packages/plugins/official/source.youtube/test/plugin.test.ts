@@ -118,6 +118,63 @@ describe('source.youtube', () => {
     },
   );
 
+  it('reports rate-limited captions with YOUTUBE_RATE_LIMITED', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: { run: vi.fn().mockRejectedValue(rateLimited) },
+    });
+    await expect(
+      plugin.ingest(
+        { input: { url: 'https://youtu.be/AbCdEf12345' }, options: {}, temporaryDirectory },
+        context,
+      ),
+    ).rejects.toMatchObject({ code: 'YOUTUBE_RATE_LIMITED' });
+    await expect(readFile(join(temporaryDirectory, 'content.md'), 'utf8')).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
+  it('falls back to local STT when caption extraction is rate-limited', async () => {
+    const temporaryDirectory = await temporaryDirectoryForTest();
+    const rateLimited = Object.assign(new Error('yt-dlp exited with code 1'), {
+      code: 1,
+      stderr: 'HTTP Error 429: Too Many Requests',
+    });
+    const run = vi.fn(async (_file: string, arguments_: readonly string[], options) => {
+      if (arguments_.includes('--format')) {
+        await writeFile(join(options.cwd, 'stt-input.m4a'), 'audio');
+        return { stdout: '', stderr: '' };
+      }
+      throw rateLimited;
+    });
+    const sttRunner = { run: vi.fn().mockResolvedValue({ stdout: 'fala local', stderr: '' }) };
+    const plugin = createOfficialSourceYoutubePlugin({
+      runner: { run },
+      sttRunner,
+      environment: {
+        SHELDON_LOCAL_STT_EXECUTABLE: 'local-stt',
+        SHELDON_LOCAL_STT_ARGUMENTS: JSON.stringify(['--offline', '{input}']),
+      },
+    });
+
+    const artifacts = await plugin.ingest(
+      {
+        input: { url: 'https://youtu.be/AbCdEf12345' },
+        options: { stt: true },
+        temporaryDirectory,
+      },
+      context,
+    );
+
+    expect(await readFile(join(temporaryDirectory, 'content.md'), 'utf8')).toContain('fala local');
+    expect(artifacts[1]?.metadata).toMatchObject({ extractionStatus: 'complete' });
+    expect(sttRunner.run).toHaveBeenCalled();
+  });
+
   it('reports unavailable captions with a stable diagnostic code', async () => {
     const temporaryDirectory = await temporaryDirectoryForTest();
     const plugin = createOfficialSourceYoutubePlugin({ runner: noCaptionRunner });

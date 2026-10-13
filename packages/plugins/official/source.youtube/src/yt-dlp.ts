@@ -17,6 +17,7 @@ export interface YoutubeExtraction {
   readonly infoJsonBytes: Uint8Array;
   readonly captions: readonly YoutubeCaptionCandidate[];
   readonly ytDlpVersion: string;
+  readonly rateLimited: boolean;
 }
 
 export interface YoutubeRunner {
@@ -69,6 +70,7 @@ export function ytDlpExecFileOptions(options: {
 
 interface CaptionPassSuccess {
   readonly status: 'success';
+  readonly kind: YoutubeCaptionCandidate['kind'];
   readonly infoJson: Readonly<Record<string, unknown>>;
   readonly infoJsonBytes: Uint8Array;
   readonly captions: readonly YoutubeCaptionCandidate[];
@@ -77,6 +79,7 @@ interface CaptionPassSuccess {
 
 interface CaptionPassFailure {
   readonly status: 'error';
+  readonly kind: YoutubeCaptionCandidate['kind'];
   readonly error: Error;
 }
 
@@ -88,29 +91,66 @@ export async function extractYoutubeVideo(
 ): Promise<YoutubeExtraction> {
   const executable = dependencies.executable ?? 'yt-dlp';
   const runner = dependencies.runner ?? systemRunner;
-  const outcomes = [
-    await attemptCaptionPass(executable, runner, input, 'manual'),
-    await attemptCaptionPass(executable, runner, input, 'automatic'),
-  ] as const;
+  const combined = [
+    await attemptCaptionPass(executable, runner, input, 'manual', input.languages),
+    await attemptCaptionPass(executable, runner, input, 'automatic', input.languages),
+  ];
+  const combinedExtraction = extractionFromOutcomes(combined, false);
+  if (combinedExtraction !== undefined && combinedExtraction.captions.length > 0) {
+    return combinedExtraction;
+  }
+
+  const retries: CaptionPassOutcome[] = [];
+  if (input.languages.length > 1) {
+    for (const kind of ['manual', 'automatic'] as const) {
+      if (!combined.some((outcome) => outcome.kind === kind && isRateLimitedOutcome(outcome))) {
+        continue;
+      }
+      for (const language of input.languages) {
+        retries.push(await attemptCaptionPass(executable, runner, input, kind, [language]));
+      }
+    }
+  }
+  const retriedExtraction = extractionFromOutcomes([...combined, ...retries], false);
+  if (retriedExtraction !== undefined && retriedExtraction.captions.length > 0) {
+    return retriedExtraction;
+  }
+
+  const rateLimited = combined.some(isRateLimitedOutcome) || retries.some(isRateLimitedOutcome);
+  if (rateLimited) {
+    const partial = extractionFromOutcomes([...combined, ...retries], true);
+    if (partial !== undefined) return partial;
+    throw youtubeError('YOUTUBE_RATE_LIMITED', 'YouTube rate-limited caption extraction.');
+  }
+
+  const error = combined.find((outcome) => outcome.status === 'error');
+  if (error !== undefined) throw error.error;
+  if (retriedExtraction !== undefined) return retriedExtraction;
+  if (combinedExtraction !== undefined) return combinedExtraction;
+  throw youtubeError('YOUTUBE_EXTRACTION_FAILED', 'No yt-dlp caption pass completed.');
+}
+
+function extractionFromOutcomes(
+  outcomes: readonly CaptionPassOutcome[],
+  rateLimited: boolean,
+): YoutubeExtraction | undefined {
   const successes = outcomes.filter(
     (outcome): outcome is CaptionPassSuccess => outcome.status === 'success',
   );
-  const primary = successes.find((outcome) => outcome.captions.length > 0);
-  if (primary === undefined) {
-    const error = outcomes.find((outcome) => outcome.status === 'error');
-    if (error !== undefined) throw error.error;
-  }
-  const selected = primary ?? successes[0];
-  if (selected === undefined) {
-    throw youtubeError('YOUTUBE_EXTRACTION_FAILED', 'No yt-dlp caption pass completed.');
-  }
+  const selected = successes.find((outcome) => outcome.captions.length > 0) ?? successes[0];
+  if (selected === undefined) return undefined;
   const version = successes.find((outcome) => outcome.ytDlpVersion !== 'unknown');
   return {
     infoJson: selected.infoJson,
     infoJsonBytes: selected.infoJsonBytes,
     captions: successes.flatMap((outcome) => outcome.captions),
     ytDlpVersion: version?.ytDlpVersion ?? 'unknown',
+    rateLimited,
   };
+}
+
+function isRateLimitedOutcome(outcome: CaptionPassOutcome): boolean {
+  return outcome.status === 'error' && isRateLimitedError(outcome.error);
 }
 
 async function attemptCaptionPass(
@@ -118,12 +158,14 @@ async function attemptCaptionPass(
   runner: YoutubeRunner,
   input: ExtractYoutubeVideoInput,
   kind: YoutubeCaptionCandidate['kind'],
+  languages: readonly string[],
 ): Promise<CaptionPassOutcome> {
   try {
-    const output = await runCaptionPass(executable, runner, input, kind);
+    const output = await runCaptionPass(executable, runner, input, kind, languages);
     const infoJson = parseInfoJson(output.stdout);
     return {
       status: 'success',
+      kind,
       infoJson,
       infoJsonBytes: textEncoder.encode(output.stdout),
       captions: await captionCandidates(infoJson, input.outputDirectory, kind),
@@ -133,6 +175,7 @@ async function attemptCaptionPass(
     if (input.signal.aborted || isAbortError(error)) throw error;
     return {
       status: 'error',
+      kind,
       error:
         error instanceof Error
           ? error
@@ -146,9 +189,10 @@ async function runCaptionPass(
   runner: YoutubeRunner,
   input: ExtractYoutubeVideoInput,
   kind: YoutubeCaptionCandidate['kind'],
+  languages: readonly string[],
 ): Promise<{ readonly stdout: string; readonly stderr: string }> {
   try {
-    return await runner.run(executable, commandArguments(input, kind), {
+    return await runner.run(executable, commandArguments(input, kind, languages), {
       cwd: input.outputDirectory,
       signal: input.signal,
       shell: false,
@@ -164,6 +208,9 @@ async function runCaptionPass(
     if (isMaxBufferError(error)) {
       throw youtubeError('YOUTUBE_RESPONSE_INVALID', 'yt-dlp output exceeded the capture buffer.');
     }
+    if (isRateLimitedError(error)) {
+      throw youtubeError('YOUTUBE_RATE_LIMITED', 'YouTube rate-limited caption extraction.');
+    }
     throw youtubeError('YOUTUBE_EXTRACTION_FAILED', `yt-dlp ${kind} caption extraction failed.`);
   }
 }
@@ -171,6 +218,7 @@ async function runCaptionPass(
 function commandArguments(
   input: ExtractYoutubeVideoInput,
   kind: YoutubeCaptionCandidate['kind'],
+  languages: readonly string[],
 ): readonly string[] {
   return [
     '--no-config',
@@ -180,7 +228,7 @@ function commandArguments(
     '--sub-format',
     'vtt',
     '--sub-langs',
-    input.languages.join(','),
+    languages.join(','),
     '--output',
     resolve(input.outputDirectory, `%(id)s.%(language)s.${kind}.%(ext)s`),
     '--print-json',
@@ -309,8 +357,36 @@ function isMaxBufferError(error: unknown): boolean {
   );
 }
 
+function isRateLimitedError(error: unknown): boolean {
+  if (
+    error !== null &&
+    typeof error === 'object' &&
+    'code' in error &&
+    error.code === 'YOUTUBE_RATE_LIMITED'
+  ) {
+    return true;
+  }
+  const extra = error as { readonly stderr?: unknown; readonly stdout?: unknown };
+  const text = [
+    error instanceof Error ? error.message : '',
+    typeof extra.stderr === 'string' ? extra.stderr : '',
+    typeof extra.stdout === 'string' ? extra.stdout : '',
+  ]
+    .join('\n')
+    .toLowerCase();
+  return (
+    text.includes('http error 429') ||
+    text.includes('too many requests') ||
+    text.includes('rate-limit') ||
+    text.includes('rate limit')
+  );
+}
+
 type YoutubeErrorCode =
-  'YOUTUBE_RUNTIME_UNAVAILABLE' | 'YOUTUBE_EXTRACTION_FAILED' | 'YOUTUBE_RESPONSE_INVALID';
+  | 'YOUTUBE_RUNTIME_UNAVAILABLE'
+  | 'YOUTUBE_EXTRACTION_FAILED'
+  | 'YOUTUBE_RESPONSE_INVALID'
+  | 'YOUTUBE_RATE_LIMITED';
 
 function youtubeError(code: YoutubeErrorCode, message: string): Error {
   return new YoutubeExtractionError(code, message);
