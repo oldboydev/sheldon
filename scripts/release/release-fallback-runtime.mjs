@@ -523,7 +523,8 @@ export async function prepareCi(source, options, deps) {
           classifyCiRuns([{ ...state, ...evidence }]) === 'failed' ||
           evidence.verificationFailed ||
           evidence.verificationActive ||
-          (evidence.verificationPending && !evidence.verificationQueued)
+          (evidence.verificationPending &&
+            (state.status === 'completed' || !evidence.verificationQueued))
         )
           throw new Error('CI changed before queue cancellation; fallback blocked.');
       }

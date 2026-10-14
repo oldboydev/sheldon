@@ -691,6 +691,8 @@ describe('54-C1 queue and execution deadlines', () => {
           };
         }
         if (mode.startsWith('before-cancel') && lastQueueSeen && id === 11) raced = true;
+        if (mode === 'before-cancel-pending' && raced)
+          return { status: 'completed', conclusion: 'success' };
         if (['before-cancel-completed', 'before-cancel-result'].includes(mode) && raced)
           return { status: 'completed', conclusion: 'failure' };
         if (mode === 'deadline' || (mode === 'before-cancel' && raced))
@@ -745,6 +747,11 @@ describe('54-C1 queue and execution deadlines', () => {
   });
   it('blocks an aggregate failure even when the final job snapshot lacks its evidence', async () => {
     const f = queuedFixture('before-cancel-result');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
+    expect(f.cancelIds).toEqual([]);
+  });
+  it('blocks a completed workflow with a contradictory queued job snapshot', async () => {
+    const f = queuedFixture('before-cancel-pending');
     await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
     expect(f.cancelIds).toEqual([]);
   });
