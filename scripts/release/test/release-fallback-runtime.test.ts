@@ -372,3 +372,89 @@ describe('54-C1 failures before a matrix workflow finishes', () => {
     },
   );
 });
+
+describe('54-C1 billing never masks another job result', () => {
+  it.each([
+    'timed_out',
+    'cancelled',
+    'action_required',
+    'neutral',
+    'unexpected',
+    'step-timed_out',
+    'step-cancelled',
+    'step-action_required',
+    'setup-pending',
+  ])('blocks inconclusive %s evidence within the same workflow', async (conclusion) => {
+    const head = 'a'.repeat(40);
+    const lists = new Map<string, number>();
+    const pending = conclusion.startsWith('step-') || conclusion === 'setup-pending';
+    const deps = {
+      root: '.',
+      output: '.',
+      pause: async () => {},
+      run: async () => '',
+      api: async (path: string) => {
+        if (path.includes('workflows/')) {
+          const workflow = path.split('/')[2];
+          const count = lists.get(workflow) ?? 0;
+          lists.set(workflow, count + 1);
+          return {
+            workflow_runs: count
+              ? [
+                  {
+                    id: workflow === 'publish-npm.yml' ? 11 : 12,
+                    head_sha: head,
+                    head_branch: 'main',
+                    created_at: new Date().toISOString(),
+                  },
+                ]
+              : [],
+          };
+        }
+        if (path.includes('/annotations')) return [{ message: 'Payments have failed.' }];
+        if (path.includes('/jobs')) {
+          const billingJob = {
+            name: 'quality (linux-x64)',
+            status: 'completed',
+            conclusion: 'failure',
+            steps: [],
+            check_run_url: 'https://api.github.com/repos/oldboydev/sheldon/check-runs/99',
+          };
+          const inconclusive = {
+            name: 'quality (win32-x64)',
+            status: pending ? 'in_progress' : 'completed',
+            conclusion: pending ? null : conclusion,
+            steps: pending
+              ? [
+                  {
+                    name: conclusion === 'setup-pending' ? 'Set up job' : 'npm run verify',
+                    conclusion: conclusion === 'setup-pending' ? 'failure' : conclusion.slice(5),
+                  },
+                ]
+              : [],
+            check_run_url: 'https://api.github.com/repos/oldboydev/sheldon/check-runs/100',
+          };
+          return { jobs: path.includes('/11/') ? [billingJob, inconclusive] : [billingJob] };
+        }
+        return {
+          status: pending && path.endsWith('/11') ? 'in_progress' : 'completed',
+          conclusion: pending && path.endsWith('/11') ? null : 'failure',
+        };
+      },
+    };
+    expect((await prepareCi({ head, branch: 'main' }, { version: '1.2.3' }, deps)).state).toBe(
+      'failed',
+    );
+  });
+  it('still accepts individually authenticated billing failures with setup failures', async () => {
+    expect(
+      await billingBlockedJobs(
+        [
+          { conclusion: 'failure', steps: [{ name: 'Set up job', conclusion: 'failure' }] },
+          { conclusion: 'failure', steps: [] },
+        ],
+        async () => [{ message: 'Payments have failed.' }],
+      ),
+    ).toBe(true);
+  });
+});
