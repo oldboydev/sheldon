@@ -88,3 +88,12 @@ issue 54 permanece maxRounds=3; os defaults continuam 2. Histórico runtime real
 conferido: três tentativas changes_requested, com limites registrados 2, 2 e 3.
 Este PASS não substitui aprovação oficial. Uma quarta tentativa exige nova
 autorização humana; não foi executada nem configurada nesta reconferência.
+
+## Autorização posterior ao parecer independente
+
+Após esta reconferência PASS, o proprietário respondeu em 2026-10-14:
+"faça quantas precisar", ao pedido de quarta revisão somente do Sheldon #54.
+A exceção local passa para maxRounds=10, teto técnico do motor atual. Defaults
+permanecem 2 e as três tentativas anteriores permanecem intactas. Esta nota e a
+configuração registram a autorização humana; não mudam a implementação verificada
+nem representam aprovação oficial ou uma nova prova do Verifier.

@@ -18,8 +18,8 @@
   "roundOverrides": {
     "54": {
       "profile": "light",
-      "maxRounds": 3,
-      "approval": "Proprietário autorizou em 2026-10-14 uma rodada adicional somente no Sheldon #54; registrado em .tasks/issue-54-ci-local-fallback.md."
+      "maxRounds": 10,
+      "approval": "Proprietário autorizou em 2026-10-14: \"faça quantas precisar\", somente para concluir Sheldon #54; referência em .tasks/issue-54-ci-local-fallback.md. Teto técnico suportado pelo motor: 10."
     }
   }
 }

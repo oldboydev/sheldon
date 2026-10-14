@@ -44,3 +44,13 @@ Em 2026-10-14, o proprietário respondeu: "Sim, uma rodada adicional somente no 
 Apenas a issue 54, profile light, tem maxRounds=3. As duas tentativas anteriores
 continuam na contagem; os três perfis padrão permanecem com maxRounds=2.
 Nenhum workflow, motor comum ou histórico é modificado por esta exceção.
+
+## Continuação autorizada das revisões
+
+Em 2026-10-14, ao pedido de quarta revisão somente do Sheldon #54, o proprietário
+respondeu: "faça quantas precisar".
+
+A autorização cobre as revisões necessárias para corrigir os achados e concluir
+esta issue. roundOverrides de 54/light usa maxRounds=10, o teto técnico atual
+suportado pelo motor. Os defaults permanecem 2 e as três tentativas usadas
+permanecem na contagem. O motor comum e os workflows são preservados.
