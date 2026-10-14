@@ -531,30 +531,40 @@ export async function prepareCi(source, options, deps) {
         await deps.run('gh', ['run', 'cancel', String(id), '--repo', REPOSITORY], deps.root);
         if (fallbackEligible) {
           const deadline = now() + 60000;
-          while ((await deps.api('actions/runs/' + id)).status !== 'completed') {
+          let completed = await deps.api('actions/runs/' + id);
+          while (completed.status !== 'completed') {
             if (now() >= deadline)
               throw new Error('Queue cancellation not confirmed; fallback blocked.');
             await pause(5000);
+            completed = await deps.api('actions/runs/' + id);
           }
           const afterJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
-          for (const job of afterJobs) {
-            // Only our cancellation of a provably unstarted job is an availability exception.
-            if (
-              job.conclusion === 'cancelled' &&
-              job.started_at == null &&
-              (job.steps ?? []).length === 0
-            )
-              continue;
-            const after = await inspectCiJobs([job], async (item) =>
-              deps.api(
-                'check-runs/' + item.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
+          // Only our cancellation of a provably unstarted job is an availability exception.
+          const remainingJobs = afterJobs.filter(
+            (job) =>
+              !(
+                job.conclusion === 'cancelled' &&
+                job.started_at == null &&
+                (job.steps ?? []).length === 0
               ),
+          );
+          const after = await inspectCiJobs(remainingJobs, async (item) =>
+            deps.api(
+              'check-runs/' + item.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
+            ),
+          );
+          if (after.verificationFailed || after.verificationPending)
+            throw new Error(
+              'Verification started or remained inconclusive during cancellation; fallback blocked.',
             );
-            if (after.verificationFailed || after.verificationPending)
-              throw new Error(
-                'Verification started or remained inconclusive during cancellation; fallback blocked.',
-              );
-          }
+          // Keep the aggregate conclusion: the jobs endpoint may lag behind it.
+          // A failure requires an authenticated availability explanation; unknown
+          // conclusions cannot inherit the exception for our own queue cancellation.
+          if (
+            !['success', 'cancelled'].includes(completed.conclusion) &&
+            !(completed.conclusion === 'failure' && after.billingBlocked)
+          )
+            throw new Error('CI conclusion after cancellation is unexplained; fallback blocked.');
         }
       }
     }
