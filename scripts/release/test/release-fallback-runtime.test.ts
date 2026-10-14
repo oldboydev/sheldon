@@ -223,3 +223,73 @@ describe('CI dispatch identity and availability', () => {
     expect(f.calls).toHaveLength(2);
   });
 });
+
+describe('54-C1 billing exception after an identified run', () => {
+  it.each(['failed', 'publication', 'billing', 'inspection'])(
+    'does not bypass prior %s evidence',
+    async (kind) => {
+      const head = 'a'.repeat(40);
+      let lists = 0;
+      let inspected = false;
+      const deps = {
+        root: '.',
+        output: '.',
+        pause: async () => {},
+        run: async (_command: string, args: string[]) => {
+          if (args[2] === 'release.yml')
+            throw Object.assign(new Error('dispatch unavailable'), {
+              stderr: 'spending limit exceeded',
+            });
+          return '';
+        },
+        api: async (path: string) => {
+          if (path.includes('workflows/publish-npm.yml')) {
+            lists++;
+            return {
+              workflow_runs:
+                lists === 1
+                  ? []
+                  : [
+                      {
+                        id: 11,
+                        head_sha: head,
+                        head_branch: 'main',
+                        created_at: new Date().toISOString(),
+                      },
+                    ],
+            };
+          }
+          if (path.includes('workflows/release.yml')) return { workflow_runs: [] };
+          if (path.includes('/annotations')) return [{ message: 'Payments have failed.' }];
+          if (path.includes('/jobs')) {
+            inspected = true;
+            if (kind === 'inspection')
+              throw Object.assign(new Error('cannot inspect'), {
+                stderr: 'spending limit exceeded',
+              });
+            return {
+              jobs: [
+                {
+                  name: kind === 'publication' ? 'publish runtime (win32-x64)' : 'quality',
+                  status: 'completed',
+                  conclusion: 'failure',
+                  steps:
+                    kind === 'failed' ? [{ name: 'npm run verify', conclusion: 'failure' }] : [],
+                  check_run_url: 'https://api.github.com/repos/oldboydev/sheldon/check-runs/99',
+                },
+              ],
+            };
+          }
+          return { status: 'completed', conclusion: 'failure' };
+        },
+      };
+      const operation = prepareCi({ head, branch: 'main' }, { version: '1.2.3' }, deps);
+      if (kind === 'inspection') await expect(operation).rejects.toThrow('cannot inspect');
+      else
+        expect((await operation).state).toBe(
+          kind === 'failed' ? 'failed' : kind === 'publication' ? 'blocked' : 'unavailable',
+        );
+      expect(inspected).toBe(true);
+    },
+  );
+});

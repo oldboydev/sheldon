@@ -422,6 +422,27 @@ export async function prepareCi(source, options, deps) {
   const runIds = [];
   const owned = [];
   const pause = deps.pause ?? delay;
+  const inspectRuns = async () => {
+    const runs = [];
+    for (const id of runIds) {
+      const workflow = await deps.api('actions/runs/' + id);
+      const jobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+      const publicationStarted = jobs.some(
+        (job) =>
+          /publish runtime|publish-metapackage|promote|attach-package-provenance/iu.test(
+            job.name,
+          ) &&
+          (job.status === 'in_progress' ||
+            (job.status === 'completed' && job.conclusion !== 'skipped')),
+      );
+      const billingBlocked = await billingBlockedJobs(jobs, async (job) => {
+        const checkId = job.check_run_url.split('/').at(-1);
+        return deps.api('check-runs/' + checkId + '/annotations?per_page=100');
+      });
+      runs.push({ ...workflow, billingBlocked, publicationStarted });
+    }
+    return runs;
+  };
   try {
     for (const workflow of WORKFLOWS) {
       const before = await deps.api(
@@ -456,24 +477,7 @@ export async function prepareCi(source, options, deps) {
     const started = Date.now();
     let state;
     do {
-      const runs = [];
-      for (const id of runIds) {
-        const workflow = await deps.api('actions/runs/' + id);
-        const jobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
-        const publicationStarted = jobs.some(
-          (job) =>
-            /publish runtime|publish-metapackage|promote|attach-package-provenance/iu.test(
-              job.name,
-            ) &&
-            (job.status === 'in_progress' ||
-              (job.status === 'completed' && job.conclusion !== 'skipped')),
-        );
-        const billingBlocked = await billingBlockedJobs(jobs, async (job) => {
-          const checkId = job.check_run_url.split('/').at(-1);
-          return deps.api('check-runs/' + checkId + '/annotations?per_page=100');
-        });
-        runs.push({ ...workflow, billingBlocked, publicationStarted });
-      }
+      const runs = await inspectRuns();
       state = classifyCiRuns(runs);
       if (state === 'waiting') {
         // Queue starvation is unavailability; a running but unfinished verification is not.
@@ -528,8 +532,15 @@ export async function prepareCi(source, options, deps) {
     };
   } catch (error) {
     // An auth error or a failed download is not proof that verification may be bypassed.
-    if (/billing|spending limit|payments have failed/iu.test(error.stderr ?? ''))
+    if (/billing|spending limit|payments have failed/iu.test(error.stderr ?? '')) {
+      // A failed later dispatch cannot erase evidence from a run already identified.
+      // If prior evidence cannot be inspected, propagate that error and fail closed.
+      if (runIds.length) {
+        const prior = classifyCiRuns(await inspectRuns());
+        if (prior === 'failed' || prior === 'blocked') return { state: prior, runIds };
+      }
       return { state: 'unavailable', runIds };
+    }
     throw error;
   } finally {
     // Only this invocation's unambiguously identified preparation runs may be cancelled.

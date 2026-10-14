@@ -22,6 +22,10 @@ de contrato, README/changelog/runbooks, aliases npm, ignores de artefatos e
 instruções AGENTS.md. Dois builders existentes recebem opção aditiva de pins
 macOS; default conserva comportamento. Workflows e core comum não mudam.
 
+Prova adicional de preservação: release-fallback-history.test.ts usa o lock e
+report IO reais em Git temporário com counters e lock de review pré-existentes.
+Nenhuma mudança na barra C1–C7.
+
 ## Checks
 
 - [ ] C1 CI preferida é de preparação do mesmo commit/versão; indisponibilidade
