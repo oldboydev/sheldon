@@ -1,86 +1,82 @@
-# Issue 54 — verificação independente final
+# Issue 54 — verificação independente da correção final
 
-Veredito: **PASS**, C1–C7. Profile: **light**.
-Verifier: /root/verify_sheldon_ci_local_fallback, subagente independente e somente leitura.
+**PASS: C1–C7. F1, F2 e F3 resolvidos nas provas locais.**
+Profile: light.
+Verifier independente: /root/verify_sheldon_ci_local_fallback, somente leitura.
 Base: 3b8df2b3f9c8eefb6a6c46a59ce7acc7c54b7c36.
-HEAD de implementação: 79746157998524422c1fad4830602389861fd9bd.
+HEAD de implementação: 8c47c2cbe1bbc48fa8bdc14c122395e7119a419e.
 
-Este arquivo transcreve o relatório independente final. O commit deste relatório
-não muda a implementação examinada.
+Relatório transcrito pelo coordenador. O commit deste arquivo altera somente
+evidência documental, sem mudar o código verificado.
 
-## Resultado
+## Resultado e fontes
 
-O Verifier reexecutou as provas completas após as correções F1 e F2:
-**129 testes aprovados, 3 skips preexistentes, 0 falhas, 11 arquivos, exit 0.**
-Os skips pertencem aos testes antigos de symlinks em build-npm-packages.test.ts;
-não foi acrescentado skip para esta entrega.
+Uma invocação com reporter verbose: **139 testes aprovados, 3 skips preexistentes,
+0 falhas, 11 arquivos, exit 0**. Os skips são antigos testes de symlinks em
+build-npm-packages.test.ts, que não foi alterado.
 
-Fontes lidas: issue 54, task/checklist, AGENTS.md, CONTRIBUTING.md e runbooks.
-Fontes inalteradas foram carregadas da verificação inicial eff37a9; o diff da
-correção e as provas completas foram reconferidos em 7974615. A análise de C2–C6
-foi carregada de 428e1f7; seus testes foram novamente executados no HEAD final.
+Issue 54, task/checklist, AGENTS.md, CONTRIBUTING.md e runbooks foram lidos.
+Fontes e análise inalterada de C2–C6 são carregadas de 428e1f7; todos os testes
+foram novamente executados no HEAD final. C1, F1/F2/F3, C7 e gates foram reconferidos.
 
-| Check | Resultado e assertion localizada                                                                                                                                                                                                                                                                                                                                         |
-| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| C1    | PASS. release-fallback.test.ts:57 não chama local em sucesso CI; :65 sequência ci/local/validate; :92 falha real prevalece. release-fallback-runtime.test.ts:287–292 verifica failed/blocked/unavailable, rejeita inspeção inconclusiva e exige inspected=true.                                                                                                          |
-| C2    | PASS. release-fallback-runtime.test.ts:34–37 afirma linux/amd64, Node 24, snapshot readonly e ausência de credenciais/Mac/socket; :129 afirma verify/stage/smoke/audit/pack; :141–142 falha no verify impede staging. Adapter cria dois snapshots do mesmo HEAD.                                                                                                         |
-| C3    | PASS. release-fallback-runtime.test.ts:40–44 confirma default sem publicação. release-fallback.test.ts:113–126 bloqueia main/identidade erradas; :157–166 confirma runtimes/metapacote/catálogo/promoção; :194–197 falhas impedem promoção; :212–213 exige assinatura; :227 afirma somente next em prerelease. Guards reais conferem main remota atual e versão inédita. |
-| C4    | PASS. release-fallback-model.test.ts:14–19 pins exatos Mac antigos e Windows/Linux novos; :23–28 default uniforme; :36 rejeita overrides inválidos; :61–65 inventário/SHA256SUMS incluem hash do manifesto efetivo.                                                                                                                                                      |
-| C5    | PASS. release-fallback-catalog.test.ts:20–26 autentica assinatura e rejeita outra chave/bytes; :54/:57 preserva Mac byte a byte; :59 rejeita versão incompatível; :71–72 rejeita hash/tamanho errado; :75–95 exclui Mac dos uploads locais.                                                                                                                              |
-| C6    | PASS. release-fallback.test.ts:66–68 reporta prepared/not_verified/targets exatos; :256–261 registra falha e fases sem persistir credenciais da exception. release-fallback-runtime.test.ts:81–85 exige identidade e checksum dos tarballs.                                                                                                                              |
-| C7    | PASS. Guard versionado contra a base saiu 0. release-fallback-history.test.ts:23 segundo lock rejeitado; :34–35 counters e review lock permanecem byte a byte; :36 somente lock próprio removido; :37–39 report real salvo. Documentação/alias e defaults originais preservados.                                                                                         |
+| Check | Evidência localizada                                                                                                                                                                                                                                                     | Resultado |
+| ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------- |
+| C1    | release-fallback-runtime.test.ts:445–446 exige failed nos nove casos inconclusivos junto de billing no mesmo workflow; :449–458 conserva billing individual autenticado; F1 :287–292 e F2 :369–370 passaram novamente.                                                   | PASS      |
+| C2    | release-fallback-runtime.test.ts:34–37 exige Docker Linux amd64, Node 24, snapshot readonly e ausência de Darwin/credenciais; :129 exige verify/stage/smoke/audit/pack; :141–142 bloqueia staging após verify reprovado.                                                 | PASS      |
+| C3    | release-fallback-runtime.test.ts:40–44 exige default sem publicação; release-fallback.test.ts:113–126 bloqueia main/identidade erradas; :157–166 exige ordem runtimes/metapacote/catálogo/promoção; :194–197 falhas não promovem; :227 exige somente next em prerelease. | PASS      |
+| C4    | release-fallback-model.test.ts:14–19 exige pins Mac antigos exatos e Windows/Linux novos; :23–28 preserva default uniforme; :36 rejeita mapas inválidos; :61–65 verifica inventário/SHA256SUMS do manifesto efetivo.                                                     | PASS      |
+| C5    | release-fallback-catalog.test.ts:20–26 autentica assinatura; :54/:57 conserva bytes/hashes Mac; :59 bloqueia incompatibilidade; :71–72 rejeita adulteração; :75–95 exclui ZIPs Darwin dos uploads locais.                                                                | PASS      |
+| C6    | release-fallback.test.ts:66–68 exige prepared/Mac not_verified/targets exatos; :256–261 exige failed, fases parciais e ausência de credencial no report; release-fallback-runtime.test.ts:81–85 verifica hash/identidade/checksum.                                       | PASS      |
+| C7    | release-fallback-history.test.ts:23 rejeita lock concorrente; :34–35 conserva histórico e review lock byte a byte; :36 remove só lock próprio; :37–39 salva report real. Guard versionado contra base saiu 0.                                                            | PASS      |
 
-## Finding F1 e correção
+## Findings corrigidos
 
-A rodada inicial encontrou um P1: billing no segundo dispatch retornava unavailable
-sem inspecionar uma falha real do primeiro run. Quatro regressões reproduziram
-o problema no código antigo e passaram após a correção.
+F1: billing no segundo dispatch não elimina a evidência do primeiro run.
+A inspeção é reutilizada no polling e catch; erro de inspeção bloqueia.
+Quatro regressões reproduziram o defeito antes e passaram após a correção.
 
-O Verifier reproduziu o cenário novamente, sem rede nem publicação:
-resultado failed, runIds=[11], jobsInspected=true. inspectRuns é usado tanto no
-polling quanto no catch; erro de inspeção propaga e bloqueia.
+F2: falha de job/step é reconhecida mesmo com a matriz ainda em execução.
+Três regressões reproduziram unavailable incorreto antes e agora exigem failed.
 
-F2, apontado na primeira tentativa do Codex oficial, também foi corrigido:
-job ou etapa reprovada agora produz verificationFailed antes de o workflow
-agregado concluir. O classificador prioriza esse sinal antes de billing.
-Três regressões falharam no código anterior e passaram na correção, confirmada
-pelo Verifier em 7974615. A reconferência foi pontual, com o lote completo de
-provas reexecutado; não substitui a segunda tentativa do Codex oficial.
+F3: inspectCiJobs analisa cada job separadamente. A exceção de billing é
+autenticada para o próprio job; timeout, cancelamento, action_required, neutral,
+resultado desconhecido ou step interrompido não herda a exceção de outro job.
+Nove regressões falharam no código anterior e passaram; um décimo teste confirma
+que billing puro com setup failure permanece aceito.
 
-Findings restantes: nenhum no escopo reconferido.
+Findings restantes na reconferência: nenhum.
 
 ## Provas e gates
-
-Comando de testes executado pelo Verifier:
 
 ```text
 npx --no-install vitest run --reporter verbose scripts/release/test/release-fallback.test.ts scripts/release/test/release-fallback-runtime.test.ts scripts/release/test/release-fallback-model.test.ts scripts/release/test/release-fallback-catalog.test.ts scripts/release/test/release-fallback-history.test.ts scripts/release/test/npm-package-model.test.ts scripts/release/test/build-npm-packages.test.ts scripts/release/test/build-official-artifacts.test.ts scripts/release/test/stage-official-artifacts.test.ts scripts/release/test/verify-official-release.test.ts scripts/release/test/smoke-npm-package.test.ts
 ```
 
-Também executados no HEAD final, todos exit 0:
+Todos executados independentemente, exit 0:
 
-- Prettier --check e ESLint nos formatos/arquivos afetados.
+- Prettier nos formatos suportados alterados; ESLint nos códigos alterados.
 - Markdownlint nos oito Markdown alterados: zero issues.
 - npm run typecheck; npm run lint:repo; npm run lint:domain.
 - git diff --check BASE..HEAD.
-- `git diff --exit-code BASE..HEAD -- .github/workflows scripts/code-review code-review.config.json .checks/issue-47* .tasks/issue-47*`.
+- Guard de workflows, core/config e históricos versionados contra a base.
 - git status --porcelain vazio.
 
-## Sweep e limitações
+## Sweep e limites
 
-Versão, pins, source, identidade e hashes têm guards. Falhas reais e evidência
-inconclusiva bloqueiam. Publicação exige opt-in, main atual e autenticação.
-Outputs exclusivos impedem retry silencioso. Ordem, lock exclusivo, snapshots,
-cleanup guardado e registros de fases parciais permanecem comprovados.
+Versão, pins, source, identidade e hashes têm guards. Falhas reais e conclusões
+inconclusivas bloqueiam. Publicação exige opt-in, main remota atual e autenticação.
+Outputs exclusivos, ordenação, lock, snapshots e cleanup guardado permanecem
+comprovados. Reports registram fases sem armazenar credenciais ou stderr.
 
-Não há Coverage/Test policy no checklist; profile light não exige comparação UI
-ou fault injection. Não houve CI/dispatch/billing em produção, release completa
-Windows/Docker, publicação npm/dist-tag, upload GitHub ou verificação Mac.
-As provas usam fixtures/IO injetado; não são alegações de publicação real.
+Não houve dispatch/billing CI, release completa Windows/Docker, npm publish/dist-tag
+ou upload GitHub em produção. As provas usam fixtures/IO injetado; não verificam Mac.
+Não há Coverage/Test policy no checklist; profile light dispensa fault injection.
 
-Não existe baseline externo dos históricos runtime reais da issue 47 nesta cópia.
-Sua comparação histórica de ambiente permanece não comprovada. C7 é sustentado
-pelo guard versionado, isolamento das escritas e teste do IO real preservando
-counters/lock preexistentes em Git temporário; não se inventou baseline.
+Sem baseline externo, a comparação dos históricos runtime reais da issue 47
+permanece não comprovada como evidência de ambiente. C7 passa pelo guard versionado,
+isolamento das escritas e teste do IO real preservando counters/locks preexistentes.
 
-A revisão Codex oficial permanece uma etapa posterior a este relatório.
+As duas tentativas do Codex oficial pediram correções. Este PASS do Verifier
+comprova a correção concreta; não substitui uma aprovação oficial nem autoriza
+terceira tentativa. Nenhum override foi criado e o histórico anterior foi preservado.
+A próxima revisão oficial depende de autorização humana específica.
