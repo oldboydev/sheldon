@@ -11,6 +11,7 @@ export function classifyCiRuns(runs) {
     )
   )
     return 'failed';
+  if (runs.some((run) => run.status !== 'completed' || run.verificationPending)) return 'waiting';
   if (runs.some((run) => run.billingBlocked)) return 'unavailable';
   return runs.every((run) => run.status === 'completed' && run.conclusion === 'success')
     ? 'ready'
