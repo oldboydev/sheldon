@@ -3,21 +3,22 @@
 Veredito: **PASS**, C1–C7. Profile: **light**.
 Verifier: /root/verify_sheldon_ci_local_fallback, subagente independente e somente leitura.
 Base: 3b8df2b3f9c8eefb6a6c46a59ce7acc7c54b7c36.
-HEAD de implementação: 428e1f7ff580408a470d150ecb9d8ce0745ecc72.
+HEAD de implementação: 79746157998524422c1fad4830602389861fd9bd.
 
 Este arquivo transcreve o relatório independente final. O commit deste relatório
 não muda a implementação examinada.
 
 ## Resultado
 
-O Verifier reexecutou as provas completas após a correção F1:
-**126 testes aprovados, 3 skips preexistentes, 0 falhas, 11 arquivos, exit 0.**
+O Verifier reexecutou as provas completas após as correções F1 e F2:
+**129 testes aprovados, 3 skips preexistentes, 0 falhas, 11 arquivos, exit 0.**
 Os skips pertencem aos testes antigos de symlinks em build-npm-packages.test.ts;
 não foi acrescentado skip para esta entrega.
 
 Fontes lidas: issue 54, task/checklist, AGENTS.md, CONTRIBUTING.md e runbooks.
 Fontes inalteradas foram carregadas da verificação inicial eff37a9; o diff da
-correção e as provas completas foram reconferidos em 428e1f7.
+correção e as provas completas foram reconferidos em 7974615. A análise de C2–C6
+foi carregada de 428e1f7; seus testes foram novamente executados no HEAD final.
 
 | Check | Resultado e assertion localizada                                                                                                                                                                                                                                                                                                                                         |
 | ----- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -39,6 +40,13 @@ O Verifier reproduziu o cenário novamente, sem rede nem publicação:
 resultado failed, runIds=[11], jobsInspected=true. inspectRuns é usado tanto no
 polling quanto no catch; erro de inspeção propaga e bloqueia.
 
+F2, apontado na primeira tentativa do Codex oficial, também foi corrigido:
+job ou etapa reprovada agora produz verificationFailed antes de o workflow
+agregado concluir. O classificador prioriza esse sinal antes de billing.
+Três regressões falharam no código anterior e passaram na correção, confirmada
+pelo Verifier em 7974615. A reconferência foi pontual, com o lote completo de
+provas reexecutado; não substitui a segunda tentativa do Codex oficial.
+
 Findings restantes: nenhum no escopo reconferido.
 
 ## Provas e gates
@@ -52,7 +60,7 @@ npx --no-install vitest run --reporter verbose scripts/release/test/release-fall
 Também executados no HEAD final, todos exit 0:
 
 - Prettier --check e ESLint nos formatos/arquivos afetados.
-- Markdownlint nos sete Markdown alterados: zero issues.
+- Markdownlint nos oito Markdown alterados: zero issues.
 - npm run typecheck; npm run lint:repo; npm run lint:domain.
 - git diff --check BASE..HEAD.
 - `git diff --exit-code BASE..HEAD -- .github/workflows scripts/code-review code-review.config.json .checks/issue-47* .tasks/issue-47*`.
