@@ -512,14 +512,16 @@ export async function prepareCi(source, options, deps) {
     // Only this invocation's unambiguously identified preparation runs may be cancelled.
     for (const id of owned) {
       const state = await deps.api('actions/runs/' + id);
+      let beforeJobs = [];
       if (fallbackEligible) {
-        const beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+        beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
         const evidence = await inspectCiJobs(beforeJobs, async (job) =>
           deps.api(
             'check-runs/' + job.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
           ),
         );
         if (
+          (!['queued', 'completed'].includes(state.status) && !evidence.verificationQueued) ||
           classifyCiRuns([{ ...state, ...evidence }]) === 'failed' ||
           evidence.verificationFailed ||
           evidence.verificationActive ||
@@ -569,6 +571,11 @@ export async function prepareCi(source, options, deps) {
             !(completed.conclusion === 'failure' && after.billingBlocked)
           )
             throw new Error('CI conclusion after cancellation is unexplained; fallback blocked.');
+          const knownJobs = new Set(afterJobs.map((job) => job.id ?? job.name));
+          if (!afterJobs.length || beforeJobs.some((job) => !knownJobs.has(job.id ?? job.name)))
+            throw new Error(
+              'Verification started or remained inconclusive during cancellation; fallback blocked.',
+            );
         }
       }
     }
