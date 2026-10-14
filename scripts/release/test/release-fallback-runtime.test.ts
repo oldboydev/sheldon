@@ -612,6 +612,21 @@ describe('54-C1 queue and execution deadlines', () => {
         }
         const id = path.includes('/11') ? 11 : 12;
         if (path.includes('/jobs')) {
+          if (mode === 'before-cancel-empty' && raced) return { jobs: [] };
+          if (mode === 'post-cancel-empty-before' && !cancelled.has(id)) return { jobs: [] };
+          if (mode === 'post-cancel-empty-cancelled' && cancelled.has(id)) return { jobs: [] };
+          if (mode === 'post-cancel-partial')
+            return {
+              jobs: (cancelled.has(id) ? ['win'] : ['win', 'mac']).map((target) => ({
+                id: target,
+                name: 'quality-' + target,
+                status: cancelled.has(id) ? 'completed' : 'queued',
+                conclusion: cancelled.has(id) ? 'cancelled' : null,
+                started_at: null,
+                steps: [],
+              })),
+            };
+
           if (
             mode.startsWith('settled-billing-') ||
             (mode.startsWith('before-cancel-billing-') && raced)
@@ -647,7 +662,11 @@ describe('54-C1 queue and execution deadlines', () => {
                 },
               ],
             };
-          if (cancelled.has(id) && mode.startsWith('post-cancel-'))
+          if (
+            cancelled.has(id) &&
+            mode.startsWith('post-cancel-') &&
+            mode !== 'post-cancel-empty-before'
+          )
             return {
               jobs: [{ name: 'quality', status: 'completed', conclusion: 'success', steps: [] }],
             };
@@ -670,7 +689,10 @@ describe('54-C1 queue and execution deadlines', () => {
                 },
               ],
             };
-          if (mode === 'deadline' || (mode === 'before-cancel' && raced))
+          if (
+            mode === 'deadline' ||
+            (['before-cancel', 'before-cancel-empty'].includes(mode) && raced)
+          )
             return {
               jobs: [
                 {
@@ -728,10 +750,15 @@ describe('54-C1 queue and execution deadlines', () => {
           return { status: 'completed', conclusion: 'success' };
         if (['before-cancel-completed', 'before-cancel-result'].includes(mode) && raced)
           return { status: 'completed', conclusion: 'failure' };
-        if (mode === 'deadline' || (mode === 'before-cancel' && raced))
+        if (
+          mode === 'deadline' ||
+          (['before-cancel', 'before-cancel-empty'].includes(mode) && raced)
+        )
           return { status: 'in_progress', conclusion: null };
         if (cancelled.has(id) && mode.startsWith('post-cancel-')) {
           const outcome = mode.slice('post-cancel-'.length);
+          if (['empty-cancelled', 'partial', 'empty-before'].includes(outcome))
+            return { status: 'completed', conclusion: 'cancelled' };
           if (outcome === 'success-billing') return { status: 'completed', conclusion: 'success' };
           if (outcome === 'cancelled-billing')
             return { status: 'completed', conclusion: 'cancelled' };
@@ -853,6 +880,24 @@ describe('54-C1 queue and execution deadlines', () => {
   });
   it('accepts own queue cancellation with an authenticated billing failure', async () => {
     const f = queuedFixture('post-cancel-cancelled-billing');
+    expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('unavailable');
+  });
+  it('blocks in-progress workflow with empty jobs before cancellation', async () => {
+    const f = queuedFixture('before-cancel-empty');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
+    expect(f.cancelIds).toEqual([]);
+  });
+  it.each(['empty-cancelled', 'partial'])(
+    'blocks %s jobs snapshot after cancellation',
+    async (snapshot) => {
+      const f = queuedFixture('post-cancel-' + snapshot);
+      await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+        'Verification started',
+      );
+    },
+  );
+  it('accepts initially empty queued jobs when final unstarted cancellation is explicit', async () => {
+    const f = queuedFixture('post-cancel-empty-before');
     expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('unavailable');
   });
 });
