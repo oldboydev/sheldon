@@ -512,21 +512,21 @@ export async function prepareCi(source, options, deps) {
     // Only this invocation's unambiguously identified preparation runs may be cancelled.
     for (const id of owned) {
       const state = await deps.api('actions/runs/' + id);
+      if (fallbackEligible) {
+        const beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+        const evidence = await inspectCiJobs(beforeJobs, async (job) =>
+          deps.api(
+            'check-runs/' + job.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
+          ),
+        );
+        if (
+          evidence.verificationFailed ||
+          evidence.verificationActive ||
+          (evidence.verificationPending && !evidence.verificationQueued)
+        )
+          throw new Error('CI changed before queue cancellation; fallback blocked.');
+      }
       if (state.status !== 'completed') {
-        if (fallbackEligible) {
-          const beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
-          const evidence = await inspectCiJobs(beforeJobs, async (job) =>
-            deps.api(
-              'check-runs/' + job.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
-            ),
-          );
-          if (
-            evidence.verificationFailed ||
-            evidence.verificationActive ||
-            (evidence.verificationPending && !evidence.verificationQueued)
-          )
-            throw new Error('CI changed before queue cancellation; fallback blocked.');
-        }
         await deps.run('gh', ['run', 'cancel', String(id), '--repo', REPOSITORY], deps.root);
         if (fallbackEligible) {
           const deadline = now() + 60000;

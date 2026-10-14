@@ -610,10 +610,21 @@ describe('54-C1 queue and execution deadlines', () => {
         }
         const id = path.includes('/11') ? 11 : 12;
         if (path.includes('/jobs')) {
-          if (mode === 'before-cancel' && now > 130000 && id === 11 && !lastQueueSeen) {
+          if (mode.startsWith('before-cancel') && now > 130000 && id === 11 && !lastQueueSeen) {
             lastQueueSeen = true;
             return { jobs: [{ name: 'quality', status: 'queued', conclusion: null, steps: [] }] };
           }
+          if (mode === 'before-cancel-completed' && raced)
+            return {
+              jobs: [
+                {
+                  name: 'quality',
+                  status: 'completed',
+                  conclusion: 'failure',
+                  steps: [{ name: 'npm run verify', status: 'completed', conclusion: 'failure' }],
+                },
+              ],
+            };
           if (mode === 'deadline' || (mode === 'before-cancel' && raced))
             return {
               jobs: [
@@ -656,7 +667,9 @@ describe('54-C1 queue and execution deadlines', () => {
             ],
           };
         }
-        if (mode === 'before-cancel' && lastQueueSeen && id === 11) raced = true;
+        if (mode.startsWith('before-cancel') && lastQueueSeen && id === 11) raced = true;
+        if (mode === 'before-cancel-completed' && raced)
+          return { status: 'completed', conclusion: 'failure' };
         if (mode === 'deadline' || (mode === 'before-cancel' && raced))
           return { status: 'in_progress', conclusion: null };
         if (mode === 'cancel-unconfirmed' && cancelled.has(id))
@@ -688,6 +701,11 @@ describe('54-C1 queue and execution deadlines', () => {
   });
   it('does not cancel verification that starts between queue decision and cleanup', async () => {
     const f = queuedFixture('before-cancel');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
+    expect(f.cancelIds).toEqual([]);
+  });
+  it('blocks a verification failure completed between queue decision and cleanup', async () => {
+    const f = queuedFixture('before-cancel-completed');
     await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
     expect(f.cancelIds).toEqual([]);
   });
