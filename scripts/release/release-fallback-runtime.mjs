@@ -463,6 +463,35 @@ export async function prepareCi(source, options, deps) {
   const pause = deps.pause ?? delay;
   const now = deps.now ?? Date.now;
   let fallbackEligible = false;
+  const readJobs = async (id) => {
+    const all = [];
+    const keys = new Set();
+    let total;
+    for (let page = 1; ; page++) {
+      const path =
+        'actions/runs/' + id + '/jobs?per_page=100' + (page === 1 ? '' : '&page=' + page);
+      const response = await deps.api(path);
+      const count = response.total_count;
+      if (
+        !Number.isSafeInteger(count) ||
+        count < 0 ||
+        count > 10000 ||
+        (total !== undefined && total !== count) ||
+        !Array.isArray(response.jobs) ||
+        response.jobs.length !== Math.min(100, Math.max(0, count - (page - 1) * 100))
+      )
+        throw new Error('CI jobs snapshot is incomplete; fallback blocked.');
+      total = count;
+      for (const job of response.jobs) {
+        const key = job.id ?? job.name;
+        if (key == null || keys.has(key))
+          throw new Error('CI jobs snapshot is incomplete; fallback blocked.');
+        keys.add(key);
+        all.push(job);
+      }
+      if (all.length === total) return all;
+    }
+  };
   const observedJobs = new Map();
   const observeJobs = (id, jobs) => {
     const current = new Set(jobs.map((job) => job.id ?? job.name));
@@ -475,7 +504,7 @@ export async function prepareCi(source, options, deps) {
     const runs = [];
     for (const id of runIds) {
       const workflow = await deps.api('actions/runs/' + id);
-      const jobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+      const jobs = await readJobs(id);
       if (observeJobs(id, jobs))
         throw new Error('CI jobs snapshot is incomplete; fallback blocked.');
       const publicationStarted = jobs.some(
@@ -523,7 +552,7 @@ export async function prepareCi(source, options, deps) {
     for (const id of owned) {
       const state = await deps.api('actions/runs/' + id);
       if (fallbackEligible) {
-        const beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+        const beforeJobs = await readJobs(id);
         const missingJobs = observeJobs(id, beforeJobs);
         const evidence = await inspectCiJobs(beforeJobs, async (job) =>
           deps.api(
@@ -552,7 +581,7 @@ export async function prepareCi(source, options, deps) {
             await pause(5000);
             completed = await deps.api('actions/runs/' + id);
           }
-          const afterJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+          const afterJobs = await readJobs(id);
           const missingJobs = observeJobs(id, afterJobs);
           // Only our cancellation of a provably unstarted job is an availability exception.
           const remainingJobs = afterJobs.filter(

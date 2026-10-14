@@ -8,10 +8,24 @@ import {
   dockerArguments,
   hashFile,
   macosPins,
-  prepareCi,
+  prepareCi as prepareCiRuntime,
 } from '../release-fallback-runtime.mjs';
 import { parseReleaseOptions } from '../release-fallback.mjs';
 import { prepareTarget } from '../release-fallback-target.mjs';
+
+// Existing scenarios describe job outcomes; supply the complete REST envelope.
+// Explicit metadata in pagination/invalid-response cases is preserved unchanged.
+async function prepareCi(...[source, options, deps]: Parameters<typeof prepareCiRuntime>) {
+  return prepareCiRuntime(source, options, {
+    ...deps,
+    api: async (path: string) => {
+      const response = await deps.api(path);
+      if (path.includes('/jobs') && !Object.hasOwn(response, 'total_count'))
+        return { ...response, total_count: response.jobs.length };
+      return response;
+    },
+  });
+}
 
 describe('release IO contracts', () => {
   it('54-C1 requires billing evidence for every failed job and never hides failed test steps', async () => {
@@ -564,7 +578,7 @@ describe('54-C1 settle started verification before fallback', () => {
 });
 
 describe('54-C1 queue and execution deadlines', () => {
-  function queuedFixture(mode = 'queue') {
+  function queuedFixture(mode = 'queue', totalCount?: unknown) {
     const head = 'a'.repeat(40);
     const lists = new Map<string, number>();
     const cancelled = new Set<number>();
@@ -573,6 +587,7 @@ describe('54-C1 queue and execution deadlines', () => {
     let raced = false;
     const snapshots = new Map<number, number>();
     const cancelIds: number[] = [];
+    const jobPages: string[] = [];
     let waits = 0;
     const deps = {
       root: '.',
@@ -613,6 +628,76 @@ describe('54-C1 queue and execution deadlines', () => {
         }
         const id = path.includes('/11') ? 11 : 12;
         if (path.includes('/jobs')) {
+          jobPages.push(path);
+          const countFailure = {
+            id: 1,
+            name: 'quality-1',
+            status: 'completed',
+            conclusion: 'failure',
+            steps: [],
+            check_run_url: 'https://api.github.com/check-runs/20',
+          };
+          if (mode === 'count-invalid') return { total_count: totalCount, jobs: [countFailure] };
+          if (mode.startsWith('count-settled-')) {
+            const badRun = mode.endsWith('npm') ? 11 : 12;
+            return id === badRun
+              ? { total_count: 2, jobs: [countFailure] }
+              : {
+                  total_count: 1,
+                  jobs: [{ id: 1, name: 'quality', status: 'completed', conclusion: 'success' }],
+                };
+          }
+          if (mode === 'before-cancel-count' && raced)
+            return {
+              total_count: 2,
+              jobs: [{ id: 1, name: 'quality', status: 'queued', conclusion: null }],
+            };
+          if (mode === 'post-cancel-count' && cancelled.has(id))
+            return {
+              total_count: 2,
+              jobs: [
+                {
+                  id: 1,
+                  name: 'quality',
+                  status: 'completed',
+                  conclusion: 'cancelled',
+                  started_at: null,
+                  steps: [],
+                },
+              ],
+            };
+          if (mode.startsWith('count-pages-')) {
+            const second = path.includes('&page=2');
+            const jobs = second
+              ? [
+                  {
+                    id: mode === 'count-pages-duplicate' ? 100 : 101,
+                    name: 'quality-last',
+                    status: 'completed',
+                    conclusion: mode === 'count-pages-test-failure' ? 'failure' : 'success',
+                    steps:
+                      mode === 'count-pages-test-failure'
+                        ? [{ name: 'npm run verify', conclusion: 'failure' }]
+                        : [],
+                  },
+                ]
+              : Array.from({ length: 100 }, (_, index) =>
+                  index === 0
+                    ? countFailure
+                    : {
+                        id: index + 1,
+                        name: 'quality-' + (index + 1),
+                        status: 'completed',
+                        conclusion: 'success',
+                        steps: [],
+                      },
+                );
+            return {
+              total_count: second && mode === 'count-pages-changed-count' ? 102 : 101,
+              jobs: second && mode === 'count-pages-truncated' ? [] : jobs,
+            };
+          }
+
           if (mode === 'remembered-lost-before' || mode === 'remembered-lost-poll') {
             const count = snapshots.get(id) ?? 0;
             snapshots.set(id, count + 1);
@@ -754,6 +839,13 @@ describe('54-C1 queue and execution deadlines', () => {
           };
         }
         if (mode.startsWith('before-cancel') && lastQueueSeen && id === 11) raced = true;
+        if (mode.startsWith('count-settled-')) {
+          const badRun = mode.endsWith('npm') ? 11 : 12;
+          return { status: 'completed', conclusion: id === badRun ? 'failure' : 'success' };
+        }
+        if (mode.startsWith('count-pages-') || mode === 'count-invalid')
+          return { status: 'completed', conclusion: 'failure' };
+
         if (mode === 'remembered-lost-before' && lastQueueSeen && id === 11) raced = true;
         if (
           mode.startsWith('settled-billing-') ||
@@ -777,7 +869,7 @@ describe('54-C1 queue and execution deadlines', () => {
           return { status: 'in_progress', conclusion: null };
         if (cancelled.has(id) && mode.startsWith('post-cancel-')) {
           const outcome = mode.slice('post-cancel-'.length);
-          if (['empty-cancelled', 'partial', 'empty-before'].includes(outcome))
+          if (['empty-cancelled', 'partial', 'empty-before', 'count'].includes(outcome))
             return { status: 'completed', conclusion: 'cancelled' };
           if (outcome === 'success-billing') return { status: 'completed', conclusion: 'success' };
           if (outcome === 'cancelled-billing')
@@ -803,6 +895,7 @@ describe('54-C1 queue and execution deadlines', () => {
       deps,
       source: { head, branch: 'main' },
       cancelIds,
+      jobPages,
       elapsed: () => now,
       waits: () => waits,
     };
@@ -931,4 +1024,48 @@ describe('54-C1 queue and execution deadlines', () => {
       'CI jobs snapshot is incomplete',
     );
   });
+  it.each(['npm', 'catalog'])('blocks incomplete first jobs response for %s', async (target) => {
+    const f = queuedFixture('count-settled-' + target);
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+      'CI jobs snapshot is incomplete',
+    );
+    expect(f.cancelIds).toEqual([]);
+  });
+  it.each(['before-cancel-count', 'post-cancel-count'])(
+    'blocks incomplete counted response at %s',
+    async (mode) => {
+      const f = queuedFixture(mode);
+      await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+        'CI jobs snapshot is incomplete',
+      );
+    },
+  );
+  it.each([null, undefined, -1, 0.5, '2', Infinity, 10001])(
+    'blocks invalid total_count %s',
+    async (total) => {
+      const f = queuedFixture('count-invalid', total);
+      await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+        'CI jobs snapshot is incomplete',
+      );
+    },
+  );
+  it('reads every complete jobs page before accepting billing availability', async () => {
+    const f = queuedFixture('count-pages-billing');
+    expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('unavailable');
+    expect(f.jobPages.filter((path) => path.includes('&page=2'))).toHaveLength(4);
+  });
+  it('blocks a genuine verification failure on a later jobs page', async () => {
+    const f = queuedFixture('count-pages-test-failure');
+    expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('failed');
+    expect(f.jobPages.some((path) => path.includes('&page=2'))).toBe(true);
+  });
+  it.each(['duplicate', 'changed-count', 'truncated'])(
+    'blocks %s pagination evidence',
+    async (kind) => {
+      const f = queuedFixture('count-pages-' + kind);
+      await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+        'CI jobs snapshot is incomplete',
+      );
+    },
+  );
 });
