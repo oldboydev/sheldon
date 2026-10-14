@@ -463,11 +463,21 @@ export async function prepareCi(source, options, deps) {
   const pause = deps.pause ?? delay;
   const now = deps.now ?? Date.now;
   let fallbackEligible = false;
+  const observedJobs = new Map();
+  const observeJobs = (id, jobs) => {
+    const current = new Set(jobs.map((job) => job.id ?? job.name));
+    const seen = observedJobs.get(id) ?? new Set();
+    const missing = [...seen].some((key) => !current.has(key));
+    observedJobs.set(id, new Set([...seen, ...current]));
+    return missing;
+  };
   const inspectRuns = async () => {
     const runs = [];
     for (const id of runIds) {
       const workflow = await deps.api('actions/runs/' + id);
       const jobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+      if (observeJobs(id, jobs))
+        throw new Error('CI jobs snapshot is incomplete; fallback blocked.');
       const publicationStarted = jobs.some(
         (job) =>
           /publish runtime|publish-metapackage|promote|attach-package-provenance/iu.test(
@@ -512,15 +522,16 @@ export async function prepareCi(source, options, deps) {
     // Only this invocation's unambiguously identified preparation runs may be cancelled.
     for (const id of owned) {
       const state = await deps.api('actions/runs/' + id);
-      let beforeJobs = [];
       if (fallbackEligible) {
-        beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+        const beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+        const missingJobs = observeJobs(id, beforeJobs);
         const evidence = await inspectCiJobs(beforeJobs, async (job) =>
           deps.api(
             'check-runs/' + job.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
           ),
         );
         if (
+          missingJobs ||
           (!['queued', 'completed'].includes(state.status) && !evidence.verificationQueued) ||
           classifyCiRuns([{ ...state, ...evidence }]) === 'failed' ||
           evidence.verificationFailed ||
@@ -542,6 +553,7 @@ export async function prepareCi(source, options, deps) {
             completed = await deps.api('actions/runs/' + id);
           }
           const afterJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+          const missingJobs = observeJobs(id, afterJobs);
           // Only our cancellation of a provably unstarted job is an availability exception.
           const remainingJobs = afterJobs.filter(
             (job) =>
@@ -571,8 +583,7 @@ export async function prepareCi(source, options, deps) {
             !(completed.conclusion === 'failure' && after.billingBlocked)
           )
             throw new Error('CI conclusion after cancellation is unexplained; fallback blocked.');
-          const knownJobs = new Set(afterJobs.map((job) => job.id ?? job.name));
-          if (!afterJobs.length || beforeJobs.some((job) => !knownJobs.has(job.id ?? job.name)))
+          if (!afterJobs.length || missingJobs)
             throw new Error(
               'Verification started or remained inconclusive during cancellation; fallback blocked.',
             );
