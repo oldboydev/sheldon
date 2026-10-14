@@ -293,3 +293,82 @@ describe('54-C1 billing exception after an identified run', () => {
     },
   );
 });
+
+describe('54-C1 failures before a matrix workflow finishes', () => {
+  it.each(['job-completed', 'step-failed', 'dispatch-billing'])(
+    'blocks a concrete %s failure while other matrix entries are still running',
+    async (scenario) => {
+      const head = 'a'.repeat(40);
+      const listed = new Map<string, number>();
+      const deps = {
+        root: '.',
+        output: '.',
+        pause: async () => {},
+        run: async (_command: string, args: string[]) => {
+          if (scenario === 'dispatch-billing' && args[2] === 'release.yml')
+            throw Object.assign(new Error('dispatch billing'), {
+              stderr: 'spending limit exceeded',
+            });
+          return '';
+        },
+        api: async (path: string) => {
+          if (path.includes('workflows/')) {
+            const workflow = path.split('/')[2];
+            const count = listed.get(workflow) ?? 0;
+            listed.set(workflow, count + 1);
+            return {
+              workflow_runs: count
+                ? [
+                    {
+                      id: workflow === 'publish-npm.yml' ? 11 : 12,
+                      head_sha: head,
+                      head_branch: 'main',
+                      created_at: new Date().toISOString(),
+                    },
+                  ]
+                : [],
+            };
+          }
+          if (path.includes('/annotations')) return [{ message: 'Payments have failed.' }];
+          if (path.includes('/jobs')) {
+            if (path.includes('/11/'))
+              return {
+                jobs: [
+                  {
+                    name: 'quality and M10 (win32-x64)',
+                    status: scenario === 'step-failed' ? 'in_progress' : 'completed',
+                    conclusion: scenario === 'step-failed' ? null : 'failure',
+                    steps: [{ name: 'npm run verify', conclusion: 'failure' }],
+                    check_run_url: 'https://api.github.com/repos/oldboydev/sheldon/check-runs/99',
+                  },
+                  {
+                    name: 'quality and M10 (linux-x64)',
+                    status: 'in_progress',
+                    conclusion: null,
+                    steps: [],
+                  },
+                ],
+              };
+            return {
+              jobs: [
+                {
+                  name: 'catalog',
+                  status: 'completed',
+                  conclusion: 'failure',
+                  steps: [],
+                  check_run_url: 'https://api.github.com/repos/oldboydev/sheldon/check-runs/100',
+                },
+              ],
+            };
+          }
+          return path.endsWith('/11')
+            ? { status: 'in_progress', conclusion: null }
+            : { status: 'completed', conclusion: 'failure' };
+        },
+      };
+      expect((await prepareCi({ head, branch: 'main' }, { version: '1.2.3' }, deps)).state).toBe(
+        'failed',
+      );
+    },
+  );
+});

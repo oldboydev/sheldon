@@ -55,7 +55,7 @@ Também executados no HEAD final, todos exit 0:
 - Markdownlint nos sete Markdown alterados: zero issues.
 - npm run typecheck; npm run lint:repo; npm run lint:domain.
 - git diff --check BASE..HEAD.
-- git diff --exit-code BASE..HEAD -- .github/workflows scripts/code-review code-review.config.json .checks/issue-47* .tasks/issue-47*.
+- `git diff --exit-code BASE..HEAD -- .github/workflows scripts/code-review code-review.config.json .checks/issue-47* .tasks/issue-47*`.
 - git status --porcelain vazio.
 
 ## Sweep e limitações

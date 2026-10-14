@@ -439,7 +439,16 @@ export async function prepareCi(source, options, deps) {
         const checkId = job.check_run_url.split('/').at(-1);
         return deps.api('check-runs/' + checkId + '/annotations?per_page=100');
       });
-      runs.push({ ...workflow, billingBlocked, publicationStarted });
+      // Matrix jobs and individual steps can fail before the aggregate run concludes.
+      const verificationFailed =
+        jobs.some((job) =>
+          job.steps?.some((step) => step.conclusion === 'failure' && step.name !== 'Set up job'),
+        ) ||
+        (!billingBlocked &&
+          jobs.some((job) =>
+            ['failure', 'timed_out', 'cancelled', 'action_required'].includes(job.conclusion),
+          ));
+      runs.push({ ...workflow, billingBlocked, publicationStarted, verificationFailed });
     }
     return runs;
   };
