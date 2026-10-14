@@ -399,23 +399,42 @@ async function walk(directory) {
   return files;
 }
 
-export async function billingBlockedJobs(jobs, annotations) {
-  const failed = jobs.filter((job) => job.conclusion === 'failure');
-  if (!failed.length) return false;
-  for (const job of failed) {
-    if (job.steps?.some((step) => step.conclusion === 'failure' && step.name !== 'Set up job'))
-      return false;
-    const notes = await annotations(job);
-    if (
-      !notes.some((note) =>
-        /billing|spending limit|payments have failed|account.*(?:disabled|blocked)/iu.test(
-          note.message,
-        ),
-      )
-    )
-      return false;
+export async function inspectCiJobs(jobs, annotations) {
+  let billingBlocked = false;
+  let verificationFailed = false;
+  for (const job of jobs) {
+    const badSteps = (job.steps ?? []).filter(
+      (step) => step.conclusion != null && !['success', 'skipped'].includes(step.conclusion),
+    );
+    // Authenticate the exception for this job only. Another job's timeout,
+    // cancellation or unknown result cannot inherit its billing exemption.
+    const billingEligible =
+      job.conclusion === 'failure' &&
+      badSteps.every((step) => step.name === 'Set up job' && step.conclusion === 'failure');
+    if (billingEligible) {
+      const notes = await annotations(job);
+      if (
+        notes.some((note) =>
+          /billing|spending limit|payments have failed|account.*(?:disabled|blocked)/iu.test(
+            note.message,
+          ),
+        )
+      ) {
+        billingBlocked = true;
+        continue;
+      }
+    }
+    const unsuccessful = job.conclusion != null && !['success', 'skipped'].includes(job.conclusion);
+    const ambiguous =
+      job.status === 'completed' && !['success', 'skipped'].includes(job.conclusion);
+    if (unsuccessful || ambiguous || badSteps.length) verificationFailed = true;
   }
-  return true;
+  return { billingBlocked, verificationFailed };
+}
+
+export async function billingBlockedJobs(jobs, annotations) {
+  const evidence = await inspectCiJobs(jobs, annotations);
+  return evidence.billingBlocked && !evidence.verificationFailed;
 }
 
 export async function prepareCi(source, options, deps) {
@@ -435,20 +454,11 @@ export async function prepareCi(source, options, deps) {
           (job.status === 'in_progress' ||
             (job.status === 'completed' && job.conclusion !== 'skipped')),
       );
-      const billingBlocked = await billingBlockedJobs(jobs, async (job) => {
+      const evidence = await inspectCiJobs(jobs, async (job) => {
         const checkId = job.check_run_url.split('/').at(-1);
         return deps.api('check-runs/' + checkId + '/annotations?per_page=100');
       });
-      // Matrix jobs and individual steps can fail before the aggregate run concludes.
-      const verificationFailed =
-        jobs.some((job) =>
-          job.steps?.some((step) => step.conclusion === 'failure' && step.name !== 'Set up job'),
-        ) ||
-        (!billingBlocked &&
-          jobs.some((job) =>
-            ['failure', 'timed_out', 'cancelled', 'action_required'].includes(job.conclusion),
-          ));
-      runs.push({ ...workflow, billingBlocked, publicationStarted, verificationFailed });
+      runs.push({ ...workflow, publicationStarted, ...evidence });
     }
     return runs;
   };
