@@ -30,6 +30,10 @@ Landing adicional autorizado em 2026-10-14: roundOverrides somente da issue 54
 na configuração local, profile light, maxRounds=3, com referência à aprovação na
 task. Defaults e históricos permanecem intactos; exceção explícita a C7.
 
+Landing adicional autorizado em 2026-10-14: o proprietário respondeu "faça
+quantas precisar" ao pedido de quarta revisão somente para #54. O override local
+usa o teto técnico suportado maxRounds=10; defaults 2 e histórico são preservados.
+
 ## Checks
 
 - [ ] C1 CI preferida é de preparação do mesmo commit/versão; indisponibilidade
