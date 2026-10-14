@@ -612,6 +612,21 @@ describe('54-C1 queue and execution deadlines', () => {
         }
         const id = path.includes('/11') ? 11 : 12;
         if (path.includes('/jobs')) {
+          if (
+            mode.startsWith('settled-billing-') ||
+            (mode.startsWith('before-cancel-billing-') && raced)
+          )
+            return {
+              jobs: [
+                {
+                  name: 'quality',
+                  status: 'completed',
+                  conclusion: 'failure',
+                  check_run_url: 'https://api.github.com/check-runs/20',
+                  steps: [],
+                },
+              ],
+            };
           if (cancelled.has(id) && mode === 'post-cancel-empty') return { jobs: [] };
           if (cancelled.has(id) && mode === 'post-cancel-billing')
             return {
@@ -691,6 +706,17 @@ describe('54-C1 queue and execution deadlines', () => {
           };
         }
         if (mode.startsWith('before-cancel') && lastQueueSeen && id === 11) raced = true;
+        if (
+          mode.startsWith('settled-billing-') ||
+          (mode.startsWith('before-cancel-billing-') && raced)
+        ) {
+          const outcome = mode.slice(
+            mode.startsWith('settled-')
+              ? 'settled-billing-'.length
+              : 'before-cancel-billing-'.length,
+          );
+          return { status: 'completed', conclusion: outcome === 'null' ? null : outcome };
+        }
         if (mode === 'before-cancel-pending' && raced)
           return { status: 'completed', conclusion: 'success' };
         if (['before-cancel-completed', 'before-cancel-result'].includes(mode) && raced)
@@ -781,6 +807,22 @@ describe('54-C1 queue and execution deadlines', () => {
     async (outcome) => {
       const f = queuedFixture('post-cancel-' + outcome);
       expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('unavailable');
+    },
+  );
+  it.each(['timed_out', 'cancelled', 'action_required', 'neutral', 'unexpected', 'null'])(
+    'blocks settled aggregate %s despite an authenticated billing job',
+    async (outcome) => {
+      const f = queuedFixture('settled-billing-' + outcome);
+      expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('failed');
+      expect(f.cancelIds).toEqual([]);
+    },
+  );
+  it.each(['timed_out', 'cancelled', 'action_required', 'neutral', 'unexpected', 'null'])(
+    'blocks final aggregate %s despite an authenticated billing job',
+    async (outcome) => {
+      const f = queuedFixture('before-cancel-billing-' + outcome);
+      await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
+      expect(f.cancelIds).toEqual([]);
     },
   );
 });
