@@ -458,3 +458,249 @@ describe('54-C1 billing never masks another job result', () => {
     ).toBe(true);
   });
 });
+
+describe('54-C1 settle started verification before fallback', () => {
+  const outcomes = [
+    'success',
+    'failure',
+    'timed_out',
+    'cancelled',
+    'action_required',
+    'unexpected',
+  ];
+  it.each(
+    outcomes.flatMap((outcome) => [
+      ['matrix', outcome],
+      ['dispatch', outcome],
+    ]),
+  )('waits in %s billing until the started Mac verification returns %s', async (mode, outcome) => {
+    const head = 'a'.repeat(40);
+    const lists = new Map<string, number>();
+    let active = true;
+    let waited = false;
+    let cancelledWhileActive = false;
+    let now = 0;
+    const deps = {
+      root: '.',
+      output: '.',
+      now: () => now,
+      pause: async (ms: number) => {
+        now += ms;
+        if (ms === 15000) {
+          waited = true;
+          active = false;
+        }
+      },
+      run: async (_command: string, args: string[]) => {
+        if (mode === 'dispatch' && args[2] === 'release.yml')
+          throw Object.assign(new Error('dispatch billing'), { stderr: 'spending limit exceeded' });
+        if (args[1] === 'cancel' && active) {
+          cancelledWhileActive = true;
+          throw new Error('Started verification cancelled before its result.');
+        }
+        return '';
+      },
+      api: async (path: string) => {
+        if (path.includes('workflows/')) {
+          const workflow = path.split('/')[2];
+          const count = lists.get(workflow) ?? 0;
+          lists.set(workflow, count + 1);
+          return {
+            workflow_runs: count
+              ? [
+                  {
+                    id: workflow === 'publish-npm.yml' ? 11 : 12,
+                    head_sha: head,
+                    head_branch: 'main',
+                    created_at: new Date().toISOString(),
+                  },
+                ]
+              : [],
+          };
+        }
+        if (path.includes('/annotations')) return [{ message: 'Payments have failed.' }];
+        if (path.includes('/jobs')) {
+          const billingJob = {
+            name: 'quality (linux-x64)',
+            status: 'completed',
+            conclusion: 'failure',
+            steps: [],
+            check_run_url: 'https://api.github.com/repos/oldboydev/sheldon/check-runs/99',
+          };
+          const mac = {
+            name: 'quality (darwin-arm64)',
+            status: active ? 'in_progress' : 'completed',
+            conclusion: active ? null : outcome,
+            steps: [
+              {
+                name: 'npm run verify',
+                status: active ? 'in_progress' : 'completed',
+                conclusion: active ? null : outcome,
+              },
+            ],
+            check_run_url: 'https://api.github.com/repos/oldboydev/sheldon/check-runs/100',
+          };
+          return {
+            jobs: path.includes('/11/')
+              ? mode === 'matrix'
+                ? [billingJob, mac]
+                : [mac]
+              : [billingJob],
+          };
+        }
+        if (path.endsWith('/11'))
+          return {
+            status: active ? 'in_progress' : 'completed',
+            conclusion: active ? null : mode === 'dispatch' ? outcome : 'failure',
+          };
+        return { status: 'completed', conclusion: 'failure' };
+      },
+    };
+    const result = await prepareCi({ head, branch: 'main' }, { version: '1.2.3' }, deps);
+    expect(waited).toBe(true);
+    expect(cancelledWhileActive).toBe(false);
+    expect(result.state).toBe(outcome === 'success' ? 'unavailable' : 'failed');
+  });
+});
+
+describe('54-C1 queue and execution deadlines', () => {
+  function queuedFixture(mode = 'queue') {
+    const head = 'a'.repeat(40);
+    const lists = new Map<string, number>();
+    const cancelled = new Set<number>();
+    let now = 0;
+    let lastQueueSeen = false;
+    let raced = false;
+    const cancelIds: number[] = [];
+    let waits = 0;
+    const deps = {
+      root: '.',
+      output: '.',
+      now: () => now,
+      pause: async (ms: number) => {
+        now += mode === 'deadline' && ms === 15000 ? 8 * 60 * 60 * 1000 : ms;
+        if (ms === 15000) waits++;
+      },
+      run: async (_command: string, args: string[]) => {
+        if (args[1] === 'cancel') {
+          const id = Number(args[2]);
+          cancelIds.push(id);
+          cancelled.add(id);
+          if (mode === 'after-cancel') raced = true;
+        }
+        return '';
+      },
+      api: async (path: string) => {
+        if (path.includes('workflows/')) {
+          const workflow = path.split('/')[2];
+          const count = lists.get(workflow) ?? 0;
+          lists.set(workflow, count + 1);
+          return {
+            workflow_runs: count
+              ? [
+                  {
+                    id: workflow === 'publish-npm.yml' ? 11 : 12,
+                    head_sha: head,
+                    head_branch: 'main',
+                    created_at: new Date().toISOString(),
+                  },
+                ]
+              : [],
+          };
+        }
+        const id = path.includes('/11') ? 11 : 12;
+        if (path.includes('/jobs')) {
+          if (mode === 'before-cancel' && now > 130000 && id === 11 && !lastQueueSeen) {
+            lastQueueSeen = true;
+            return { jobs: [{ name: 'quality', status: 'queued', conclusion: null, steps: [] }] };
+          }
+          if (mode === 'deadline' || (mode === 'before-cancel' && raced))
+            return {
+              jobs: [
+                {
+                  name: 'quality (darwin-arm64)',
+                  status: 'in_progress',
+                  conclusion: null,
+                  steps: [{ name: 'npm run verify', status: 'in_progress', conclusion: null }],
+                },
+              ],
+            };
+          if (mode === 'after-cancel' && raced)
+            return {
+              jobs: [
+                {
+                  name: 'quality (darwin-arm64)',
+                  status: 'completed',
+                  conclusion: 'cancelled',
+                  started_at: '2026-10-14T00:00:00Z',
+                  steps: [
+                    {
+                      name: 'npm run verify',
+                      started_at: '2026-10-14T00:00:00Z',
+                      status: 'completed',
+                      conclusion: 'cancelled',
+                    },
+                  ],
+                },
+              ],
+            };
+          return {
+            jobs: [
+              {
+                name: 'quality',
+                status: cancelled.has(id) ? 'completed' : 'queued',
+                conclusion: cancelled.has(id) ? 'cancelled' : null,
+                started_at: null,
+                steps: [],
+              },
+            ],
+          };
+        }
+        if (mode === 'before-cancel' && lastQueueSeen && id === 11) raced = true;
+        if (mode === 'deadline' || (mode === 'before-cancel' && raced))
+          return { status: 'in_progress', conclusion: null };
+        if (mode === 'cancel-unconfirmed' && cancelled.has(id))
+          return { status: 'queued', conclusion: null };
+        return {
+          status: cancelled.has(id) ? 'completed' : 'queued',
+          conclusion: cancelled.has(id) ? 'cancelled' : null,
+        };
+      },
+    };
+    return {
+      deps,
+      source: { head, branch: 'main' },
+      cancelIds,
+      elapsed: () => now,
+      waits: () => waits,
+    };
+  }
+  it('falls back after the unstarted queue deadline only after cancellation is confirmed', async () => {
+    const f = queuedFixture();
+    expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('unavailable');
+    expect(f.elapsed()).toBeGreaterThan(120000);
+    expect(f.cancelIds).toEqual([11, 12]);
+  });
+  it('blocks after the execution deadline instead of enabling fallback', async () => {
+    const f = queuedFixture('deadline');
+    expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('blocked');
+    expect(f.waits()).toBe(1);
+  });
+  it('does not cancel verification that starts between queue decision and cleanup', async () => {
+    const f = queuedFixture('before-cancel');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
+    expect(f.cancelIds).toEqual([]);
+  });
+  it('blocks when verification started during the cancellation race', async () => {
+    const f = queuedFixture('after-cancel');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+      'Verification started',
+    );
+  });
+  it('blocks if the cancellation cannot be confirmed', async () => {
+    const f = queuedFixture('cancel-unconfirmed');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+      'Queue cancellation not confirmed',
+    );
+  });
+});

@@ -402,7 +402,21 @@ async function walk(directory) {
 export async function inspectCiJobs(jobs, annotations) {
   let billingBlocked = false;
   let verificationFailed = false;
+  let verificationPending = false;
+  let verificationActive = false;
+  let onlyQueued = true;
   for (const job of jobs) {
+    const active =
+      job.status === 'in_progress' ||
+      job.steps?.some(
+        (step) =>
+          step.status === 'in_progress' || (step.started_at != null && step.conclusion == null),
+      );
+    if (active) verificationActive = true;
+    if (job.conclusion == null || active) {
+      verificationPending = true;
+      if (job.status !== 'queued' || active) onlyQueued = false;
+    }
     const badSteps = (job.steps ?? []).filter(
       (step) => step.conclusion != null && !['success', 'skipped'].includes(step.conclusion),
     );
@@ -429,7 +443,13 @@ export async function inspectCiJobs(jobs, annotations) {
       job.status === 'completed' && !['success', 'skipped'].includes(job.conclusion);
     if (unsuccessful || ambiguous || badSteps.length) verificationFailed = true;
   }
-  return { billingBlocked, verificationFailed };
+  return {
+    billingBlocked,
+    verificationFailed,
+    verificationPending,
+    verificationActive,
+    verificationQueued: verificationPending && onlyQueued && !verificationActive,
+  };
 }
 
 export async function billingBlockedJobs(jobs, annotations) {
@@ -441,6 +461,8 @@ export async function prepareCi(source, options, deps) {
   const runIds = [];
   const owned = [];
   const pause = deps.pause ?? delay;
+  const now = deps.now ?? Date.now;
+  let fallbackEligible = false;
   const inspectRuns = async () => {
     const runs = [];
     for (const id of runIds) {
@@ -461,6 +483,80 @@ export async function prepareCi(source, options, deps) {
       runs.push({ ...workflow, publicationStarted, ...evidence });
     }
     return runs;
+  };
+  const settleRuns = async (missingWorkflow = false) => {
+    const started = now();
+    while (true) {
+      const runs = await inspectRuns();
+      const state = classifyCiRuns(runs);
+      if (state !== 'waiting') return missingWorkflow && state === 'ready' ? 'unavailable' : state;
+      // Only genuinely unstarted runner queues may time out into availability fallback.
+      const onlyQueues = runs.every(
+        (run) =>
+          !run.verificationActive &&
+          (run.status === 'queued' ||
+            (run.status === 'completed' && !run.verificationPending) ||
+            (run.status === 'in_progress' && run.verificationQueued)),
+      );
+      if (now() - started > 120000 && onlyQueues) return 'unavailable';
+      if (now() - started > 7 * 60 * 60 * 1000) return 'blocked';
+      console.log('Waiting for release preparation CI.');
+      await pause(15000);
+    }
+  };
+  const stateResult = (state) => {
+    fallbackEligible = state === 'unavailable';
+    return { state, runIds };
+  };
+  const cleanupOwnedRuns = async () => {
+    // Only this invocation's unambiguously identified preparation runs may be cancelled.
+    for (const id of owned) {
+      const state = await deps.api('actions/runs/' + id);
+      if (state.status !== 'completed') {
+        if (fallbackEligible) {
+          const beforeJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+          const evidence = await inspectCiJobs(beforeJobs, async (job) =>
+            deps.api(
+              'check-runs/' + job.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
+            ),
+          );
+          if (
+            evidence.verificationFailed ||
+            evidence.verificationActive ||
+            (evidence.verificationPending && !evidence.verificationQueued)
+          )
+            throw new Error('CI changed before queue cancellation; fallback blocked.');
+        }
+        await deps.run('gh', ['run', 'cancel', String(id), '--repo', REPOSITORY], deps.root);
+        if (fallbackEligible) {
+          const deadline = now() + 60000;
+          while ((await deps.api('actions/runs/' + id)).status !== 'completed') {
+            if (now() >= deadline)
+              throw new Error('Queue cancellation not confirmed; fallback blocked.');
+            await pause(5000);
+          }
+          const afterJobs = (await deps.api('actions/runs/' + id + '/jobs?per_page=100')).jobs;
+          for (const job of afterJobs) {
+            // Only our cancellation of a provably unstarted job is an availability exception.
+            if (
+              job.conclusion === 'cancelled' &&
+              job.started_at == null &&
+              (job.steps ?? []).length === 0
+            )
+              continue;
+            const after = await inspectCiJobs([job], async (item) =>
+              deps.api(
+                'check-runs/' + item.check_run_url.split('/').at(-1) + '/annotations?per_page=100',
+              ),
+            );
+            if (after.verificationFailed || after.verificationPending)
+              throw new Error(
+                'Verification started or remained inconclusive during cancellation; fallback blocked.',
+              );
+          }
+        }
+      }
+    }
   };
   try {
     for (const workflow of WORKFLOWS) {
@@ -493,24 +589,8 @@ export async function prepareCi(source, options, deps) {
       }
       if (!identified) return { state: 'blocked', runIds };
     }
-    const started = Date.now();
-    let state;
-    do {
-      const runs = await inspectRuns();
-      state = classifyCiRuns(runs);
-      if (state === 'waiting') {
-        // Queue starvation is unavailability; a running but unfinished verification is not.
-        if (
-          Date.now() - started > 120000 &&
-          runs.every((run) => run.status === 'queued' || run.status === 'completed')
-        )
-          return { state: 'unavailable', runIds };
-        if (Date.now() - started > 7 * 60 * 60 * 1000) return { state: 'blocked', runIds };
-        console.log('Waiting for release preparation CI.');
-        await pause(15000);
-      }
-    } while (state === 'waiting');
-    if (state !== 'ready') return { state, runIds };
+    const state = await settleRuns();
+    if (state !== 'ready') return stateResult(state);
     const packages = join(deps.output, 'packages');
     await mkdir(packages);
     await deps.run(
@@ -554,19 +634,11 @@ export async function prepareCi(source, options, deps) {
     if (/billing|spending limit|payments have failed/iu.test(error.stderr ?? '')) {
       // A failed later dispatch cannot erase evidence from a run already identified.
       // If prior evidence cannot be inspected, propagate that error and fail closed.
-      if (runIds.length) {
-        const prior = classifyCiRuns(await inspectRuns());
-        if (prior === 'failed' || prior === 'blocked') return { state: prior, runIds };
-      }
-      return { state: 'unavailable', runIds };
+      if (runIds.length) return stateResult(await settleRuns(true));
+      return stateResult('unavailable');
     }
     throw error;
   } finally {
-    // Only this invocation's unambiguously identified preparation runs may be cancelled.
-    for (const id of owned) {
-      const state = await deps.api('actions/runs/' + id);
-      if (state.status !== 'completed')
-        await deps.run('gh', ['run', 'cancel', String(id), '--repo', REPOSITORY], deps.root);
-    }
+    await cleanupOwnedRuns();
   }
 }
