@@ -78,5 +78,8 @@ isolamento das escritas e teste do IO real preservando counters/locks preexisten
 
 As duas tentativas do Codex oficial pediram correções. Este PASS do Verifier
 comprova a correção concreta; não substitui uma aprovação oficial nem autoriza
-terceira tentativa. Nenhum override foi criado e o histórico anterior foi preservado.
-A próxima revisão oficial depende de autorização humana específica.
+terceira tentativa sem autorização. O proprietário autorizou em 2026-10-14
+uma rodada adicional somente no Sheldon #54. A exceção local usa maxRounds=3,
+com referência na task; defaults permanecem 2 e o histórico anterior é preservado.
+A implementação verificada não mudou. Esta nota registra autorização humana,
+não uma nova prova do Verifier nem uma aprovação do Codex oficial.

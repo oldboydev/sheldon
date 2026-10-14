@@ -26,6 +26,10 @@ Prova adicional de preservação: release-fallback-history.test.ts usa o lock e
 report IO reais em Git temporário com counters e lock de review pré-existentes.
 Nenhuma mudança na barra C1–C7.
 
+Landing adicional autorizado em 2026-10-14: roundOverrides somente da issue 54
+na configuração local, profile light, maxRounds=3, com referência à aprovação na
+task. Defaults e históricos permanecem intactos; exceção explícita a C7.
+
 ## Checks
 
 - [ ] C1 CI preferida é de preparação do mesmo commit/versão; indisponibilidade
