@@ -7,7 +7,9 @@ export function classifyCiRuns(runs) {
     runs.some(
       (run) =>
         run.verificationFailed ||
-        (run.status === 'completed' && run.conclusion !== 'success' && !run.billingBlocked),
+        (run.status === 'completed' &&
+          run.conclusion !== 'success' &&
+          !(run.conclusion === 'failure' && run.billingBlocked)),
     )
   )
     return 'failed';

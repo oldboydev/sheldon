@@ -83,6 +83,15 @@ describe('release fallback controller', () => {
     },
   );
 
+  it.each(['timed_out', 'cancelled', 'action_required', 'neutral', 'unexpected', null])(
+    '54-C1 billing cannot excuse aggregate %s',
+    (conclusion) => {
+      expect(classifyCiRuns([{ status: 'completed', conclusion, billingBlocked: true }])).toBe(
+        'failed',
+      );
+    },
+  );
+
   it('54-C1 a genuine failure wins over a billing failure in another workflow', () => {
     expect(
       classifyCiRuns([
