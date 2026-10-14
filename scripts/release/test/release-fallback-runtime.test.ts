@@ -614,6 +614,10 @@ describe('54-C1 queue and execution deadlines', () => {
             lastQueueSeen = true;
             return { jobs: [{ name: 'quality', status: 'queued', conclusion: null, steps: [] }] };
           }
+          if (mode === 'before-cancel-result' && raced)
+            return {
+              jobs: [{ name: 'quality', status: 'completed', conclusion: 'success', steps: [] }],
+            };
           if (mode === 'before-cancel-completed' && raced)
             return {
               jobs: [
@@ -668,7 +672,7 @@ describe('54-C1 queue and execution deadlines', () => {
           };
         }
         if (mode.startsWith('before-cancel') && lastQueueSeen && id === 11) raced = true;
-        if (mode === 'before-cancel-completed' && raced)
+        if (['before-cancel-completed', 'before-cancel-result'].includes(mode) && raced)
           return { status: 'completed', conclusion: 'failure' };
         if (mode === 'deadline' || (mode === 'before-cancel' && raced))
           return { status: 'in_progress', conclusion: null };
@@ -706,6 +710,11 @@ describe('54-C1 queue and execution deadlines', () => {
   });
   it('blocks a verification failure completed between queue decision and cleanup', async () => {
     const f = queuedFixture('before-cancel-completed');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
+    expect(f.cancelIds).toEqual([]);
+  });
+  it('blocks an aggregate failure even when the final job snapshot lacks its evidence', async () => {
+    const f = queuedFixture('before-cancel-result');
     await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
     expect(f.cancelIds).toEqual([]);
   });
