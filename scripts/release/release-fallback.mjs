@@ -5,7 +5,9 @@ export function classifyCiRuns(runs) {
   if (!runs.length || runs.some((run) => run.publicationStarted)) return 'blocked';
   if (
     runs.some(
-      (run) => run.status === 'completed' && run.conclusion !== 'success' && !run.billingBlocked,
+      (run) =>
+        run.verificationFailed ||
+        (run.status === 'completed' && run.conclusion !== 'success' && !run.billingBlocked),
     )
   )
     return 'failed';
