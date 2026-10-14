@@ -520,6 +520,7 @@ export async function prepareCi(source, options, deps) {
           ),
         );
         if (
+          classifyCiRuns([{ ...state, ...evidence }]) === 'failed' ||
           evidence.verificationFailed ||
           evidence.verificationActive ||
           (evidence.verificationPending && !evidence.verificationQueued)
