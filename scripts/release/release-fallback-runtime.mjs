@@ -562,7 +562,10 @@ export async function prepareCi(source, options, deps) {
           // A failure requires an authenticated availability explanation; unknown
           // conclusions cannot inherit the exception for our own queue cancellation.
           if (
-            !['success', 'cancelled'].includes(completed.conclusion) &&
+            !(
+              completed.conclusion === 'cancelled' ||
+              (completed.conclusion === 'success' && !after.billingBlocked)
+            ) &&
             !(completed.conclusion === 'failure' && after.billingBlocked)
           )
             throw new Error('CI conclusion after cancellation is unexplained; fallback blocked.');
