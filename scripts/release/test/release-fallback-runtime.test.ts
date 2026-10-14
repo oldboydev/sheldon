@@ -591,6 +591,8 @@ describe('54-C1 queue and execution deadlines', () => {
         return '';
       },
       api: async (path: string) => {
+        if (path.startsWith('check-runs/'))
+          return [{ message: 'The job was not started because spending limit was reached.' }];
         if (path.includes('workflows/')) {
           const workflow = path.split('/')[2];
           const count = lists.get(workflow) ?? 0;
@@ -610,6 +612,23 @@ describe('54-C1 queue and execution deadlines', () => {
         }
         const id = path.includes('/11') ? 11 : 12;
         if (path.includes('/jobs')) {
+          if (cancelled.has(id) && mode === 'post-cancel-empty') return { jobs: [] };
+          if (cancelled.has(id) && mode === 'post-cancel-billing')
+            return {
+              jobs: [
+                {
+                  name: 'quality',
+                  status: 'completed',
+                  conclusion: 'failure',
+                  check_run_url: 'https://api.github.com/check-runs/20',
+                  steps: [{ name: 'Set up job', status: 'completed', conclusion: 'failure' }],
+                },
+              ],
+            };
+          if (cancelled.has(id) && mode.startsWith('post-cancel-'))
+            return {
+              jobs: [{ name: 'quality', status: 'completed', conclusion: 'success', steps: [] }],
+            };
           if (mode.startsWith('before-cancel') && now > 130000 && id === 11 && !lastQueueSeen) {
             lastQueueSeen = true;
             return { jobs: [{ name: 'quality', status: 'queued', conclusion: null, steps: [] }] };
@@ -676,6 +695,17 @@ describe('54-C1 queue and execution deadlines', () => {
           return { status: 'completed', conclusion: 'failure' };
         if (mode === 'deadline' || (mode === 'before-cancel' && raced))
           return { status: 'in_progress', conclusion: null };
+        if (cancelled.has(id) && mode.startsWith('post-cancel-')) {
+          const outcome = mode.slice('post-cancel-'.length);
+          return {
+            status: 'completed',
+            conclusion: ['empty', 'billing'].includes(outcome)
+              ? 'failure'
+              : outcome === 'null'
+                ? null
+                : outcome,
+          };
+        }
         if (mode === 'cancel-unconfirmed' && cancelled.has(id))
           return { status: 'queued', conclusion: null };
         return {
@@ -730,4 +760,20 @@ describe('54-C1 queue and execution deadlines', () => {
       'Queue cancellation not confirmed',
     );
   });
+  it.each(['failure', 'timed_out', 'action_required', 'neutral', 'unexpected', 'null', 'empty'])(
+    'blocks aggregate %s after cancellation when jobs do not explain it',
+    async (outcome) => {
+      const f = queuedFixture('post-cancel-' + outcome);
+      await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+        'CI conclusion after cancellation',
+      );
+    },
+  );
+  it.each(['success', 'billing'])(
+    'accepts authenticated %s after cancellation without hiding verification failure',
+    async (outcome) => {
+      const f = queuedFixture('post-cancel-' + outcome);
+      expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('unavailable');
+    },
+  );
 });
