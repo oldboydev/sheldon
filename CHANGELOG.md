@@ -6,6 +6,16 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Added
+
+- Comando release:fallback: preparação na CI primeiro, fallback Windows/Linux com Docker
+  se indisponível, publicação opt-in e registros de falha parcial. No local, versões npm
+  e artefatos assinados macOS anteriores são preservados; sem nova publicação Mac.
+
+### Changed
+
+- CI deixa de bloquear merge; PR, provas aplicáveis, revisão local e merge humano permanecem.
+
 ## [0.2.11] - 2026-10-13
 
 Tag `v0.2.11`. Publica o npm `latest` e o catálogo oficial. YouTube aceita JSON grande do

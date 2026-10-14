@@ -135,13 +135,20 @@ export function createRuntimePackageManifest(target, version) {
 }
 
 /**
- * Create the public entry package. Exact versions keep all five published
- * packages on one immutable release version.
+ * Create the public entry package. The default keeps all five packages on one
+ * immutable version. Local fallback may pin both previously published Mac runtimes.
  *
  * @param {string} version
  */
-export function createMetapackageManifest(version) {
+export function createMetapackageManifest(version, { macosVersions } = {}) {
   assertNpmPackageVersion(version);
+  if (macosVersions !== undefined) {
+    const keys = Object.keys(macosVersions).sort();
+    if (keys.join(',') !== 'darwin-arm64,darwin-x64') {
+      throw npmPackageError('NPM_MACOS_VERSIONS_INVALID', 'Provide exactly both macOS versions.');
+    }
+    for (const pinned of Object.values(macosVersions)) assertNpmPackageVersion(pinned);
+  }
   return {
     name: NPM_METAPACKAGE_NAME,
     version,
@@ -153,7 +160,10 @@ export function createMetapackageManifest(version) {
     engines: { node: NPM_PACKAGE_NODE_ENGINE },
     bin: { sheldon: 'bin/sheldon.mjs' },
     optionalDependencies: Object.fromEntries(
-      NPM_RUNTIME_TARGETS.map((target) => [target.packageName, version]),
+      NPM_RUNTIME_TARGETS.map((target) => [
+        target.packageName,
+        macosVersions?.[target.id] ?? version,
+      ]),
     ),
     publishConfig: { access: 'public' },
   };

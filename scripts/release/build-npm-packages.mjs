@@ -74,7 +74,7 @@ const EXTERNAL_ENTRYPOINT_EXTENSIONS = ['.js', '.mjs', '.cjs', '.json'];
  * All code copied from the checkout is regular-file data; workspace links and development
  * dependencies never cross the staging boundary.
  *
- * @param {{ root?: string, output: string, version: string, target?: string, metapackage?: boolean, repository?: string }} options
+ * @param {{ root?: string, output: string, version: string, target?: string, metapackage?: boolean, macosVersions?: Record<string, string>, repository?: string }} options
  */
 export async function buildNpmPackages(options) {
   const root = resolve(options.root ?? projectRoot());
@@ -94,7 +94,7 @@ export async function buildNpmPackages(options) {
 
   const metapackage = join(output, 'metapackage');
   if (!options.target || options.metapackage)
-    await stageMetapackage(root, metapackage, options.version);
+    await stageMetapackage(root, metapackage, options.version, options.macosVersions);
   if (options.metapackage) return { metapackage, runtimes: [] };
 
   const workspaces = await workspacePackages(root);
@@ -107,9 +107,12 @@ export async function buildNpmPackages(options) {
   return { metapackage, runtimes };
 }
 
-async function stageMetapackage(root, directory, version) {
+async function stageMetapackage(root, directory, version, macosVersions) {
   await mkdir(join(directory, 'bin'), { recursive: true });
-  await writeJson(join(directory, 'package.json'), createMetapackageManifest(version));
+  await writeJson(
+    join(directory, 'package.json'),
+    createMetapackageManifest(version, { macosVersions }),
+  );
   await writeFile(join(directory, 'bin', 'sheldon.mjs'), launcherSource(), 'utf8');
   await cp(join(root, 'README.md'), join(directory, 'README.md'));
   await copyLicense(root, directory);

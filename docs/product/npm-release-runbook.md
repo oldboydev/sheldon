@@ -104,3 +104,9 @@ npm dist-tag add @oldboydev/sheldon-darwin-arm64@<ver> latest
 npm dist-tag add @oldboydev/sheldon-darwin-x64@<ver> latest
 npm dist-tag add @oldboydev/sheldon@<ver> latest
 ```
+
+## CI indisponível
+
+O caminho adicional [CI primeiro, fallback local](release-fallback-runbook.md) preserva
+os workflows acima. No fallback, Windows/Linux recebem a nova versão e macOS permanece
+nas versões anteriores; publicação exige --publish e autorização para a release.

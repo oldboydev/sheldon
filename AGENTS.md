@@ -10,7 +10,9 @@
   conhecimento, permissões/sandbox dos workers, contratos de plugins/OKF, persistência,
   rollback e exposição pelo MCP. Agentes do produto não escrevem conhecimento oficial diretamente.
 - Todos os workflows atuais em .github/workflows/ e scripts de release são preservados.
-  O workflow de governança é adicional; os três checks verify continuam obrigatórios.
+  O workflow de governança é adicional; CI e os três verify são informativos para merge.
+  As provas locais aplicáveis, revisão Codex e merge humano continuam obrigatórios.
+  Releases autorizadas podem usar release:fallback; ver runbook de fallback.
 - Testes novos de node:test têm runner próprio; não os execute pelo Vitest. Os testes de
   produto e aliases existentes continuam nos gates originais.
 
@@ -59,7 +61,8 @@
 --title "tipo: descrição" --body-file caminho.md`, incluindo Closes/Refs e evidências.
   Não contorne o comando de entrega. Alteração posterior exige revisão válida para o novo conteúdo.
 - O motor não impede outros clientes GitHub nem forma transação atômica com o servidor;
-  confira novamente fontes alteradas e mantenha os checks de servidor obrigatórios.
+  confira novamente fontes alteradas e mantenha PR obrigatório e merge humano.
+  A ausência de minutos do Actions não dispensa provas nem permite mascarar teste vermelho.
 - Core vendorizado: preservar os cinco arquivos comuns e conferir hashes em atualizações.
   Ajuste regras/configuração locais; não crie fork silencioso do motor.
 

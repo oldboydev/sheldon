@@ -39,7 +39,8 @@
     "review:check": "node scripts/code-review/cli.mjs check",
     "pr:create": "node scripts/code-review/cli.mjs pr",
     "test:code-review": "node --test scripts/code-review/review.test.mjs",
-    "test:governance": "node --test scripts/governance-ci.test.mjs"
+    "test:governance": "node --test scripts/governance-ci.test.mjs",
+    "release:fallback": "node scripts/release/release-fallback.mjs"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.1",
