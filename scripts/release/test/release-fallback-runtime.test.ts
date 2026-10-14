@@ -571,6 +571,7 @@ describe('54-C1 queue and execution deadlines', () => {
     let now = 0;
     let lastQueueSeen = false;
     let raced = false;
+    const snapshots = new Map<number, number>();
     const cancelIds: number[] = [];
     let waits = 0;
     const deps = {
@@ -612,6 +613,24 @@ describe('54-C1 queue and execution deadlines', () => {
         }
         const id = path.includes('/11') ? 11 : 12;
         if (path.includes('/jobs')) {
+          if (mode === 'remembered-lost-before' || mode === 'remembered-lost-poll') {
+            const count = snapshots.get(id) ?? 0;
+            snapshots.set(id, count + 1);
+            if (mode === 'remembered-lost-before' && now > 130000 && id === 11)
+              lastQueueSeen = true;
+            const missing = id === 11 && (mode === 'remembered-lost-before' ? raced : count > 0);
+            return {
+              jobs: (missing ? ['win'] : ['win', 'mac']).map((target) => ({
+                id: target,
+                name: 'quality-' + target,
+                status: cancelled.has(id) ? 'completed' : 'queued',
+                conclusion: cancelled.has(id) ? 'cancelled' : null,
+                started_at: null,
+                steps: [],
+              })),
+            };
+          }
+
           if (mode === 'before-cancel-empty' && raced) return { jobs: [] };
           if (mode === 'post-cancel-empty-before' && !cancelled.has(id)) return { jobs: [] };
           if (mode === 'post-cancel-empty-cancelled' && cancelled.has(id)) return { jobs: [] };
@@ -735,6 +754,7 @@ describe('54-C1 queue and execution deadlines', () => {
           };
         }
         if (mode.startsWith('before-cancel') && lastQueueSeen && id === 11) raced = true;
+        if (mode === 'remembered-lost-before' && lastQueueSeen && id === 11) raced = true;
         if (
           mode.startsWith('settled-billing-') ||
           (mode.startsWith('before-cancel-billing-') && raced)
@@ -899,5 +919,16 @@ describe('54-C1 queue and execution deadlines', () => {
   it('accepts initially empty queued jobs when final unstarted cancellation is explicit', async () => {
     const f = queuedFixture('post-cancel-empty-before');
     expect((await prepareCi(f.source, { version: '1.2.3' }, f.deps)).state).toBe('unavailable');
+  });
+  it('blocks loss of a job observed during polling before cleanup', async () => {
+    const f = queuedFixture('remembered-lost-before');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow('CI changed');
+    expect(f.cancelIds).toEqual([]);
+  });
+  it('blocks loss of a job between polling snapshots', async () => {
+    const f = queuedFixture('remembered-lost-poll');
+    await expect(prepareCi(f.source, { version: '1.2.3' }, f.deps)).rejects.toThrow(
+      'CI jobs snapshot is incomplete',
+    );
   });
 });
