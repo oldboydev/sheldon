@@ -15,3 +15,5 @@ packages/plugin-host/native/windows-job/build/
 
 # Relatórios de runtime; histórico autoritativo fica no Git comum.
 .checks/code-review/
+
+release/local-fallback/

@@ -267,4 +267,12 @@ O novo workflow de governança roda somente seus testes e sempre publica o check
 Documentação tem caminho leve nesse workflow. A CI original de produto continua
 rodando como antes, nas três plataformas, inclusive quando seus gatilhos existentes
 se aplicam a documentação. Release, publish/npm e OCR permanecem intactos.
-Main exige CI e os três checks verify existentes; este check não substitui a qualidade do produto.
+Main mantém PR obrigatório, revisão local e merge humano. CI e os três verify são
+informativos: falta de minutos do Actions não bloqueia o merge, mas as provas
+aplicáveis continuam obrigatórias.
+
+Para uma release autorizada, `npm run release:fallback -- --version X.Y.Z` prefere
+preparação na CI e recorre a Windows/Linux local se ela estiver indisponível.
+`--publish` aciona a publicação; por padrão apenas prepara. No fallback macOS não
+recebe publicação nova; os pacotes e ZIPs anteriores são preservados.
+[Requisitos, catálogo e recuperação de falhas](docs/product/release-fallback-runbook.md).
