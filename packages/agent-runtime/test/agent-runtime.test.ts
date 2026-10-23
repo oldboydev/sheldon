@@ -412,6 +412,45 @@ describe('query answer persistence and promotion', () => {
     expect(result.answer.text).toContain('wiki/harness-conceitos-determinismo.md');
   });
 
+  it('canonicalizes a query answer that has only a Wiki facts section', () => {
+    const result = validateQueryAnswer(
+      answer({
+        text: '## Wiki facts\n- wiki/concepts/example.md records a fact.',
+      }),
+    );
+    expect(result.answer.text).toMatch(/^## Wiki facts\r?$/m);
+    expect(result.answer.text).toMatch(/^## Inferences\r?$/m);
+    expect(result.answer.text).toMatch(/^## Gaps\r?$/m);
+    expect(result.answer.text.indexOf('## Wiki facts')).toBeLessThan(
+      result.answer.text.indexOf('## Inferences'),
+    );
+    expect(result.answer.text.indexOf('## Inferences')).toBeLessThan(
+      result.answer.text.indexOf('## Gaps'),
+    );
+    expect(result.answer.text).toContain('wiki/concepts/example.md');
+  });
+
+  it('inserts a canonical Inferences section between Wiki facts and Gaps', () => {
+    const result = validateQueryAnswer(
+      answer({
+        text: [
+          '## Wiki facts',
+          '- wiki/concepts/example.md records a fact.',
+          '',
+          '## Gaps',
+          '- Coverage is thin.',
+        ].join('\n'),
+      }),
+    );
+    const inferencesIndex = result.answer.text.search(/^## Inferences\r?$/m);
+    const factsIndex = result.answer.text.search(/^## Wiki facts\r?$/m);
+    const gapsIndex = result.answer.text.search(/^## Gaps\r?$/m);
+    expect(inferencesIndex).toBeGreaterThan(factsIndex);
+    expect(inferencesIndex).toBeLessThan(gapsIndex);
+    expect(result.answer.text.slice(inferencesIndex, gapsIndex)).toContain('- None.');
+    expect(result.answer.text).toContain('- Coverage is thin.');
+  });
+
   it('rewrites close heading variants into the required ATX section names', () => {
     const result = validateQueryAnswer(
       answer({

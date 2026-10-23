@@ -20,6 +20,11 @@
       "profile": "light",
       "maxRounds": 10,
       "approval": "Proprietário autorizou em 2026-10-14: \"faça quantas precisar\", somente para concluir Sheldon #54; referência em .tasks/issue-54-ci-local-fallback.md. Teto técnico suportado pelo motor: 10."
+    },
+    "60": {
+      "profile": "light",
+      "maxRounds": 3,
+      "approval": "Proprietário autorizou em 2026-10-23: \"pode mais uma rodada da 60\", somente para concluir Sheldon #60; referência em .tasks/issue-60-query-answer-task-fields.md. Histórico anterior conta: 2 rodadas já usadas, teto 3."
     }
   }
 }

@@ -43,7 +43,9 @@ sheldon query topic learning answer-retrieval \
 ## Expected outputs / artifacts
 
 - Prints the saved answer JSON (question, citations, gaps, final text).
-- Writes `outputs/answers/<answer-id>/answer.json` under the entity.
+- Writes `outputs/answers/<answer-id>/answer.json` under the entity. `id`, `question`,
+  `agent`, and `truncated` come from the request and the local index, not from the agent echo.
+- Completes missing `## Wiki facts` / `## Inferences` / `## Gaps` sections before saving.
 - Does not change `wiki/`; durable write-back goes through [answer](answer.html) promote → [review](review.html).
 
 ## Common failures

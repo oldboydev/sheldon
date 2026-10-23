@@ -171,16 +171,13 @@ async function answerFromAgent(
         : 'The cited query was cancelled before an answer was produced.',
     );
   }
-  if (execution.answer.id !== answerId) {
-    throw new Error('The query answer id does not match the requested answer id.');
-  }
-  if (execution.answer.question !== options.question || execution.answer.agent !== options.agent) {
-    throw new Error('The query answer does not match the requested question and agent.');
-  }
-  if (execution.answer.truncated !== result.truncated) {
-    throw new Error('The query answer does not match the selected-context truncation state.');
-  }
-  return execution.answer;
+  return {
+    ...execution.answer,
+    id: answerId,
+    question: options.question,
+    agent: options.agent,
+    truncated: result.truncated,
+  };
 }
 
 function uncoveredAnswer(
