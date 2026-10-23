@@ -8,6 +8,18 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- `sheldon web` trata o JSON de problema da API como `Error`: o banner mostra a
+  `message` real e os submits de Consulta, Fontes e Bundles exibem `.notice.error`
+  em português, sem limpar o formulário. Falha de transporte (`Failed to fetch`)
+  usa o fallback em português.
+- Consulta acompanha o job por `GET /api/v1/jobs/:id` e só usa o job cujo id
+  coincide com a consulta atual. `interrupted`/`cancelled` aparecem em português;
+  um `answer.json` já gravado continua visível se a linha saiu da primeira página
+  ou o job ficou `interrupted`; falha do GET da resposta não apaga o card. GET
+  atrasado da consulta anterior é ignorado; falha de transporte no GET por id não
+  trata o job como ausente.
+- Fontes aceita arquivo arrastado ou escolhido sem preencher o caminho; URL e
+  repositório continuam a exigir o campo de texto.
 - `sheldon query` grava `id`, `question`, `agent` e `truncated` da tarefa e do índice,
   mesmo quando o JSON do agente ecoa outros valores.
 - `validateQueryAnswer` completa secções `## Wiki facts` / `## Inferences` / `## Gaps`

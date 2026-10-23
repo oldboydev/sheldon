@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react';
 
-import { client, type Dashboard, type Job, type QueryAnswer } from './client.generated.js';
+import {
+  ApiProblem,
+  client,
+  type Dashboard,
+  type Job,
+  type QueryAnswer,
+} from './client.generated.js';
 import { KnowledgeView } from './KnowledgeView.js';
 import { ReviewView } from './ReviewView.js';
 import './styles.css';
@@ -64,7 +70,7 @@ export function App() {
       setPendingCount(reviews.reduce((total, topic) => total + topic.proposals.length, 0));
       setError(undefined);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Não foi possível ler o vault local.');
+      setError(asErrorMessage(reason, 'Não foi possível ler o vault local.'));
     }
   };
 
@@ -217,6 +223,7 @@ function SourceView({
   const [slug, setSlug] = useState(topics[0]?.slug ?? '');
   const [value, setValue] = useState('');
   const [file, setFile] = useState<File>();
+  const [notice, setNotice] = useState<string>();
   const [preview, setPreview] = useState<{
     readonly plugin: string;
     readonly reason: string;
@@ -233,6 +240,7 @@ function SourceView({
     event.preventDefault();
     setBusy(true);
     setPreview(undefined);
+    setNotice(undefined);
     try {
       const uploaded =
         kind === 'file' && file
@@ -274,6 +282,8 @@ function SourceView({
             : { type, kind: 'topic', slug, directory: value },
       );
       await onQueued();
+    } catch (reason) {
+      setNotice(asErrorMessage(reason, 'Não foi possível iniciar a captura.'));
     } finally {
       setBusy(false);
     }
@@ -325,7 +335,7 @@ function SourceView({
             className="input"
             value={value}
             onChange={(event) => setValue(event.target.value)}
-            required
+            required={kind !== 'file' || file === undefined}
             placeholder={kind === 'url' ? 'https://…' : 'C:\\…'}
           />
         </label>
@@ -350,6 +360,7 @@ function SourceView({
           {busy ? 'Verificando…' : 'Verificar e iniciar'}
         </button>
       </form>
+      {notice && <div className="notice error">{notice}</div>}
       {preview && (
         <div className="banner banner--info">
           <b>Plugin previsto</b>
@@ -396,6 +407,12 @@ function readLastQuery(): LastQuery | undefined {
   }
 }
 
+function asErrorMessage(reason: unknown, fallback: string): string {
+  if (!(reason instanceof Error) || reason.message.trim() === '') return fallback;
+  if (reason.name === 'TypeError' || reason.name === 'AbortError') return fallback;
+  return reason.message;
+}
+
 function queryJobErrorNotice(error: string, agent: AgentKind): string {
   const who = agentLabel[agent];
   if (
@@ -438,32 +455,93 @@ function QueryView({
   const [question, setQuestion] = useState(last?.question ?? '');
   const [agent, setAgent] = useState<AgentKind>(last?.agent ?? 'codex');
   const [tracked, setTracked] = useState<LastQuery | undefined>(last);
+  const [trackedJob, setTrackedJob] = useState<Job>();
+  const [jobLookup, setJobLookup] = useState<'idle' | 'loading' | 'missing'>('idle');
   const [answer, setAnswer] = useState<QueryAnswer>();
-  const job = jobs.find((item) => item.id === tracked?.jobId);
+  const [submitError, setSubmitError] = useState<string>();
+  const [answerError, setAnswerError] = useState<string>();
 
   useEffect(() => {
     if (tracked === undefined) return;
-    if (job?.status === 'failed') {
+    let cancelled = false;
+    setJobLookup('loading');
+    void client.job(tracked.jobId).then(
+      (value) => {
+        if (cancelled) return;
+        setTrackedJob(value);
+        setJobLookup('idle');
+      },
+      (reason) => {
+        if (cancelled) return;
+        if (reason instanceof ApiProblem && reason.code === 'WEB_NOT_FOUND') {
+          setTrackedJob(undefined);
+          setJobLookup('missing');
+          return;
+        }
+        setJobLookup('idle');
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [tracked, jobs]);
+
+  const currentJob =
+    tracked !== undefined && trackedJob?.id === tracked.jobId ? trackedJob : undefined;
+
+  useEffect(() => {
+    if (tracked === undefined) return;
+    if (currentJob?.status === 'failed') {
       setAnswer(undefined);
       return;
     }
-    if (job?.status !== 'succeeded') return;
-    void client
-      .queryAnswer(tracked.kind, tracked.slug, tracked.answerId)
-      .then((value) => setAnswer(value))
-      .catch(() => setAnswer(undefined));
-  }, [job, tracked]);
+    const inFlight =
+      currentJob?.status === 'queued' ||
+      currentJob?.status === 'running' ||
+      currentJob?.status === 'cancelling';
+    if (inFlight) return;
+    const loadAnswer =
+      currentJob?.status === 'succeeded' ||
+      currentJob?.status === 'interrupted' ||
+      currentJob?.status === 'cancelled' ||
+      jobLookup === 'missing';
+    if (!loadAnswer) return;
+    let cancelled = false;
+    void client.queryAnswer(tracked.kind, tracked.slug, tracked.answerId).then(
+      (value) => {
+        if (cancelled) return;
+        setAnswer(value);
+        setAnswerError(undefined);
+      },
+      (reason) => {
+        if (cancelled) return;
+        setAnswerError(asErrorMessage(reason, 'Não foi possível ler a resposta citada.'));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [currentJob, jobLookup, tracked]);
 
   const queuedNotice =
-    tracked !== undefined && (job === undefined || job.status === 'queued') && answer === undefined
+    tracked !== undefined && currentJob?.status === 'queued' && answer === undefined
       ? 'Consulta na fila.'
-      : tracked !== undefined && job?.status === 'running'
+      : tracked !== undefined && currentJob?.status === 'running'
         ? 'Consulta em execução.'
         : undefined;
   const errorNotice =
-    job?.status === 'failed' && job.error !== undefined
-      ? queryJobErrorNotice(job.error, tracked?.agent ?? agent)
-      : undefined;
+    submitError ??
+    (currentJob?.status === 'failed' && currentJob.error !== undefined
+      ? queryJobErrorNotice(currentJob.error, tracked?.agent ?? agent)
+      : currentJob?.status === 'interrupted'
+        ? 'A consulta foi interrompida quando o Sheldon web reiniciou. Tente de novo.'
+        : currentJob?.status === 'cancelled' || currentJob?.status === 'cancelling'
+          ? 'A consulta foi cancelada.'
+          : jobLookup === 'missing' && answer === undefined
+            ? 'Não foi possível acompanhar esta consulta.'
+            : currentJob?.status === 'queued' || currentJob?.status === 'running'
+              ? undefined
+              : answerError);
 
   return (
     <div className="page narrow">
@@ -474,27 +552,36 @@ function QueryView({
         onSubmit={(event) => {
           event.preventDefault();
           void (async () => {
-            const answerId = `resposta-${Date.now()}`;
-            const queued = await client.queueJob({
-              type: 'query',
-              kind: 'topic',
-              slug,
-              answerId,
-              agent,
-              question,
-            });
-            const next: LastQuery = {
-              jobId: queued.id,
-              answerId,
-              kind: 'topic',
-              slug,
-              question,
-              agent,
-            };
-            window.sessionStorage.setItem(lastQueryKey, JSON.stringify(next));
-            setTracked(next);
-            setAnswer(undefined);
-            await onQueued();
+            setSubmitError(undefined);
+            setAnswerError(undefined);
+            try {
+              const answerId = `resposta-${Date.now()}`;
+              const queued = await client.queueJob({
+                type: 'query',
+                kind: 'topic',
+                slug,
+                answerId,
+                agent,
+                question,
+              });
+              const next: LastQuery = {
+                jobId: queued.id,
+                answerId,
+                kind: 'topic',
+                slug,
+                question,
+                agent,
+              };
+              window.sessionStorage.setItem(lastQueryKey, JSON.stringify(next));
+              setTracked(next);
+              setTrackedJob(queued);
+              setJobLookup('idle');
+              setAnswer(undefined);
+              setAnswerError(undefined);
+              await onQueued();
+            } catch (reason) {
+              setSubmitError(asErrorMessage(reason, 'Não foi possível iniciar a consulta.'));
+            }
           })();
         }}
       >
@@ -567,42 +654,59 @@ function BundleView() {
   const [concepts, setConcepts] = useState('');
   const [output, setOutput] = useState<string>();
   const [previewed, setPreviewed] = useState(false);
+  const [notice, setNotice] = useState<string>();
   const create = async (event: FormEvent) => {
     event.preventDefault();
-    await request('/bundles', {
-      method: 'POST',
-      body: {
-        bundleId,
-        concept: concepts
-          .split(',')
-          .map((item) => item.trim())
-          .filter(Boolean),
-      },
-    });
-    setPreviewed(false);
-    setOutput(undefined);
+    setNotice(undefined);
+    try {
+      await request('/bundles', {
+        method: 'POST',
+        body: {
+          bundleId,
+          concept: concepts
+            .split(',')
+            .map((item) => item.trim())
+            .filter(Boolean),
+        },
+      });
+      setPreviewed(false);
+      setOutput(undefined);
+    } catch (reason) {
+      setNotice(asErrorMessage(reason, 'Não foi possível criar o bundle.'));
+    }
   };
   const preview = async () => {
-    setOutput(
-      JSON.stringify(
-        await request(`/bundles/${encodeURIComponent(bundleId)}/preview`, { method: 'POST' }),
-        null,
-        2,
-      ),
-    );
-    setPreviewed(true);
+    setNotice(undefined);
+    try {
+      setOutput(
+        JSON.stringify(
+          await request(`/bundles/${encodeURIComponent(bundleId)}/preview`, { method: 'POST' }),
+          null,
+          2,
+        ),
+      );
+      setPreviewed(true);
+    } catch (reason) {
+      setNotice(asErrorMessage(reason, 'Não foi possível gerar a prévia.'));
+    }
   };
-  const build = async () =>
-    setOutput(
-      JSON.stringify(
-        await request(`/bundles/${encodeURIComponent(bundleId)}/build`, {
-          method: 'POST',
-          body: { confirmation: bundleId },
-        }),
-        null,
-        2,
-      ),
-    );
+  const build = async () => {
+    setNotice(undefined);
+    try {
+      setOutput(
+        JSON.stringify(
+          await request(`/bundles/${encodeURIComponent(bundleId)}/build`, {
+            method: 'POST',
+            body: { confirmation: bundleId },
+          }),
+          null,
+          2,
+        ),
+      );
+    } catch (reason) {
+      setNotice(asErrorMessage(reason, 'Não foi possível gerar o bundle.'));
+    }
+  };
   return (
     <div className="page narrow">
       <p className="eyebrow">Bundles OKF</p>
@@ -628,6 +732,7 @@ function BundleView() {
         </label>
         <button className="btn btn--primary primary">Criar definição</button>
       </form>
+      {notice && <div className="notice error">{notice}</div>}
       <p className="review-actions">
         <button
           className="btn btn--secondary quiet"

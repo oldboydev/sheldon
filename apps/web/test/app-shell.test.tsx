@@ -317,6 +317,361 @@ describe('App shell', () => {
     );
   });
 
+  it('refresh shows the API problem message instead of the generic vault fallback', async () => {
+    const stub = stubFetch();
+    stub.dashboardError = {
+      message: 'O vault configurado não existe.',
+      code: 'VAULT_NOT_FOUND',
+    };
+    await renderApp();
+    expect(container!.querySelector('.notice.error')?.textContent).toContain(
+      'O vault configurado não existe.',
+    );
+    expect(container!.textContent).not.toContain('Não foi possível ler o vault local.');
+  });
+
+  it('consulta submit shows an error notice without clearing the question', async () => {
+    const stub = stubFetch();
+    stub.jobsPostError = {
+      message: 'O tópico pedido não existe.',
+      code: 'WEB_JOB_INVALID',
+    };
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+    });
+    await clickNamed('Consultar com citações');
+    expect(question.value).toBe('o que e harness');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain(
+      'O tópico pedido não existe.',
+    );
+  });
+
+  it('fontes submit shows an error notice without clearing the input', async () => {
+    const stub = stubFetch();
+    stub.jobsPostError = { message: 'Nenhum plugin aceitou esta entrada.' };
+    await renderApp();
+    await clickNamed('Fontes');
+    const url = container!.querySelector('input[placeholder*="https"]') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(url, 'https://example.com');
+    });
+    await clickNamed('Verificar e iniciar');
+    expect(url.value).toBe('https://example.com');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain(
+      'Nenhum plugin aceitou esta entrada.',
+    );
+  });
+
+  it('bundles submit shows an error notice without clearing the identifier', async () => {
+    const stub = stubFetch();
+    stub.bundlesError = { message: 'O identificador do bundle é inválido.' };
+    await renderApp();
+    await clickNamed('Bundles');
+    const inputs = container!.querySelectorAll('input.input');
+    await act(async () => {
+      setNativeValue(inputs[0] as HTMLInputElement, 'pack-1');
+      setNativeValue(inputs[1] as HTMLInputElement, 'concept-1');
+    });
+    await clickNamed('Criar definição');
+    expect((inputs[0] as HTMLInputElement).value).toBe('pack-1');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain(
+      'O identificador do bundle é inválido.',
+    );
+  });
+
+  it('consulta shows a Portuguese notice for an interrupted job', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'interrupted',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain('interrompida');
+    expect(container!.textContent).not.toContain('Consulta na fila.');
+  });
+
+  it('consulta shows a Portuguese notice for a cancelled job', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'cancelled',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain('cancelada');
+    expect(container!.textContent).not.toContain('Consulta na fila.');
+  });
+
+  it('consulta shows a stored answer when the tracked job is missing from the jobs page', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.textContent).toContain('## Wiki facts');
+    expect(container!.textContent).toContain('wiki/recall.md');
+    expect(container!.textContent).not.toContain('Consulta na fila.');
+  });
+
+  it('consulta keeps a visible answer when the answer GET fails', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'succeeded',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.textContent).toContain('## Wiki facts');
+    stub.answerFail = true;
+    await clickNamed('Atualizar');
+    expect(container!.textContent).toContain('## Wiki facts');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain(
+      'Resposta não encontrada',
+    );
+    expect(container!.textContent).not.toContain('Consulta na fila.');
+  });
+
+  it('consulta shows a stored answer when the interrupted job already wrote answer.json', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'interrupted',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    stub.answerId = 'answer-001';
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.textContent).toContain('## Wiki facts');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain('interrompida');
+    expect(container!.textContent).not.toContain('Consulta na fila.');
+  });
+
+  it('consulta submit of a second query does not show a missing-answer error while queued', async () => {
+    const stub = stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'What is recall?');
+    });
+    await clickNamed('Consultar com citações');
+    const posted = fetches.find((item) => item.method === 'POST' && item.url.endsWith('/jobs'));
+    const firstAnswerId = (posted?.body as { answerId?: string } | undefined)?.answerId;
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'succeeded',
+      createdAt: new Date().toISOString(),
+    });
+    stub.answerId = firstAnswerId!;
+    await clickNamed('Atualizar');
+    expect(container!.textContent).toContain('## Wiki facts');
+    stub.nextQueryJobId = 'job-query-b';
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+    });
+    await clickNamed('Consultar com citações');
+    expect(container!.textContent).toContain('Consulta na fila.');
+    expect(container!.textContent).not.toContain('## Wiki facts');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+    expect(container!.textContent).not.toContain('Resposta não encontrada');
+  });
+
+  it('consulta submit shows a Portuguese notice when fetch fails', async () => {
+    const stub = stubFetch();
+    stub.fetchReject = new TypeError('Failed to fetch');
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+    });
+    await clickNamed('Consultar com citações');
+    expect(question.value).toBe('o que e harness');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain(
+      'Não foi possível iniciar a consulta.',
+    );
+    expect(container!.textContent).not.toContain('Failed to fetch');
+  });
+
+  it('consulta ignores a late answer from the previous job after a new submit', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'interrupted',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    stub.answerId = 'answer-001';
+    stub.heldAnswerId = 'answer-001';
+    await renderApp();
+    await clickNamed('Consulta');
+    await act(async () => {
+      for (let i = 0; i < 20 && stub.releaseHeldAnswer === undefined; i += 1) {
+        await Promise.resolve();
+      }
+    });
+    expect(stub.releaseHeldAnswer).toBeTypeOf('function');
+    stub.nextQueryJobId = 'job-query-b';
+    await clickNamed('Consultar com citações');
+    expect(container!.textContent).toContain('Consulta na fila.');
+    expect(container!.textContent).not.toContain('## Wiki facts');
+    await act(async () => {
+      stub.releaseHeldAnswer?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container!.textContent).toContain('Consulta na fila.');
+    expect(container!.textContent).not.toContain('## Wiki facts');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+  });
+
+  it('consulta keeps a running job when GET by id fails with a transport error', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'resposta-pending',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'o que e harness',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'running',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    stub.jobGetReject = new TypeError('Failed to fetch');
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.textContent).not.toContain('Resposta não encontrada');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+    await clickNamed('Atualizar');
+    expect(container!.textContent).toContain('Consulta em execução.');
+    expect(container!.textContent).not.toContain('Resposta não encontrada');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+  });
+
+  it('fontes file drop submits without a path', async () => {
+    stubFetch();
+    await renderApp();
+    await clickNamed('Fontes');
+    await chooseSourceKind('Arquivo local');
+    await attachLocalFile('notes.pdf');
+    const path = container!.querySelector('input.input') as HTMLInputElement;
+    expect(path.value).toBe('');
+    expect(path.required).toBe(false);
+    await clickNamed('Verificar e iniciar');
+    expect(
+      fetches.some((item) => item.method === 'POST' && item.url.endsWith('/sources/upload')),
+    ).toBe(true);
+    expect(fetches.some((item) => item.method === 'POST' && item.url.endsWith('/jobs'))).toBe(true);
+  });
+
+  it('fontes file path submits without a dropped file', async () => {
+    stubFetch();
+    await renderApp();
+    await clickNamed('Fontes');
+    await chooseSourceKind('Arquivo local');
+    const path = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(path, 'C:\\vaults\\notes.pdf');
+    });
+    await clickNamed('Verificar e iniciar');
+    expect(fetches.some((item) => item.method === 'POST' && item.url.endsWith('/jobs'))).toBe(true);
+  });
+
+  it('fontes url and repository inputs stay required', async () => {
+    stubFetch();
+    await renderApp();
+    await clickNamed('Fontes');
+    const path = container!.querySelector('input.input') as HTMLInputElement;
+    expect(path.required).toBe(true);
+    await chooseSourceKind('Repositório local');
+    expect(path.required).toBe(true);
+    await chooseSourceKind('Página ou vídeo');
+    expect(path.required).toBe(true);
+  });
+
   it('chrome has no milestone leak and theme toggle sets data-theme dark', async () => {
     stubFetch();
     await renderApp();
@@ -340,6 +695,15 @@ function stubFetch(): {
     error?: string;
   }[];
   answerId: string;
+  dashboardError?: { message: string; code: string };
+  jobsPostError?: { message: string; code?: string };
+  answerFail?: boolean;
+  bundlesError?: { message: string };
+  nextQueryJobId?: string;
+  fetchReject?: Error;
+  heldAnswerId?: string;
+  releaseHeldAnswer?: () => void;
+  jobGetReject?: Error;
 } {
   let reviewsDecided = false;
   const stub = {
@@ -351,6 +715,15 @@ function stubFetch(): {
       error?: string;
     }[],
     answerId: 'answer-001',
+    dashboardError: undefined as { message: string; code: string } | undefined,
+    jobsPostError: undefined as { message: string; code?: string } | undefined,
+    answerFail: false,
+    bundlesError: undefined as { message: string } | undefined,
+    nextQueryJobId: undefined as string | undefined,
+    fetchReject: undefined as Error | undefined,
+    heldAnswerId: undefined as string | undefined,
+    releaseHeldAnswer: undefined as (() => void) | undefined,
+    jobGetReject: undefined as Error | undefined,
   };
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -368,28 +741,58 @@ function stubFetch(): {
         status,
         headers: { 'content-type': 'application/json' },
       });
-    if (url.endsWith('/api/v1/dashboard')) return json(200, dashboard);
+    if (url.endsWith('/api/v1/dashboard')) {
+      if (stub.dashboardError !== undefined) return json(400, stub.dashboardError);
+      return json(200, dashboard);
+    }
     if (url.endsWith('/api/v1/jobs') && method === 'POST') {
+      if (stub.fetchReject !== undefined) throw stub.fetchReject;
+      if (stub.jobsPostError !== undefined) return json(400, stub.jobsPostError);
       const body =
         init?.body === undefined ? undefined : (JSON.parse(String(init.body)) as { type?: string });
       if (body?.type === 'query') {
         const job = {
-          id: 'job-query',
+          id: stub.nextQueryJobId ?? 'job-query',
           type: 'query',
           status: 'queued',
           createdAt: new Date().toISOString(),
         };
+        stub.nextQueryJobId = undefined;
         stub.jobs.splice(0, stub.jobs.length, job);
         return json(202, job);
       }
-      return json(202, {
+      const ingest = {
         id: 'job-1',
         type: 'ingest-url',
         status: 'queued',
         createdAt: new Date().toISOString(),
-      });
+      };
+      stub.jobs.push(ingest);
+      return json(202, ingest);
+    }
+    const jobMatch = url.match(/\/api\/v1\/jobs\/([^/?]+)$/);
+    if (jobMatch !== null && method === 'GET') {
+      if (stub.jobGetReject !== undefined) {
+        const error = stub.jobGetReject;
+        stub.jobGetReject = undefined;
+        throw error;
+      }
+      const found = stub.jobs.find((item) => item.id === decodeURIComponent(jobMatch[1]!));
+      if (found === undefined) {
+        return json(404, { message: 'Trabalho não encontrado.', code: 'WEB_NOT_FOUND' });
+      }
+      return json(200, found);
     }
     if (url.includes('/answers/')) {
+      const requested = decodeURIComponent(url.split('/answers/')[1]?.split(/[/?]/)[0] ?? '');
+      if (stub.heldAnswerId !== undefined && requested === stub.heldAnswerId) {
+        await new Promise<void>((resolve) => {
+          stub.releaseHeldAnswer = resolve;
+        });
+      }
+      if (stub.answerFail || requested !== stub.answerId) {
+        return json(404, { message: 'Resposta não encontrada.', code: 'WEB_NOT_FOUND' });
+      }
       return json(200, {
         schemaVersion: 1,
         id: stub.answerId,
@@ -449,6 +852,9 @@ function stubFetch(): {
       });
     }
     if (url.endsWith('/api/v1/plugins')) return json(200, []);
+    if (url.endsWith('/api/v1/sources/upload')) {
+      return json(200, { path: 'C:\\tmp\\notes.pdf', originalName: 'notes.pdf', bytes: 1 });
+    }
     if (url.endsWith('/api/v1/sources/probe')) {
       return json(200, {
         plugin: 'source.url',
@@ -458,6 +864,7 @@ function stubFetch(): {
       });
     }
     if (url.endsWith('/api/v1/bundles') && method === 'POST') {
+      if (stub.bundlesError !== undefined) return json(400, stub.bundlesError);
       return json(200, { bundleId: 'pack-1', concept: ['concept-1'] });
     }
     if (url.includes('/preview')) {
@@ -491,6 +898,35 @@ function setNativeValue(element: HTMLInputElement, value: string): void {
   setter?.call(element, value);
   element.dispatchEvent(new Event('input', { bubbles: true }));
   element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+async function chooseSourceKind(label: string): Promise<void> {
+  const choice = [...container!.querySelectorAll('label.choice')].find((item) =>
+    item.textContent?.includes(label),
+  ) as HTMLElement | undefined;
+  expect(choice, `source kind "${label}"`).toBeDefined();
+  const radio = choice!.querySelector('input[type="radio"]') as HTMLInputElement;
+  await act(async () => {
+    radio.click();
+    radio.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+  });
+}
+
+async function attachLocalFile(name: string): Promise<void> {
+  const picker = container!.querySelector('input[type="file"]') as HTMLInputElement;
+  expect(picker).toBeDefined();
+  const file = new File(['pdf'], name, { type: 'application/pdf' });
+  const list = {
+    0: file,
+    length: 1,
+    item: (index: number) => (index === 0 ? file : null),
+  };
+  await act(async () => {
+    Object.defineProperty(picker, 'files', { configurable: true, value: list });
+    picker.dispatchEvent(new Event('change', { bubbles: true }));
+    await Promise.resolve();
+  });
 }
 
 async function clickNamed(text: string): Promise<void> {
