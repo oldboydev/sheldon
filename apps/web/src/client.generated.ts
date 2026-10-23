@@ -38,9 +38,40 @@ export interface Dashboard {
   readonly activity: readonly Job[];
 }
 
+/** Transport problem from the local API. Callers can use `instanceof Error`. */
+export class ApiProblem extends Error {
+  public readonly code?: string;
+  public readonly recovery?: string;
+
+  public constructor(
+    message: string,
+    options: { readonly code?: string; readonly recovery?: string } = {},
+  ) {
+    super(message);
+    this.name = 'ApiProblem';
+    this.code = options.code;
+    this.recovery = options.recovery;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api/v1${path}`, init);
-  if (!response.ok) throw (await response.json()) as Error;
+  if (!response.ok) {
+    let body: { message?: unknown; code?: unknown; recovery?: unknown } = {};
+    try {
+      body = (await response.json()) as typeof body;
+    } catch {
+      body = {};
+    }
+    const message =
+      typeof body.message === 'string' && body.message.trim() !== ''
+        ? body.message
+        : 'A operação local falhou.';
+    throw new ApiProblem(message, {
+      code: typeof body.code === 'string' ? body.code : undefined,
+      recovery: typeof body.recovery === 'string' ? body.recovery : undefined,
+    });
+  }
   return (await response.json()) as T;
 }
 
@@ -49,6 +80,7 @@ export const client = {
   entities: (kind: 'topic' | 'project') => request<unknown[]>(`/entities/${kind}`),
   plugins: () => request<unknown[]>('/plugins'),
   jobs: () => request<JobPage>('/jobs'),
+  job: (id: string) => request<Job>(`/jobs/${encodeURIComponent(id)}`),
   queueJob: (body: unknown) =>
     request<Job>('/jobs', {
       method: 'POST',

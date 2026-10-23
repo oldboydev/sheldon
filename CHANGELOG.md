@@ -8,6 +8,14 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- `sheldon web` trata o JSON de problema da API como `Error`: o banner mostra a
+  `message` real e os submits de Consulta, Fontes e Bundles exibem `.notice.error`
+  sem limpar o formulário.
+- Consulta acompanha o job por `GET /api/v1/jobs/:id`. `interrupted`/`cancelled`
+  aparecem em português; um `answer.json` já gravado continua visível se a linha
+  saiu da primeira página; falha do GET da resposta não apaga o card.
+- Fontes aceita arquivo arrastado ou escolhido sem preencher o caminho; URL e
+  repositório continuam a exigir o campo de texto.
 - `sheldon query` grava `id`, `question`, `agent` e `truncated` da tarefa e do índice,
   mesmo quando o JSON do agente ecoa outros valores.
 - `validateQueryAnswer` completa secções `## Wiki facts` / `## Inferences` / `## Gaps`
