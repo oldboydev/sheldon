@@ -558,6 +558,79 @@ describe('App shell', () => {
     expect(container!.textContent).not.toContain('Failed to fetch');
   });
 
+  it('consulta ignores a late answer from the previous job after a new submit', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'interrupted',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    stub.answerId = 'answer-001';
+    stub.heldAnswerId = 'answer-001';
+    await renderApp();
+    await clickNamed('Consulta');
+    await act(async () => {
+      for (let i = 0; i < 20 && stub.releaseHeldAnswer === undefined; i += 1) {
+        await Promise.resolve();
+      }
+    });
+    expect(stub.releaseHeldAnswer).toBeTypeOf('function');
+    stub.nextQueryJobId = 'job-query-b';
+    await clickNamed('Consultar com citações');
+    expect(container!.textContent).toContain('Consulta na fila.');
+    expect(container!.textContent).not.toContain('## Wiki facts');
+    await act(async () => {
+      stub.releaseHeldAnswer?.();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(container!.textContent).toContain('Consulta na fila.');
+    expect(container!.textContent).not.toContain('## Wiki facts');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+  });
+
+  it('consulta keeps a running job when GET by id fails with a transport error', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'resposta-pending',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'o que e harness',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'running',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    stub.jobGetReject = new TypeError('Failed to fetch');
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.textContent).not.toContain('Resposta não encontrada');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+    await clickNamed('Atualizar');
+    expect(container!.textContent).toContain('Consulta em execução.');
+    expect(container!.textContent).not.toContain('Resposta não encontrada');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+  });
+
   it('fontes file drop submits without a path', async () => {
     stubFetch();
     await renderApp();
@@ -628,6 +701,9 @@ function stubFetch(): {
   bundlesError?: { message: string };
   nextQueryJobId?: string;
   fetchReject?: Error;
+  heldAnswerId?: string;
+  releaseHeldAnswer?: () => void;
+  jobGetReject?: Error;
 } {
   let reviewsDecided = false;
   const stub = {
@@ -645,6 +721,9 @@ function stubFetch(): {
     bundlesError: undefined as { message: string } | undefined,
     nextQueryJobId: undefined as string | undefined,
     fetchReject: undefined as Error | undefined,
+    heldAnswerId: undefined as string | undefined,
+    releaseHeldAnswer: undefined as (() => void) | undefined,
+    jobGetReject: undefined as Error | undefined,
   };
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -693,6 +772,11 @@ function stubFetch(): {
     }
     const jobMatch = url.match(/\/api\/v1\/jobs\/([^/?]+)$/);
     if (jobMatch !== null && method === 'GET') {
+      if (stub.jobGetReject !== undefined) {
+        const error = stub.jobGetReject;
+        stub.jobGetReject = undefined;
+        throw error;
+      }
       const found = stub.jobs.find((item) => item.id === decodeURIComponent(jobMatch[1]!));
       if (found === undefined) {
         return json(404, { message: 'Trabalho não encontrado.', code: 'WEB_NOT_FOUND' });
@@ -701,6 +785,11 @@ function stubFetch(): {
     }
     if (url.includes('/answers/')) {
       const requested = decodeURIComponent(url.split('/answers/')[1]?.split(/[/?]/)[0] ?? '');
+      if (stub.heldAnswerId !== undefined && requested === stub.heldAnswerId) {
+        await new Promise<void>((resolve) => {
+          stub.releaseHeldAnswer = resolve;
+        });
+      }
       if (stub.answerFail || requested !== stub.answerId) {
         return json(404, { message: 'Resposta não encontrada.', code: 'WEB_NOT_FOUND' });
       }

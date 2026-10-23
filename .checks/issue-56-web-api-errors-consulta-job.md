@@ -27,6 +27,8 @@ lê `GET /jobs/:id`. Fontes tira `required` do caminho quando há `File`. Submit
 | Transporte `TypeError`/`AbortError`           | `asErrorMessage` usa o fallback em português                       | Repassar `Failed to fetch` nativo no notice               |
 | Job acompanhado só vale se o id coincidir     | `trackedJob.id === tracked.jobId` antes de status                  | Reusar o job anterior enquanto o GET do novo id não volta |
 | `answer.json` já gravado                      | Buscar resposta em `succeeded`/`interrupted`/`cancelled`/`missing` | Só buscar em `succeeded` ou job 404                       |
+| GET da resposta com `tracked` novo            | cleanup `cancelled` ignora o retorno atrasado                      | Aplicar `setAnswer` da consulta anterior                  |
+| GET `/jobs/:id` rejeitado                     | `missing` só com `ApiProblem` `WEB_NOT_FOUND`                      | Qualquer rejeição (transporte) vira job ausente           |
 
 - Nothing else in this change is hard to reverse
 

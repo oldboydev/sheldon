@@ -15,7 +15,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 - Consulta acompanha o job por `GET /api/v1/jobs/:id` e só usa o job cujo id
   coincide com a consulta atual. `interrupted`/`cancelled` aparecem em português;
   um `answer.json` já gravado continua visível se a linha saiu da primeira página
-  ou o job ficou `interrupted`; falha do GET da resposta não apaga o card.
+  ou o job ficou `interrupted`; falha do GET da resposta não apaga o card. GET
+  atrasado da consulta anterior é ignorado; falha de transporte no GET por id não
+  trata o job como ausente.
 - Fontes aceita arquivo arrastado ou escolhido sem preencher o caminho; URL e
   repositório continuam a exigir o campo de texto.
 - `sheldon query` grava `id`, `question`, `agent` e `truncated` da tarefa e do índice,

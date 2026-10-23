@@ -102,7 +102,8 @@ diff) e tira da lista as propostas já aprovadas ou rejeitadas. Uma proposta pen
 (conceito wiki sem frontmatter) mostra `PROPOSAL_INVALID` em vez de um erro genérico; rejeitar
 ainda a tira da lista. Consulta pergunta à wiki aprovada, acompanha o job por id (fila, execução, erro,
 interrupção) e mostra a resposta citada já gravada mesmo se a linha saiu da primeira
-página ou o job foi interrompido.
+página ou o job foi interrompido. Uma consulta nova descarta GET atrasado da anterior;
+falha de transporte no acompanhamento não finge que o job sumiu.
 JSON quase válido do agente (headings ATX próximos, conjunto parcial de secções, path
 `wiki/` repetido, ou `id`/`truncated` diferentes da tarefa) é canonicalizado antes de
 gravar; falha de evidência, de `concepts` ausente ou de validação aparece em português e

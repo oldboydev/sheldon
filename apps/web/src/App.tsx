@@ -1,6 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react';
 
-import { client, type Dashboard, type Job, type QueryAnswer } from './client.generated.js';
+import {
+  ApiProblem,
+  client,
+  type Dashboard,
+  type Job,
+  type QueryAnswer,
+} from './client.generated.js';
 import { KnowledgeView } from './KnowledgeView.js';
 import { ReviewView } from './ReviewView.js';
 import './styles.css';
@@ -465,10 +471,14 @@ function QueryView({
         setTrackedJob(value);
         setJobLookup('idle');
       },
-      () => {
+      (reason) => {
         if (cancelled) return;
-        setTrackedJob(undefined);
-        setJobLookup('missing');
+        if (reason instanceof ApiProblem && reason.code === 'WEB_NOT_FOUND') {
+          setTrackedJob(undefined);
+          setJobLookup('missing');
+          return;
+        }
+        setJobLookup('idle');
       },
     );
     return () => {
@@ -496,15 +506,21 @@ function QueryView({
       currentJob?.status === 'cancelled' ||
       jobLookup === 'missing';
     if (!loadAnswer) return;
+    let cancelled = false;
     void client.queryAnswer(tracked.kind, tracked.slug, tracked.answerId).then(
       (value) => {
+        if (cancelled) return;
         setAnswer(value);
         setAnswerError(undefined);
       },
       (reason) => {
+        if (cancelled) return;
         setAnswerError(asErrorMessage(reason, 'Não foi possível ler a resposta citada.'));
       },
     );
+    return () => {
+      cancelled = true;
+    };
   }, [currentJob, jobLookup, tracked]);
 
   const queuedNotice =
@@ -523,7 +539,9 @@ function QueryView({
           ? 'A consulta foi cancelada.'
           : jobLookup === 'missing' && answer === undefined
             ? 'Não foi possível acompanhar esta consulta.'
-            : answerError);
+            : currentJob?.status === 'queued' || currentJob?.status === 'running'
+              ? undefined
+              : answerError);
 
   return (
     <div className="page narrow">
