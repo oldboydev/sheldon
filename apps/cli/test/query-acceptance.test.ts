@@ -336,34 +336,40 @@ describe('cited query and answer promotion CLI', () => {
       sources: ['raw/study/retrieval.md'],
       body: 'Practice recall.',
     });
+    let indexTruncated: boolean | undefined;
+    let echoedTruncated: boolean | undefined;
     const dependencies = cliDependencies(root, {
-      executeQuery: async (command) => ({
-        status: 'answer',
-        agentVersion: 'test',
-        answer: {
-          schemaVersion: 1,
-          id: 'answer-1',
-          question: 'a rewritten question',
-          agent: 'codex',
-          truncated: !command.input.truncated,
-          concepts: command.input.concepts.map((concept) => ({
-            path: concept.path,
-            citation: concept.title,
-          })),
-          raws: command.input.rawSources.map((path) => ({ path, citation: 'verified raw' })),
-          createdAt: '2026-07-28T12:00:00.000Z',
-          text: [
-            '## Wiki facts',
-            '- Retrieval practice is documented in wiki/recall.md.',
-            '',
-            '## Inferences',
-            '- None.',
-            '',
-            '## Gaps',
-            '- None.',
-          ].join('\n'),
-        },
-      }),
+      executeQuery: async (command) => {
+        indexTruncated = command.input.truncated;
+        echoedTruncated = !command.input.truncated;
+        return {
+          status: 'answer',
+          agentVersion: 'test',
+          answer: {
+            schemaVersion: 1,
+            id: 'answer-1',
+            question: 'a rewritten question',
+            agent: 'codex',
+            truncated: echoedTruncated,
+            concepts: command.input.concepts.map((concept) => ({
+              path: concept.path,
+              citation: concept.title,
+            })),
+            raws: command.input.rawSources.map((path) => ({ path, citation: 'verified raw' })),
+            createdAt: '2026-07-28T12:00:00.000Z',
+            text: [
+              '## Wiki facts',
+              '- Retrieval practice is documented in wiki/recall.md.',
+              '',
+              '## Inferences',
+              '- None.',
+              '',
+              '## Gaps',
+              '- None.',
+            ].join('\n'),
+          },
+        };
+      },
     });
 
     const queried = await runCli(
@@ -399,7 +405,11 @@ describe('cited query and answer promotion CLI', () => {
       question: 'retrieval practice',
       agent: 'grok',
     });
-    expect(saved.truncated).toBe(JSON.parse(queried.stdout).truncated);
+    expect(indexTruncated).toBeDefined();
+    expect(echoedTruncated).toBeDefined();
+    expect(echoedTruncated).not.toBe(indexTruncated);
+    expect(saved.truncated).toBe(indexTruncated);
+    expect(saved.truncated).not.toBe(echoedTruncated);
     expect(saved.id).not.toBe('answer-1');
     expect(saved.question).not.toBe('a rewritten question');
     expect(saved.agent).not.toBe('codex');
