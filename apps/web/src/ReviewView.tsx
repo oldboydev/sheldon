@@ -116,8 +116,10 @@ export function ReviewView({
   };
 
   const afterDecide = async (notice: string) => {
+    const decidedId = proposalId;
     const next = await refreshTopics();
-    if (!next.some((topic) => topic.proposals.some((item) => item.id === proposalId))) {
+    if (!next.some((topic) => topic.proposals.some((item) => item.id === decidedId))) {
+      setPreview(undefined);
       const first = next[0];
       setSlug(first?.slug ?? '');
       setProposalId(first?.proposals[0]?.id ?? '');

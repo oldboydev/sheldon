@@ -8,6 +8,10 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- Revisão em `sheldon web` limpa o preview e os botões Aprovar/Rejeitar quando a
+  proposta decidida sai de `GET /api/v1/reviews`. Com zero pendentes mostra o
+  empty state, sem o diff anterior; com outras pendentes não faz POST do id já
+  decidido a partir do preview velho.
 - `sheldon web` trata o JSON de problema da API como `Error`: o banner mostra a
   `message` real e os submits de Consulta, Fontes e Bundles exibem `.notice.error`
   em português, sem limpar o formulário. Falha de transporte (`Failed to fetch`)
