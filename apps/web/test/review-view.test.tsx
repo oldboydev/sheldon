@@ -437,6 +437,75 @@ describe('ReviewView', () => {
     expect(container!.textContent).toContain('Abrir revisão');
   });
 
+  it('ignores a late preview response after the last proposal is decided', async () => {
+    let releaseApprove: () => void = () => {};
+    const approveHold = new Promise<void>((resolve) => {
+      releaseApprove = resolve;
+    });
+    let releaseLatePreview: (body: unknown) => void = () => {};
+    const latePreview = new Promise<unknown>((resolve) => {
+      releaseLatePreview = resolve;
+    });
+    let previewGets = 0;
+    let decided = false;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      fetches.push({
+        url,
+        method,
+        ...(init?.body === undefined ? {} : { body: JSON.parse(String(init.body)) as unknown }),
+      });
+      const json = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      if (url.includes('/approve')) {
+        decided = true;
+        await approveHold;
+        return json(200, { approved: true });
+      }
+      if (url.endsWith('/api/v1/reviews') || url.endsWith('/api/v1/reviews/')) {
+        return json(200, decided ? { topics: [] } : pendingList);
+      }
+      if (url.includes('/api/v1/reviews/topic/')) {
+        previewGets += 1;
+        if (previewGets === 1) return json(200, nestedPreview);
+        const body = await latePreview;
+        return json(200, body);
+      }
+      return json(404, { message: 'missing' });
+    });
+
+    await renderView();
+    await clickNamed('Abrir revisão');
+    expect(container!.querySelector('.wiki-body')?.textContent).toContain(
+      'Proposed body from content.',
+    );
+
+    await clickNamed('Aprovar');
+    await clickNamed('Abrir revisão');
+    await act(async () => {
+      releaseApprove();
+      for (let step = 0; step < 8; step += 1) await Promise.resolve();
+    });
+    expect(namedButtons('Aprovar')).toHaveLength(0);
+    expect(container!.querySelector('.wiki-body')).toBeNull();
+    expect(container!.textContent).toMatch(/nenhuma proposta pendente neste vault/i);
+
+    await act(async () => {
+      releaseLatePreview(nestedPreview);
+      for (let step = 0; step < 8; step += 1) await Promise.resolve();
+    });
+    expect(namedButtons('Aprovar')).toHaveLength(0);
+    expect(namedButtons('Rejeitar')).toHaveLength(0);
+    expect(container!.querySelector('.wiki-body')).toBeNull();
+    expect(container!.textContent).not.toContain('Proposed body from content.');
+    expect(container!.querySelector('.review-diff')).toBeNull();
+    expect(container!.textContent).toMatch(/nenhuma proposta pendente neste vault/i);
+  });
+
   it('rejects with confirmation equal to the proposal id and a reason', async () => {
     stubFetch({ list: pendingList, preview: nestedPreview });
     await renderView();

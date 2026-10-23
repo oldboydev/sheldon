@@ -23,9 +23,10 @@ Sources:
 quando o id saiu. Esta raia acrescenta `setPreview(undefined)` nesse mesmo ramo,
 para o empty state e as acções deixarem de renderizar o documento decidido.
 
-| One-way door | Literal shape                 | Alternative rejected      |
-| ------------ | ----------------------------- | ------------------------- |
-| None         | estado React em `afterDecide` | n/a — nada aqui é one-way |
+| One-way door                       | Literal shape                                                                                      | Alternative rejected                                                                                        |
+| ---------------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| None                               | estado React em `afterDecide`                                                                      | n/a — nada aqui é one-way                                                                                   |
+| GET de preview em voo após decidir | `previewEpoch` sobe quando o id sai da lista; `load` só faz `setPreview` se o epoch ainda coincide | aplicar o GET atrasado sem epoch — restaura wiki e botões depois de `setPreview(undefined)` (Codex round 1) |
 
 - Nothing else in this change is hard to reverse
 
@@ -38,6 +39,7 @@ está em `GET /api/v1/reviews`, então `preview` fica vazio e os botões Aprovar
 Rejeitar não aparecem.
 Proof: `npx vitest run apps/web/test/review-view.test.tsx -t "hides approve and previous wiki body after the last proposal is approved"`
 Proof: `npx vitest run apps/web/test/review-view.test.tsx -t "hides approve and previous wiki body after the last proposal is rejected"`
+Proof: `npx vitest run apps/web/test/review-view.test.tsx -t "ignores a late preview response after the last proposal is decided"`
 
 **C2** - Dado que a última pendente foi decidida e `GET /api/v1/reviews` devolve
 `topics: []`, então a página mostra «Nenhuma proposta pendente neste vault.» e

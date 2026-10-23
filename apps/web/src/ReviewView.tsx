@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 
 import type { Job } from './client.generated.js';
 import { WikiBody } from './WikiBody.js';
@@ -56,6 +56,7 @@ export function ReviewView({
   const [preview, setPreview] = useState<PreviewState>();
   const [reason, setReason] = useState('');
   const [message, setMessage] = useState<string>();
+  const previewEpoch = useRef(0);
 
   const refreshTopics = async (): Promise<readonly PendingTopic[]> => {
     const response = await fetch('/api/v1/reviews');
@@ -92,6 +93,7 @@ export function ReviewView({
 
   const load = async (event?: FormEvent) => {
     event?.preventDefault();
+    const epoch = ++previewEpoch.current;
     setMessage(undefined);
     setPreview(undefined);
     try {
@@ -105,12 +107,14 @@ export function ReviewView({
         contradictions?: unknown;
         message?: string;
       };
+      if (epoch !== previewEpoch.current) return;
       if (!response.ok) {
         setMessage(value.message ?? 'Não foi possível abrir a revisão.');
         return;
       }
       setPreview(unwrapPreview(value));
     } catch (error) {
+      if (epoch !== previewEpoch.current) return;
       setMessage(error instanceof Error ? error.message : 'Não foi possível abrir a revisão.');
     }
   };
@@ -119,6 +123,7 @@ export function ReviewView({
     const decidedId = proposalId;
     const next = await refreshTopics();
     if (!next.some((topic) => topic.proposals.some((item) => item.id === decidedId))) {
+      previewEpoch.current += 1;
       setPreview(undefined);
       const first = next[0];
       setSlug(first?.slug ?? '');
