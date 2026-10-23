@@ -6,6 +6,15 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+### Fixed
+
+- `sheldon query` grava `id`, `question`, `agent` e `truncated` da tarefa e do índice,
+  mesmo quando o JSON do agente ecoa outros valores.
+- `validateQueryAnswer` completa secções `## Wiki facts` / `## Inferences` / `## Gaps`
+  em falta quando o texto já tem só parte delas.
+- Consulta traduz falha de evidência (citação fora do contexto ou omissão) para
+  português.
+
 ### Added
 
 - Comando release:fallback: preparação na CI primeiro, fallback Windows/Linux com Docker

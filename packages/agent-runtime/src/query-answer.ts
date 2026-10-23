@@ -167,11 +167,35 @@ function canonicalizeHeadings(text: string): string {
 }
 
 function ensureAnswerSections(text: string): string {
-  const missingAll = ['Wiki facts', 'Inferences', 'Gaps'].every(
-    (section) => text.search(sectionPattern(section)) < 0,
-  );
-  if (!missingAll) return text;
-  return `## Wiki facts\n${text.trim()}\n\n## Inferences\n- None.\n\n## Gaps\n- None.`;
+  const sectionNames = ['Wiki facts', 'Inferences', 'Gaps'] as const;
+  const missing = sectionNames.filter((section) => text.search(sectionPattern(section)) < 0);
+  if (missing.length === 0) return text;
+  if (missing.length === sectionNames.length) {
+    return `## Wiki facts\n${text.trim()}\n\n## Inferences\n- None.\n\n## Gaps\n- None.`;
+  }
+  let result = text;
+  for (const section of missing) {
+    result = insertCanonicalSection(result, section);
+  }
+  return result;
+}
+
+function insertCanonicalSection(
+  text: string,
+  section: 'Wiki facts' | 'Inferences' | 'Gaps',
+): string {
+  const block = `## ${section}\n- None.`;
+  if (section === 'Wiki facts') {
+    return `${block}\n\n${text.trimStart()}`;
+  }
+  if (section === 'Gaps') {
+    return `${text.trimEnd()}\n\n${block}`;
+  }
+  const gapsIndex = text.search(sectionPattern('Gaps'));
+  if (gapsIndex >= 0) {
+    return `${text.slice(0, gapsIndex).trimEnd()}\n\n${block}\n\n${text.slice(gapsIndex)}`;
+  }
+  return `${text.trimEnd()}\n\n${block}`;
 }
 
 function validateAnswerText(text: string, concepts: unknown, issues: string[]): void {

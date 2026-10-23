@@ -327,6 +327,144 @@ describe('cited query and answer promotion CLI', () => {
     expect(result.stdout).not.toContain('No indexed wiki fact covers this question.');
   });
 
+  it('saves a cited answer when the agent echoes a different id and truncation state', async () => {
+    const { root, vaultPath } = await createVault();
+    await writeRaw(vaultPath, 'raw/study/retrieval.md', 'Retrieval evidence.');
+    await writeConcept(vaultPath, 'recall.md', {
+      id: 'recall',
+      title: 'Retrieval practice',
+      sources: ['raw/study/retrieval.md'],
+      body: 'Practice recall.',
+    });
+    const dependencies = cliDependencies(root, {
+      executeQuery: async (command) => ({
+        status: 'answer',
+        agentVersion: 'test',
+        answer: {
+          schemaVersion: 1,
+          id: 'answer-1',
+          question: 'a rewritten question',
+          agent: 'codex',
+          truncated: !command.input.truncated,
+          concepts: command.input.concepts.map((concept) => ({
+            path: concept.path,
+            citation: concept.title,
+          })),
+          raws: command.input.rawSources.map((path) => ({ path, citation: 'verified raw' })),
+          createdAt: '2026-07-28T12:00:00.000Z',
+          text: [
+            '## Wiki facts',
+            '- Retrieval practice is documented in wiki/recall.md.',
+            '',
+            '## Inferences',
+            '- None.',
+            '',
+            '## Gaps',
+            '- None.',
+          ].join('\n'),
+        },
+      }),
+    });
+
+    const queried = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'resposta-task',
+        '--question',
+        'retrieval practice',
+        '--agent',
+        'grok',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(queried).toMatchObject({ exitCode: 0, stderr: '' });
+    const saved = JSON.parse(
+      await readFile(
+        join(vaultPath, 'topics', 'memory', 'outputs', 'answers', 'resposta-task', 'answer.json'),
+        'utf8',
+      ),
+    ) as {
+      id: string;
+      question: string;
+      agent: string;
+      truncated: boolean;
+    };
+    expect(saved).toMatchObject({
+      id: 'resposta-task',
+      question: 'retrieval practice',
+      agent: 'grok',
+    });
+    expect(saved.truncated).toBe(JSON.parse(queried.stdout).truncated);
+    expect(saved.id).not.toBe('answer-1');
+    expect(saved.question).not.toBe('a rewritten question');
+    expect(saved.agent).not.toBe('codex');
+  });
+
+  it('saves a cited answer that only includes a Wiki facts section', async () => {
+    const { root, vaultPath } = await createVault();
+    await writeRaw(vaultPath, 'raw/study/retrieval.md', 'Retrieval evidence.');
+    await writeConcept(vaultPath, 'recall.md', {
+      id: 'recall',
+      title: 'Retrieval practice',
+      sources: ['raw/study/retrieval.md'],
+      body: 'Practice recall.',
+    });
+    const dependencies = cliDependencies(root, {
+      executeQuery: async (command) => ({
+        status: 'answer',
+        agentVersion: 'test',
+        answer: {
+          schemaVersion: 1,
+          id: command.input.answerId,
+          question: command.input.question,
+          agent: 'grok',
+          truncated: command.input.truncated,
+          concepts: command.input.concepts.map((concept) => ({
+            path: concept.path,
+            citation: concept.title,
+          })),
+          raws: command.input.rawSources.map((path) => ({ path, citation: 'verified raw' })),
+          createdAt: '2026-07-28T12:00:00.000Z',
+          text: '## Wiki facts\n- Retrieval practice is documented in wiki/recall.md.',
+        },
+      }),
+    });
+
+    const queried = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-partial',
+        '--question',
+        'retrieval practice',
+        '--agent',
+        'grok',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(queried).toMatchObject({ exitCode: 0, stderr: '' });
+    const saved = JSON.parse(
+      await readFile(
+        join(vaultPath, 'topics', 'memory', 'outputs', 'answers', 'answer-partial', 'answer.json'),
+        'utf8',
+      ),
+    ) as { text: string };
+    expect(saved.text).toMatch(/^## Wiki facts\r?$/m);
+    expect(saved.text).toMatch(/^## Inferences\r?$/m);
+    expect(saved.text).toMatch(/^## Gaps\r?$/m);
+    expect(saved.text.indexOf('## Wiki facts')).toBeLessThan(saved.text.indexOf('## Inferences'));
+    expect(saved.text.indexOf('## Inferences')).toBeLessThan(saved.text.indexOf('## Gaps'));
+  });
+
   it('rejects an agent answer that cites wiki evidence outside the selected context', async () => {
     const { root, vaultPath } = await createVault();
     await writeRaw(vaultPath, 'raw/study/retrieval.md', 'Retrieval evidence.');
@@ -381,6 +519,117 @@ describe('cited query and answer promotion CLI', () => {
           'outputs',
           'answers',
           'answer-outside-context',
+          'answer.json',
+        ),
+        'utf8',
+      ),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('rejects an agent answer that omits citations for the selected wiki context', async () => {
+    const { root, vaultPath } = await createVault();
+    await writeRaw(vaultPath, 'raw/study/retrieval.md', 'Retrieval evidence.');
+    await writeConcept(vaultPath, 'recall.md', {
+      id: 'recall',
+      title: 'Retrieval practice',
+      sources: ['raw/study/retrieval.md'],
+      body: 'Practice recall.',
+    });
+    const dependencies = cliDependencies(root, {
+      executeQuery: async (command) => ({
+        status: 'answer',
+        agentVersion: 'test',
+        answer: {
+          schemaVersion: 1,
+          id: command.input.answerId,
+          question: command.input.question,
+          agent: 'codex',
+          truncated: false,
+          concepts: [],
+          raws: [],
+          createdAt: '2026-07-28T12:00:00.000Z',
+          text: '## Wiki facts\n- wiki/recall.md\n\n## Inferences\n- None.\n\n## Gaps\n- None.',
+        },
+      }),
+    });
+
+    const result = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-omits-citations',
+        '--question',
+        'retrieval',
+        '--agent',
+        'codex',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('omits citations');
+    await expect(
+      readFile(
+        join(
+          vaultPath,
+          'topics',
+          'memory',
+          'outputs',
+          'answers',
+          'answer-omits-citations',
+          'answer.json',
+        ),
+        'utf8',
+      ),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  it('does not save an answer when the agent returns unreadable query output', async () => {
+    const { root, vaultPath } = await createVault();
+    await writeRaw(vaultPath, 'raw/study/retrieval.md', 'Retrieval evidence.');
+    await writeConcept(vaultPath, 'recall.md', {
+      id: 'recall',
+      title: 'Retrieval practice',
+      sources: ['raw/study/retrieval.md'],
+      body: 'Practice recall.',
+    });
+    const dependencies = cliDependencies(root, {
+      executeQuery: async () => ({
+        status: 'error',
+        message: 'The agent command did not produce a valid cited query answer.',
+      }),
+    });
+
+    const result = await runCli(
+      [
+        'query',
+        'topic',
+        'memory',
+        'answer-unreadable',
+        '--question',
+        'retrieval',
+        '--agent',
+        'codex',
+        '--vault',
+        vaultPath,
+      ],
+      dependencies,
+    );
+
+    expect(result.exitCode).toBe(1);
+    expect(result.stderr).toContain('did not produce a valid cited query answer');
+    await expect(
+      readFile(
+        join(
+          vaultPath,
+          'topics',
+          'memory',
+          'outputs',
+          'answers',
+          'answer-unreadable',
           'answer.json',
         ),
         'utf8',

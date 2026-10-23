@@ -234,6 +234,43 @@ describe('App shell', () => {
     expect(notice?.textContent).not.toContain('Proposal is invalid');
   });
 
+  it('consulta translates evidence-outside-context failure into Portuguese', async () => {
+    const stub = stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    const agent = container!.querySelectorAll('select')[1] as HTMLSelectElement;
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+      agent.value = 'grok';
+      agent.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    await clickNamed('Consultar com citações');
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'failed',
+      createdAt: new Date().toISOString(),
+      error: 'The query answer cites concept evidence outside its context: wiki/unselected.md.',
+    });
+    await clickNamed('Atualizar');
+    const outside = container!.querySelector('.notice.error');
+    expect(outside?.textContent).toContain('Sheldon não gravou a resposta');
+    expect(outside?.textContent).toContain('Tente de novo');
+    expect(outside?.textContent).not.toContain('outside its context');
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'failed',
+      createdAt: new Date().toISOString(),
+      error: 'The query answer omits citations for the selected wiki context.',
+    });
+    await clickNamed('Atualizar');
+    const omitted = container!.querySelector('.notice.error');
+    expect(omitted?.textContent).toContain('Sheldon não gravou a resposta');
+    expect(omitted?.textContent).not.toContain('omits citations');
+  });
+
   it('consulta restores the last cited answer from sessionStorage', async () => {
     window.sessionStorage.setItem(
       'sheldon-web-last-query',

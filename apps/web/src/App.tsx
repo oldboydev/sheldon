@@ -406,6 +406,13 @@ function queryJobErrorNotice(error: string, agent: AgentKind): string {
   ) {
     return `${who} devolveu JSON, mas Sheldon não gravou a resposta: o texto precisa das seções ## Wiki facts, ## Inferences e ## Gaps, cada uma em uma linha, e cada página wiki só pode ser citada uma vez. Tente de novo.`;
   }
+  if (
+    error.includes('outside its context') ||
+    error.includes('omits citations') ||
+    error.includes('must cite a supplied wiki path')
+  ) {
+    return `${who} devolveu JSON, mas Sheldon não gravou a resposta: as citações precisam apontar para páginas wiki deste contexto, cada uma uma vez. Tente de novo.`;
+  }
   if (error.includes('did not produce a valid cited query answer')) {
     return `${who} não devolveu uma resposta citada válida. Tente de novo ou escolha outro agente.`;
   }
