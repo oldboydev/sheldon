@@ -399,6 +399,7 @@ describe('cited query and answer promotion CLI', () => {
       question: string;
       agent: string;
       truncated: boolean;
+      text: string;
     };
     expect(saved).toMatchObject({
       id: 'resposta-task',
@@ -413,6 +414,8 @@ describe('cited query and answer promotion CLI', () => {
     expect(saved.id).not.toBe('answer-1');
     expect(saved.question).not.toBe('a rewritten question');
     expect(saved.agent).not.toBe('codex');
+    expect(saved.text).toMatch(/^## Wiki facts\r?$/m);
+    expect(saved.text).toContain('wiki/recall.md');
   });
 
   it('saves a cited answer that only includes a Wiki facts section', async () => {

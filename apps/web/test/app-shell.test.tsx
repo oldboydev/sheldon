@@ -269,6 +269,19 @@ describe('App shell', () => {
     const omitted = container!.querySelector('.notice.error');
     expect(omitted?.textContent).toContain('Sheldon não gravou a resposta');
     expect(omitted?.textContent).not.toContain('omits citations');
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'failed',
+      createdAt: new Date().toISOString(),
+      error: 'Proposal is invalid: A query answer must include concept citations.',
+    });
+    await clickNamed('Atualizar');
+    const missingConcepts = container!.querySelector('.notice.error');
+    expect(missingConcepts?.textContent).toContain('Sheldon não gravou a resposta');
+    expect(missingConcepts?.textContent).toContain('Tente de novo');
+    expect(missingConcepts?.textContent).not.toContain('Proposal is invalid');
+    expect(missingConcepts?.textContent).not.toContain('must include concept citations');
   });
 
   it('consulta restores the last cited answer from sessionStorage', async () => {

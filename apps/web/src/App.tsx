@@ -409,12 +409,17 @@ function queryJobErrorNotice(error: string, agent: AgentKind): string {
   if (
     error.includes('outside its context') ||
     error.includes('omits citations') ||
-    error.includes('must cite a supplied wiki path')
+    error.includes('must cite a supplied wiki path') ||
+    error.includes('must include concept citations') ||
+    error.includes('must include raw citations')
   ) {
     return `${who} devolveu JSON, mas Sheldon não gravou a resposta: as citações precisam apontar para páginas wiki deste contexto, cada uma uma vez. Tente de novo.`;
   }
   if (error.includes('did not produce a valid cited query answer')) {
     return `${who} não devolveu uma resposta citada válida. Tente de novo ou escolha outro agente.`;
+  }
+  if (error.includes('Proposal is invalid')) {
+    return `${who} devolveu JSON, mas Sheldon não gravou a resposta. Tente de novo.`;
   }
   return error;
 }

@@ -103,8 +103,8 @@ diff) e tira da lista as propostas já aprovadas ou rejeitadas. Uma proposta pen
 ainda a tira da lista. Consulta pergunta à wiki aprovada, acompanha o job na própria tela
 (fila, execução, erro) e mostra a resposta citada. JSON quase válido do agente (headings ATX
 próximos, conjunto parcial de secções, path `wiki/` repetido, ou `id`/`truncated` diferentes
-da tarefa) é canonicalizado antes de gravar; falha de evidência ou de validação aparece em
-português e a última pergunta volta no formulário.
+da tarefa) é canonicalizado antes de gravar; falha de evidência, de `concepts` ausente ou de
+validação aparece em português e a última pergunta volta no formulário.
 
 Confira o ambiente quando necessário:
 

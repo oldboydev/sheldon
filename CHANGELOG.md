@@ -12,7 +12,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
   mesmo quando o JSON do agente ecoa outros valores.
 - `validateQueryAnswer` completa secções `## Wiki facts` / `## Inferences` / `## Gaps`
   em falta quando o texto já tem só parte delas.
-- Consulta traduz falha de evidência (citação fora do contexto ou omissão) para
+- Consulta traduz falha de evidência (citação fora do contexto, omissão de
+  citações ou `concepts` ausente) e o restante `Proposal is invalid` para
   português.
 
 ### Added
