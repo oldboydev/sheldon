@@ -107,6 +107,8 @@ id, e aceita drop de arquivo sem caminho.
 - https://github.com/oldboydev/sheldon/issues/58
 - https://github.com/oldboydev/sheldon/issues/61
 - Conversação 2026-10-23 - uma entrega, um PR fecha as três
+- Conversação 2026-10-23 - «pode mais uma rodada da 56» autoriza teto light 3;
+  histórico anterior conta (2 rodadas já usadas)
 
 This task is the record of decision. If a linked document diverges, ask before building.
 

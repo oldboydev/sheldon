@@ -25,6 +25,11 @@
       "profile": "light",
       "maxRounds": 3,
       "approval": "Proprietário autorizou em 2026-10-23: \"pode mais uma rodada da 60\", somente para concluir Sheldon #60; referência em .tasks/issue-60-query-answer-task-fields.md. Histórico anterior conta: 2 rodadas já usadas, teto 3."
+    },
+    "56": {
+      "profile": "light",
+      "maxRounds": 3,
+      "approval": "Proprietário autorizou em 2026-10-23: \"pode mais uma rodada da 56\", somente para concluir Sheldon #56; referência em .tasks/issue-56-web-api-errors-consulta-job.md. Histórico anterior conta: 2 rodadas já usadas, teto 3."
     }
   }
 }
