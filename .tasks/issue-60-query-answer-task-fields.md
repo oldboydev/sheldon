@@ -108,6 +108,7 @@ ficheiro; falha de evidência na Consulta aparece em português.
 - https://github.com/oldboydev/sheldon/issues/60 - eco de `id`/`question`/`agent`/`truncated`, evidência, Consulta em português
 - https://github.com/oldboydev/sheldon/issues/62 - salvage com conjunto parcial de secções
 - Conversação 2026-10-23 - uma entrega, um PR fecha as duas; raias web/tooling ficam de fora
+- Conversação 2026-10-23 - proprietário: "pode mais uma rodada da 60"; teto light da #60 sobe para 3 em `code-review.config.json`
 
 This task is the record of decision. If a linked document diverges, ask before building.
 
