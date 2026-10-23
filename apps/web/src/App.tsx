@@ -64,7 +64,7 @@ export function App() {
       setPendingCount(reviews.reduce((total, topic) => total + topic.proposals.length, 0));
       setError(undefined);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Não foi possível ler o vault local.');
+      setError(asErrorMessage(reason, 'Não foi possível ler o vault local.'));
     }
   };
 
@@ -402,7 +402,9 @@ function readLastQuery(): LastQuery | undefined {
 }
 
 function asErrorMessage(reason: unknown, fallback: string): string {
-  return reason instanceof Error && reason.message.trim() !== '' ? reason.message : fallback;
+  if (!(reason instanceof Error) || reason.message.trim() === '') return fallback;
+  if (reason.name === 'TypeError' || reason.name === 'AbortError') return fallback;
+  return reason.message;
 }
 
 function queryJobErrorNotice(error: string, agent: AgentKind): string {
@@ -474,13 +476,25 @@ function QueryView({
     };
   }, [tracked, jobs]);
 
+  const currentJob =
+    tracked !== undefined && trackedJob?.id === tracked.jobId ? trackedJob : undefined;
+
   useEffect(() => {
     if (tracked === undefined) return;
-    if (trackedJob?.status === 'failed') {
+    if (currentJob?.status === 'failed') {
       setAnswer(undefined);
       return;
     }
-    const loadAnswer = trackedJob?.status === 'succeeded' || jobLookup === 'missing';
+    const inFlight =
+      currentJob?.status === 'queued' ||
+      currentJob?.status === 'running' ||
+      currentJob?.status === 'cancelling';
+    if (inFlight) return;
+    const loadAnswer =
+      currentJob?.status === 'succeeded' ||
+      currentJob?.status === 'interrupted' ||
+      currentJob?.status === 'cancelled' ||
+      jobLookup === 'missing';
     if (!loadAnswer) return;
     void client.queryAnswer(tracked.kind, tracked.slug, tracked.answerId).then(
       (value) => {
@@ -491,21 +505,21 @@ function QueryView({
         setAnswerError(asErrorMessage(reason, 'Não foi possível ler a resposta citada.'));
       },
     );
-  }, [jobLookup, tracked, trackedJob]);
+  }, [currentJob, jobLookup, tracked]);
 
   const queuedNotice =
-    tracked !== undefined && trackedJob?.status === 'queued' && answer === undefined
+    tracked !== undefined && currentJob?.status === 'queued' && answer === undefined
       ? 'Consulta na fila.'
-      : tracked !== undefined && trackedJob?.status === 'running'
+      : tracked !== undefined && currentJob?.status === 'running'
         ? 'Consulta em execução.'
         : undefined;
   const errorNotice =
     submitError ??
-    (trackedJob?.status === 'failed' && trackedJob.error !== undefined
-      ? queryJobErrorNotice(trackedJob.error, tracked?.agent ?? agent)
-      : trackedJob?.status === 'interrupted'
+    (currentJob?.status === 'failed' && currentJob.error !== undefined
+      ? queryJobErrorNotice(currentJob.error, tracked?.agent ?? agent)
+      : currentJob?.status === 'interrupted'
         ? 'A consulta foi interrompida quando o Sheldon web reiniciou. Tente de novo.'
-        : trackedJob?.status === 'cancelled' || trackedJob?.status === 'cancelling'
+        : currentJob?.status === 'cancelled' || currentJob?.status === 'cancelling'
           ? 'A consulta foi cancelada.'
           : jobLookup === 'missing' && answer === undefined
             ? 'Não foi possível acompanhar esta consulta.'
@@ -542,7 +556,10 @@ function QueryView({
               };
               window.sessionStorage.setItem(lastQueryKey, JSON.stringify(next));
               setTracked(next);
+              setTrackedJob(queued);
+              setJobLookup('idle');
               setAnswer(undefined);
+              setAnswerError(undefined);
               await onQueued();
             } catch (reason) {
               setSubmitError(asErrorMessage(reason, 'Não foi possível iniciar a consulta.'));

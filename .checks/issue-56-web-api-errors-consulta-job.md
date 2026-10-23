@@ -21,9 +21,12 @@ Sources:
 lê `GET /jobs/:id`. Fontes tira `required` do caminho quando há `File`. Submits têm
 `catch` e `.notice.error`.
 
-| One-way door                                  | Literal shape                                       | Alternative rejected                            |
-| --------------------------------------------- | --------------------------------------------------- | ----------------------------------------------- |
-| Cliente lança `Error` com a `message` do JSON | `ApiProblem extends Error` em `client.generated.ts` | Lançar o objeto JSON; mapear cada `code` no App |
+| One-way door                                  | Literal shape                                                      | Alternative rejected                                      |
+| --------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------------------------- |
+| Cliente lança `Error` com a `message` do JSON | `ApiProblem extends Error` em `client.generated.ts`                | Lançar o objeto JSON; mapear cada `code` no App           |
+| Transporte `TypeError`/`AbortError`           | `asErrorMessage` usa o fallback em português                       | Repassar `Failed to fetch` nativo no notice               |
+| Job acompanhado só vale se o id coincidir     | `trackedJob.id === tracked.jobId` antes de status                  | Reusar o job anterior enquanto o GET do novo id não volta |
+| `answer.json` já gravado                      | Buscar resposta em `succeeded`/`interrupted`/`cancelled`/`missing` | Só buscar em `succeeded` ou job 404                       |
 
 - Nothing else in this change is hard to reverse
 

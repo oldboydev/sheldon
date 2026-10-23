@@ -483,6 +483,81 @@ describe('App shell', () => {
     expect(container!.textContent).not.toContain('Consulta na fila.');
   });
 
+  it('consulta shows a stored answer when the interrupted job already wrote answer.json', async () => {
+    window.sessionStorage.setItem(
+      'sheldon-web-last-query',
+      JSON.stringify({
+        jobId: 'job-query',
+        answerId: 'answer-001',
+        kind: 'topic',
+        slug: 'memory',
+        question: 'What is recall?',
+        agent: 'grok',
+      }),
+    );
+    const stub = stubFetch();
+    stub.jobs.push({
+      id: 'job-query',
+      type: 'query',
+      status: 'interrupted',
+      createdAt: '2026-10-09T12:00:00.000Z',
+    });
+    stub.answerId = 'answer-001';
+    await renderApp();
+    await clickNamed('Consulta');
+    expect(container!.textContent).toContain('## Wiki facts');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain('interrompida');
+    expect(container!.textContent).not.toContain('Consulta na fila.');
+  });
+
+  it('consulta submit of a second query does not show a missing-answer error while queued', async () => {
+    const stub = stubFetch();
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'What is recall?');
+    });
+    await clickNamed('Consultar com citações');
+    const posted = fetches.find((item) => item.method === 'POST' && item.url.endsWith('/jobs'));
+    const firstAnswerId = (posted?.body as { answerId?: string } | undefined)?.answerId;
+    stub.jobs.splice(0, stub.jobs.length, {
+      id: 'job-query',
+      type: 'query',
+      status: 'succeeded',
+      createdAt: new Date().toISOString(),
+    });
+    stub.answerId = firstAnswerId!;
+    await clickNamed('Atualizar');
+    expect(container!.textContent).toContain('## Wiki facts');
+    stub.nextQueryJobId = 'job-query-b';
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+    });
+    await clickNamed('Consultar com citações');
+    expect(container!.textContent).toContain('Consulta na fila.');
+    expect(container!.textContent).not.toContain('## Wiki facts');
+    expect(container!.querySelector('.notice.error')).toBeNull();
+    expect(container!.textContent).not.toContain('Resposta não encontrada');
+  });
+
+  it('consulta submit shows a Portuguese notice when fetch fails', async () => {
+    const stub = stubFetch();
+    stub.fetchReject = new TypeError('Failed to fetch');
+    await renderApp();
+    await clickNamed('Consulta');
+    const question = container!.querySelector('input.input') as HTMLInputElement;
+    await act(async () => {
+      setNativeValue(question, 'o que e harness');
+    });
+    await clickNamed('Consultar com citações');
+    expect(question.value).toBe('o que e harness');
+    expect(container!.querySelector('.notice.error')?.textContent).toContain(
+      'Não foi possível iniciar a consulta.',
+    );
+    expect(container!.textContent).not.toContain('Failed to fetch');
+  });
+
   it('fontes file drop submits without a path', async () => {
     stubFetch();
     await renderApp();
@@ -551,6 +626,8 @@ function stubFetch(): {
   jobsPostError?: { message: string; code?: string };
   answerFail?: boolean;
   bundlesError?: { message: string };
+  nextQueryJobId?: string;
+  fetchReject?: Error;
 } {
   let reviewsDecided = false;
   const stub = {
@@ -566,6 +643,8 @@ function stubFetch(): {
     jobsPostError: undefined as { message: string; code?: string } | undefined,
     answerFail: false,
     bundlesError: undefined as { message: string } | undefined,
+    nextQueryJobId: undefined as string | undefined,
+    fetchReject: undefined as Error | undefined,
   };
   vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
@@ -588,16 +667,18 @@ function stubFetch(): {
       return json(200, dashboard);
     }
     if (url.endsWith('/api/v1/jobs') && method === 'POST') {
+      if (stub.fetchReject !== undefined) throw stub.fetchReject;
       if (stub.jobsPostError !== undefined) return json(400, stub.jobsPostError);
       const body =
         init?.body === undefined ? undefined : (JSON.parse(String(init.body)) as { type?: string });
       if (body?.type === 'query') {
         const job = {
-          id: 'job-query',
+          id: stub.nextQueryJobId ?? 'job-query',
           type: 'query',
           status: 'queued',
           createdAt: new Date().toISOString(),
         };
+        stub.nextQueryJobId = undefined;
         stub.jobs.splice(0, stub.jobs.length, job);
         return json(202, job);
       }
@@ -619,7 +700,8 @@ function stubFetch(): {
       return json(200, found);
     }
     if (url.includes('/answers/')) {
-      if (stub.answerFail) {
+      const requested = decodeURIComponent(url.split('/answers/')[1]?.split(/[/?]/)[0] ?? '');
+      if (stub.answerFail || requested !== stub.answerId) {
         return json(404, { message: 'Resposta não encontrada.', code: 'WEB_NOT_FOUND' });
       }
       return json(200, {
