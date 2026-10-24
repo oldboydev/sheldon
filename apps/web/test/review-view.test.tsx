@@ -336,6 +336,176 @@ describe('ReviewView', () => {
     expect(container!.textContent).toContain('Arquivos aprovados e promovidos para a wiki.');
   });
 
+  it('hides approve and previous wiki body after the last proposal is approved', async () => {
+    stubFetch({
+      list: pendingList,
+      preview: nestedPreview,
+      listAfterDecide: { topics: [] },
+    });
+    await renderView();
+    await clickNamed('Abrir revisão');
+    expect(container!.querySelector('.wiki-body')?.textContent).toContain(
+      'Proposed body from content.',
+    );
+    await clickNamed('Aprovar');
+    expect(namedButtons('Aprovar')).toHaveLength(0);
+    expect(namedButtons('Rejeitar')).toHaveLength(0);
+    expect(container!.querySelector('.wiki-body')).toBeNull();
+    expect(container!.textContent).not.toContain('Proposed body from content.');
+    expect(container!.querySelector('.review-diff')).toBeNull();
+    expect(container!.textContent).toMatch(/nenhuma proposta pendente neste vault/i);
+    expect(container!.textContent).toContain('Arquivos aprovados e promovidos para a wiki.');
+  });
+
+  it('hides approve and previous wiki body after the last proposal is rejected', async () => {
+    stubFetch({
+      list: pendingList,
+      preview: nestedPreview,
+      listAfterDecide: { topics: [] },
+    });
+    await renderView();
+    await clickNamed('Abrir revisão');
+    const reason = container!.querySelector('textarea[name="reason"]') as HTMLTextAreaElement;
+    await act(async () => {
+      const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+      setter?.call(reason, 'fora de escopo');
+      reason.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    await clickNamed('Rejeitar');
+    expect(namedButtons('Aprovar')).toHaveLength(0);
+    expect(namedButtons('Rejeitar')).toHaveLength(0);
+    expect(container!.querySelector('.wiki-body')).toBeNull();
+    expect(container!.textContent).not.toContain('Proposed body from content.');
+    expect(container!.querySelector('.review-diff')).toBeNull();
+    expect(container!.textContent).toMatch(/nenhuma proposta pendente neste vault/i);
+    expect(container!.textContent).toContain('Proposta rejeitada.');
+  });
+
+  it('does not post the decided id from a stale preview when another proposal remains', async () => {
+    stubFetch({
+      list: {
+        topics: [
+          {
+            slug: 'observability',
+            title: 'Observability',
+            proposals: [
+              {
+                id: 'proposal-observability-notes-3',
+                agent: 'grok',
+                createdAt: '2026-10-02T22:24:23.050Z',
+              },
+              {
+                id: 'proposal-observability-notes-4',
+                agent: 'codex',
+                createdAt: '2026-10-03T00:00:00.000Z',
+              },
+            ],
+          },
+        ],
+      },
+      preview: nestedPreview,
+      listAfterDecide: {
+        topics: [
+          {
+            slug: 'observability',
+            title: 'Observability',
+            proposals: [
+              {
+                id: 'proposal-observability-notes-4',
+                agent: 'codex',
+                createdAt: '2026-10-03T00:00:00.000Z',
+              },
+            ],
+          },
+        ],
+      },
+    });
+    await renderView();
+    await clickNamed('Abrir revisão');
+    await clickNamed('Aprovar');
+    const selected = container!.querySelector(
+      '[data-proposal-id].is-active, [data-proposal-id][aria-current="true"]',
+    );
+    expect(selected?.getAttribute('data-proposal-id')).toBe('proposal-observability-notes-4');
+    expect(container!.querySelector('.wiki-body')).toBeNull();
+    expect(container!.textContent).not.toContain('Proposed body from content.');
+    expect(container!.querySelector('.review-diff')).toBeNull();
+    expect(namedButtons('Aprovar')).toHaveLength(0);
+    const approvePosts = fetches.filter((item) => item.url.includes('/approve'));
+    expect(approvePosts).toHaveLength(1);
+    expect(approvePosts[0]?.url).toContain('proposal-observability-notes-3');
+    expect(container!.textContent).toContain('Abrir revisão');
+  });
+
+  it('ignores a late preview response after the last proposal is decided', async () => {
+    let releaseApprove: () => void = () => {};
+    const approveHold = new Promise<void>((resolve) => {
+      releaseApprove = resolve;
+    });
+    let releaseLatePreview: (body: unknown) => void = () => {};
+    const latePreview = new Promise<unknown>((resolve) => {
+      releaseLatePreview = resolve;
+    });
+    let previewGets = 0;
+    let decided = false;
+    vi.stubGlobal('fetch', async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      const method = init?.method ?? 'GET';
+      fetches.push({
+        url,
+        method,
+        ...(init?.body === undefined ? {} : { body: JSON.parse(String(init.body)) as unknown }),
+      });
+      const json = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), {
+          status,
+          headers: { 'content-type': 'application/json' },
+        });
+      if (url.includes('/approve')) {
+        decided = true;
+        await approveHold;
+        return json(200, { approved: true });
+      }
+      if (url.endsWith('/api/v1/reviews') || url.endsWith('/api/v1/reviews/')) {
+        return json(200, decided ? { topics: [] } : pendingList);
+      }
+      if (url.includes('/api/v1/reviews/topic/')) {
+        previewGets += 1;
+        if (previewGets === 1) return json(200, nestedPreview);
+        const body = await latePreview;
+        return json(200, body);
+      }
+      return json(404, { message: 'missing' });
+    });
+
+    await renderView();
+    await clickNamed('Abrir revisão');
+    expect(container!.querySelector('.wiki-body')?.textContent).toContain(
+      'Proposed body from content.',
+    );
+
+    await clickNamed('Aprovar');
+    await clickNamed('Abrir revisão');
+    await act(async () => {
+      releaseApprove();
+      for (let step = 0; step < 8; step += 1) await Promise.resolve();
+    });
+    expect(namedButtons('Aprovar')).toHaveLength(0);
+    expect(container!.querySelector('.wiki-body')).toBeNull();
+    expect(container!.textContent).toMatch(/nenhuma proposta pendente neste vault/i);
+
+    await act(async () => {
+      releaseLatePreview(nestedPreview);
+      for (let step = 0; step < 8; step += 1) await Promise.resolve();
+    });
+    expect(namedButtons('Aprovar')).toHaveLength(0);
+    expect(namedButtons('Rejeitar')).toHaveLength(0);
+    expect(container!.querySelector('.wiki-body')).toBeNull();
+    expect(container!.textContent).not.toContain('Proposed body from content.');
+    expect(container!.querySelector('.review-diff')).toBeNull();
+    expect(container!.textContent).toMatch(/nenhuma proposta pendente neste vault/i);
+  });
+
   it('rejects with confirmation equal to the proposal id and a reason', async () => {
     stubFetch({ list: pendingList, preview: nestedPreview });
     await renderView();
@@ -420,4 +590,10 @@ async function clickNamed(text: string): Promise<void> {
     (node as HTMLElement).click();
     for (let step = 0; step < 8; step += 1) await Promise.resolve();
   });
+}
+
+function namedButtons(text: string): HTMLElement[] {
+  return [...container!.querySelectorAll('button')].filter(
+    (item) => item.textContent?.trim() === text,
+  ) as HTMLElement[];
 }
