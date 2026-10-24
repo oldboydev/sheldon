@@ -108,7 +108,7 @@ describe('local web server', () => {
 
       const listed = await server.inject('/api/v1/jobs');
       expect(listed.statusCode).toBe(200);
-      expect(listed.json().jobs).toHaveLength(15);
+      expect(listed.json().jobs).toHaveLength(16);
     } finally {
       await server.close();
     }
@@ -493,7 +493,7 @@ function seedDashboardJobs(root: string): void {
       payload: {},
       createdAt: '2026-01-03T00:00:00.000Z',
     });
-    for (let index = 1; index <= 12; index += 1) {
+    for (let index = 1; index <= 13; index += 1) {
       database.createJob({
         id: `recent-succeeded-${String(index).padStart(2, '0')}`,
         type: 'query',

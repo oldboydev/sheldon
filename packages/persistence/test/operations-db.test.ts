@@ -82,7 +82,7 @@ describe('OperationsDatabase', () => {
       payload: {},
       createdAt: '2026-01-04T00:00:00.000Z',
     });
-    for (let index = 1; index <= 12; index += 1) {
+    for (let index = 1; index <= 13; index += 1) {
       database.createJob({
         id: `recent-succeeded-${String(index).padStart(2, '0')}`,
         type: 'query',
@@ -97,7 +97,7 @@ describe('OperationsDatabase', () => {
       queued: 1,
       running: 1,
       cancelling: 1,
-      succeeded: 12,
+      succeeded: 13,
       failed: 1,
       cancelled: 0,
       interrupted: 0,
