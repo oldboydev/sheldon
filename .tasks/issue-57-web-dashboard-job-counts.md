@@ -50,16 +50,16 @@ bug; default is one task.
 
 ## Observable
 
-| Surface                     | Decision                    | Landing                                  |
-| --------------------------- | --------------------------- | ---------------------------------------- |
-| screen Início               | tiles Na fila / execução / atenção | 1, 3                              |
-| screen Início               | Atividade recente           | 2                                        |
-| screen Início               | empty / loading / error     | existing - tiles `—` até o dashboard; banner de vault |
-| screen Início               | unauthorised                | n/a - loopback já existente              |
-| screen Início               | destructive action confirms | n/a - Início não cancela nem retenta     |
-| API `GET /api/v1/dashboard` | response shape              | 1, 2 — campos `jobs` e `activity` iguais |
-| API `GET /api/v1/jobs`      | page size                   | 4 — omissão 100, máximo 250              |
-| document README / CHANGELOG | copy                        | 1, 2                                     |
+| Surface                     | Decision                           | Landing                                               |
+| --------------------------- | ---------------------------------- | ----------------------------------------------------- |
+| screen Início               | tiles Na fila / execução / atenção | 1, 3                                                  |
+| screen Início               | Atividade recente                  | 2                                                     |
+| screen Início               | empty / loading / error            | existing - tiles `—` até o dashboard; banner de vault |
+| screen Início               | unauthorised                       | n/a - loopback já existente                           |
+| screen Início               | destructive action confirms        | n/a - Início não cancela nem retenta                  |
+| API `GET /api/v1/dashboard` | response shape                     | 1, 2 — campos `jobs` e `activity` iguais              |
+| API `GET /api/v1/jobs`      | page size                          | 4 — omissão 100, máximo 250                           |
+| document README / CHANGELOG | copy                               | 1, 2                                                  |
 
 ## Swept
 
@@ -75,10 +75,10 @@ bug; default is one task.
 
 ## Impact
 
-| Front       | What changes                                                                                          |
-| ----------- | ----------------------------------------------------------------------------------------------------- |
+| Front       | What changes                                                                                                                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | domain      | existing term: `dashboard.jobs.queued` / `running` / `failed` passa a contar todas as jobs do vault, não só as 12 mais novas — `DashboardView` e `app-shell` já lêem esses campos |
-| stored data | nothing to migrate                                                                                    |
+| stored data | nothing to migrate                                                                                                                                                                |
 
 ## Decided
 
@@ -89,10 +89,10 @@ que `running` inclui `cancelling`.
 
 ## Surface
 
-| Route                    | In | Out                                         | Status | Criteria |
-| ------------------------ | -- | ------------------------------------------- | ------ | -------- |
-| `GET /api/v1/dashboard`  | —  | `jobs.queued`, `jobs.running`, `jobs.failed`, `activity` | 200    | 1, 2, 3  |
-| `GET /api/v1/jobs`       | `limit`, `offset` | `jobs`, `nextOffset`                  | 200    | 4        |
+| Route                   | In                | Out                                                      | Status | Criteria |
+| ----------------------- | ----------------- | -------------------------------------------------------- | ------ | -------- |
+| `GET /api/v1/dashboard` | —                 | `jobs.queued`, `jobs.running`, `jobs.failed`, `activity` | 200    | 1, 2, 3  |
+| `GET /api/v1/jobs`      | `limit`, `offset` | `jobs`, `nextOffset`                                     | 200    | 4        |
 
 ## Sources
 

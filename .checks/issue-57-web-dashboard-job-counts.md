@@ -25,8 +25,8 @@ Sources:
 `OperationsDatabase`. `activity` continua `listJobs(12)`. GET `/api/v1/jobs`
 mantém omissão 100 / máximo 250.
 
-| One-way door | Literal shape | Alternative rejected |
-| ------------ | ------------- | -------------------- |
+| One-way door | Literal shape                                                                                       | Alternative rejected                                                                                                                                                     |
+| ------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | None         | `COUNT`/`GROUP BY status` no SQLite já existente; `running` do dashboard = `running` + `cancelling` | varrer todas as linhas em memória, ou subir o `listJobs(12)` do dashboard — a issue pede query por estado; alargar o recorte ainda esconde jobs para além do novo limite |
 
 - Nothing else in this change is hard to reverse

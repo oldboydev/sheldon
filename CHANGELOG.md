@@ -8,6 +8,8 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- Início em `sheldon web` conta fila, execução (inclui `cancelling`) e falha sobre
+  todas as jobs do vault. «Atividade recente» continua a recortar as 12 mais novas.
 - Revisão em `sheldon web` limpa o preview e os botões Aprovar/Rejeitar quando a
   proposta decidida sai de `GET /api/v1/reviews`. Com zero pendentes mostra o
   empty state, sem o diff anterior; com outras pendentes não faz POST do id já

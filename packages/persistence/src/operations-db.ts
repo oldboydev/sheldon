@@ -194,6 +194,25 @@ export class OperationsDatabase {
     };
   }
 
+  public countJobsByStatus(): Readonly<Record<JobStatus, number>> {
+    const counts: Record<JobStatus, number> = {
+      queued: 0,
+      running: 0,
+      cancelling: 0,
+      succeeded: 0,
+      failed: 0,
+      cancelled: 0,
+      interrupted: 0,
+    };
+    const rows = this.database
+      .prepare(`SELECT status, COUNT(*) AS n FROM jobs GROUP BY status`)
+      .all();
+    for (const row of rows) {
+      counts[String(row.status) as JobStatus] = Number(row.n);
+    }
+    return counts;
+  }
+
   public appendJobEvent(input: Omit<JobEventRecord, 'id'>): JobEventRecord {
     const result = this.database
       .prepare(
