@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 import { ProposalValidationError } from '@sheldon/agent-runtime';
+import { OperationsDatabase } from '@sheldon/persistence';
 import { SearchIndex } from '@sheldon/search';
-import { VaultService } from '@sheldon/vault';
+import { VaultService, vaultPaths } from '@sheldon/vault';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { createWebServer, startWebServer } from '../src/server.js';
@@ -85,6 +86,29 @@ describe('local web server', () => {
         health: { vault: true, sqlite: true },
         jobs: { queued: 0, running: 0, failed: 0 },
       });
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('dashboard job counts include older queued running and failed jobs past the newest twelve', async () => {
+    const root = await vault();
+    const server = await createWebServer({ vaultRoot: root, application: application() });
+    try {
+      seedDashboardJobs(root);
+      const dashboard = await server.inject('/api/v1/dashboard');
+      expect(dashboard.statusCode).toBe(200);
+      expect(dashboard.json().jobs.failed).toBeGreaterThanOrEqual(1);
+      expect(dashboard.json()).toMatchObject({
+        jobs: { queued: 1, running: 1, failed: 1 },
+      });
+      const activity = dashboard.json().activity as readonly { status: string }[];
+      expect(activity).toHaveLength(12);
+      expect(activity.every((job) => job.status === 'succeeded')).toBe(true);
+
+      const listed = await server.inject('/api/v1/jobs');
+      expect(listed.statusCode).toBe(200);
+      expect(listed.json().jobs).toHaveLength(16);
     } finally {
       await server.close();
     }
@@ -443,6 +467,44 @@ async function vault(): Promise<string> {
   directories.push(root);
   await VaultService.init(root);
   return root;
+}
+
+function seedDashboardJobs(root: string): void {
+  const database = OperationsDatabase.open(vaultPaths(root).operationsDatabase);
+  try {
+    database.createJob({
+      id: 'old-failed',
+      type: 'query',
+      status: 'failed',
+      payload: {},
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    database.createJob({
+      id: 'old-queued',
+      type: 'query',
+      status: 'queued',
+      payload: {},
+      createdAt: '2026-01-02T00:00:00.000Z',
+    });
+    database.createJob({
+      id: 'old-cancelling',
+      type: 'query',
+      status: 'cancelling',
+      payload: {},
+      createdAt: '2026-01-03T00:00:00.000Z',
+    });
+    for (let index = 1; index <= 13; index += 1) {
+      database.createJob({
+        id: `recent-succeeded-${String(index).padStart(2, '0')}`,
+        type: 'query',
+        status: 'succeeded',
+        payload: {},
+        createdAt: `2026-10-${String(index).padStart(2, '0')}T00:00:00.000Z`,
+      });
+    }
+  } finally {
+    database.close();
+  }
 }
 
 async function vaultWithWiki(): Promise<string> {

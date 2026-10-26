@@ -51,6 +51,59 @@ describe('OperationsDatabase', () => {
     });
   });
 
+  it('counts jobs by status without cutting at the newest twelve', () => {
+    const database = OperationsDatabase.open(':memory:');
+    databases.push(database);
+    database.createJob({
+      id: 'old-failed',
+      type: 'query',
+      status: 'failed',
+      payload: {},
+      createdAt: '2026-01-01T00:00:00.000Z',
+    });
+    database.createJob({
+      id: 'old-queued',
+      type: 'query',
+      status: 'queued',
+      payload: {},
+      createdAt: '2026-01-02T00:00:00.000Z',
+    });
+    database.createJob({
+      id: 'old-cancelling',
+      type: 'query',
+      status: 'cancelling',
+      payload: {},
+      createdAt: '2026-01-03T00:00:00.000Z',
+    });
+    database.createJob({
+      id: 'old-running',
+      type: 'query',
+      status: 'running',
+      payload: {},
+      createdAt: '2026-01-04T00:00:00.000Z',
+    });
+    for (let index = 1; index <= 13; index += 1) {
+      database.createJob({
+        id: `recent-succeeded-${String(index).padStart(2, '0')}`,
+        type: 'query',
+        status: 'succeeded',
+        payload: {},
+        createdAt: `2026-10-${String(index).padStart(2, '0')}T00:00:00.000Z`,
+      });
+    }
+
+    expect(database.listJobs(12).jobs.every((job) => job.status === 'succeeded')).toBe(true);
+    expect(database.countJobsByStatus()).toEqual({
+      queued: 1,
+      running: 1,
+      cancelling: 1,
+      succeeded: 13,
+      failed: 1,
+      cancelled: 0,
+      interrupted: 0,
+    });
+  });
+
   it('persists jobs and resumable event cursors outside knowledge files', () => {
     const database = OperationsDatabase.open(':memory:');
     databases.push(database);

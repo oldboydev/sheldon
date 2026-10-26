@@ -96,7 +96,9 @@ sheldon web --vault C:\knowledge\sheldon
 
 Ela informa uma URL em `http://127.0.0.1:<porta>`. A interface só aceita conexões da própria
 máquina. O chrome segue o design system do produto (navy/magenta, Nunito Sans, wordmark
-Sheldon). A seção Conhecimento navega a wiki aprovada em HTML (árvore, página, fontes e
+Sheldon). No Início, os tiles Na fila / Em execução / Precisam de atenção contam todas as
+jobs do vault; Atividade recente continua a recortar as mais novas. A seção Conhecimento
+navega a wiki aprovada em HTML (árvore, página, fontes e
 vizinhos) sem editar o vault. Revisão mostra a página wiki proposta (sem o dump de unified
 diff) e tira da lista as propostas já aprovadas ou rejeitadas. Depois da
 decisão, o preview e os botões Aprovar/Rejeitar saem; um GET atrasado não os

@@ -288,6 +288,7 @@ async function dashboard(root: string) {
   await VaultService.discover(root);
   const database = OperationsDatabase.open(vaultPaths(root).operationsDatabase);
   try {
+    const counts = database.countJobsByStatus();
     const jobs = database.listJobs(12).jobs;
     return {
       path: root,
@@ -296,12 +297,11 @@ async function dashboard(root: string) {
         sqlite: OperationsDatabase.checkHealth(vaultPaths(root).operationsDatabase).healthy,
       },
       jobs: {
-        queued: jobs.filter((job) => job.status === 'queued').length,
-        running: jobs.filter((job) => job.status === 'running' || job.status === 'cancelling')
-          .length,
-        failed: jobs.filter((job) => job.status === 'failed').length,
+        queued: counts.queued,
+        running: counts.running + counts.cancelling,
+        failed: counts.failed,
       },
-      activity: jobs.slice(0, 12),
+      activity: jobs,
     };
   } finally {
     database.close();
