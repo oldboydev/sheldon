@@ -8,6 +8,9 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ### Fixed
 
+- A revisão local não troca o relatório pelo erro EPERM ao apagar a pasta
+  temporária no Windows: imprime o relatório, sai com o código do status, avisa
+  a pasta no stderr e libera o lock.
 - Início em `sheldon web` conta fila, execução (inclui `cancelling`) e falha sobre
   todas as jobs do vault. «Atividade recente» continua a recortar as 12 mais novas.
 - Revisão em `sheldon web` limpa o preview e os botões Aprovar/Rejeitar quando a

@@ -36,7 +36,7 @@ bug; default is one task.
    temporária falha, então o comando `cli.mjs review` imprime o relatório no
    stdout e sai com 0 para `ready` e com 2 para os outros status.
 2. Dado a revisão falha e a limpeza falha, quando o comando termina, então
-   escreve `Code review interrompido: ` seguido do erro da revisão, e sai com 1.
+   escreve `Code review interrompido:` seguido de espaço e do erro da revisão, e sai com 1.
 
 ### Aviso da pasta que sobrou
 
@@ -76,15 +76,15 @@ bug; default is one task.
 
 ## Observable
 
-| Surface                          | Decision                         | Landing                                      |
-| -------------------------------- | -------------------------------- | -------------------------------------------- |
-| command `cli.mjs review`         | stdout JSON do relatório         | 1                                            |
-| command `cli.mjs review`         | exit 0 `ready`, 2 outros status  | 1                                            |
-| command `cli.mjs review`         | error shape e exit 1             | 2 — `Code review interrompido: ` no stderr   |
-| command `cli.mjs review`         | flags e omissão                  | existing - `--issue`, `--profile`            |
-| command `cli.mjs review`         | verbosity do aviso de leftover   | 3                                            |
-| document `scripts/code-review/README.md` | copy leftover TEMP         | 3, 5                                         |
-| collection cinco arquivos comuns | hashes Git                       | 5, 6                                         |
+| Surface                                  | Decision                        | Landing                                           |
+| ---------------------------------------- | ------------------------------- | ------------------------------------------------- |
+| command `cli.mjs review`                 | stdout JSON do relatório        | 1                                                 |
+| command `cli.mjs review`                 | exit 0 `ready`, 2 outros status | 1                                                 |
+| command `cli.mjs review`                 | error shape e exit 1            | 2 — prefixo `Code review interrompido:` no stderr |
+| command `cli.mjs review`                 | flags e omissão                 | existing - `--issue`, `--profile`                 |
+| command `cli.mjs review`                 | verbosity do aviso de leftover  | 3                                                 |
+| document `scripts/code-review/README.md` | copy leftover TEMP              | 3, 5                                              |
+| collection cinco arquivos comuns         | hashes Git                      | 5, 6                                              |
 
 ## Swept
 
@@ -100,22 +100,22 @@ bug; default is one task.
 
 ## Impact
 
-| Front       | What changes                                                                                                                                                                                                 |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Front       | What changes                                                                                                                                                                                              |
+| ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | domain      | existing term: falha de limpeza no `finally` de `review()` deixa de substituir o relatório, ou o erro da revisão, pelo da limpeza — `cli.mjs` hoje trata o throw como `Code review interrompido` e exit 1 |
-| stored data | nothing to migrate — leftover TEMP fica no disco até apagar à mão; lock continua a ser desligado |
+| stored data | nothing to migrate — leftover TEMP fica no disco até apagar à mão; lock continua a ser desligado                                                                                                          |
 
 ## Decided
 
-| Decision                                      | Shape                                                                                                                                                         | Alternative rejected                                                                                          |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| Copiar o motor do ERP sem adaptação           | blobs Git `c51cff6…` / `6495b4d…` / `711a716…` em `review.mjs`, `review.test.mjs`, `README.md`; `cli.mjs` e `schema.json` inalterados                          | adaptar o motor neste repositório — a issue exige igualdade dos cinco arquivos entre os consumidores          |
+| Decision                            | Shape                                                                                                                                 | Alternative rejected                                                                                 |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Copiar o motor do ERP sem adaptação | blobs Git `c51cff6…` / `6495b4d…` / `711a716…` em `review.mjs`, `review.test.mjs`, `README.md`; `cli.mjs` e `schema.json` inalterados | adaptar o motor neste repositório — a issue exige igualdade dos cinco arquivos entre os consumidores |
 
 ## Surface
 
-| Route             | In                     | Out                                                                 | Status                         | Criteria |
-| ----------------- | ---------------------- | ------------------------------------------------------------------- | ------------------------------ | -------- |
-| `cli.mjs review`  | `--issue`, `--profile` | JSON do relatório no stdout; aviso de leftover no stderr            | exit 0 `ready`, 2 outros, 1 erro | 1, 2, 3, 4 |
+| Route            | In                     | Out                                                      | Status                           | Criteria   |
+| ---------------- | ---------------------- | -------------------------------------------------------- | -------------------------------- | ---------- |
+| `cli.mjs review` | `--issue`, `--profile` | JSON do relatório no stdout; aviso de leftover no stderr | exit 0 `ready`, 2 outros, 1 erro | 1, 2, 3, 4 |
 
 ## Sources
 

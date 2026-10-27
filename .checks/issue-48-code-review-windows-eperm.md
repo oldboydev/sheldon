@@ -29,9 +29,9 @@ O `finally` de `review()` passa a apanhar a falha de `cleanup`, avisar leftover
 via `deps.warn` se a pasta ainda existe, e libertar o lock no `finally` interno.
 CHANGELOG Unreleased e README da raiz acompanham a mudança em `scripts/`.
 
-| One-way door                          | Literal shape                                                                                                          | Alternative rejected                                                                                 |
-| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| Motor vendorizado idêntico ao do ERP  | blobs `c51cff6…` / `6495b4d…` / `711a716…`; `cli.mjs` `c6a4abc…`; `schema.json` `b02001e…`                             | adaptar o motor neste repositório — a issue exige igualdade dos cinco arquivos entre consumidores    |
+| One-way door                         | Literal shape                                                                              | Alternative rejected                                                                              |
+| ------------------------------------ | ------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| Motor vendorizado idêntico ao do ERP | blobs `c51cff6…` / `6495b4d…` / `711a716…`; `cli.mjs` `c6a4abc…`; `schema.json` `b02001e…` | adaptar o motor neste repositório — a issue exige igualdade dos cinco arquivos entre consumidores |
 
 - Nothing else in this change is hard to reverse
 
@@ -46,7 +46,7 @@ Proof: `npm run test:code-review -- --test-name-pattern "C11 comando com limpeza
 Proof: `npm run test:code-review -- --test-name-pattern "C11 comando com limpeza falha imprime o relatório changes_requested"`
 
 **C2** - Dado a revisão falha e a limpeza falha, quando o comando termina, então
-escreve `Code review interrompido: ` seguido do erro da revisão, e sai com 1.
+escreve `Code review interrompido:` seguido de espaço e do erro da revisão, e sai com 1.
 Proof: `npm run test:code-review -- --test-name-pattern "C11 comando com revisão falha e limpeza falha"`
 
 ### S2 - Aviso da pasta que sobrou · review.mjs + review.test.mjs · ~55 KB · ~14k

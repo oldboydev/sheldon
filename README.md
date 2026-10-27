@@ -269,9 +269,11 @@ esses artefatos. [Guia completo e adoção em outros projetos](scripts/code-revi
 O motor é o mesmo dos pilotos e suas atualizações devem preservar a igualdade dos cinco arquivos.
 
 Relatórios de runtime ficam ignorados em .checks/code-review; histórico/lock ficam
-no Git comum, compartilhados entre worktrees. Não publique relatórios depois da
-revisão em novo commit: use o resumo gerado no PR. Conteúdo ou contexto alterado
-exige revisão válida novamente. Login Codex por ChatGPT; nenhuma IA executa na CI.
+no Git comum, compartilhados entre worktrees. Se a remoção da pasta temporária
+falhar no Windows, o resultado da revisão não muda e o lock é libertado: a pasta
+que sobrou é avisada no stderr. Não publique relatórios depois da revisão em novo
+commit: use o resumo gerado no PR. Conteúdo ou contexto alterado exige revisão
+válida novamente. Login Codex por ChatGPT; nenhuma IA executa na CI.
 
 O novo workflow de governança roda somente seus testes e sempre publica o check CI.
 Documentação tem caminho leve nesse workflow. A CI original de produto continua
