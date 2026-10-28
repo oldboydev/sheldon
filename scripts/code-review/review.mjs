@@ -378,6 +378,7 @@ function cleanupCheckout(cwd, checkout) {
 
 const defaults = {
   cleanup: cleanupCheckout,
+  warn: (message) => process.stderr.write(`${message}\n`),
   fetch: (cwd, baseRef) => {
     requireThat(
       /^origin\/[A-Za-z0-9][A-Za-z0-9._/-]*$/.test(baseRef) &&
@@ -725,6 +726,13 @@ export async function review(cwd, options, dependencies = {}) {
   } finally {
     try {
       if (checkout) deps.cleanup(cwd, checkout);
+    } catch (error) {
+      // Lançar daqui trocaria o relatório, ou o erro da revisão, pelo da limpeza.
+      // A limpeza também lança quando o git falha e o rmSync apaga a pasta: nada sobrou.
+      if (existsSync(checkout))
+        deps.warn(
+          `Aviso: a pasta temporária da revisão não foi removida: ${checkout} (${error.message}). Apague-a à mão; o resultado da revisão não muda.`,
+        );
     } finally {
       try {
         closeSync(lock);

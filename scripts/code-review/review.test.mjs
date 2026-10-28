@@ -10,7 +10,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve, relative } from "node:path";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   review,
   check,
@@ -134,8 +135,13 @@ function fixture(t) {
   return { cwd, git, put, options, deps, calls, locations };
 }
 
-test("C10 falha de limpeza libera lock e preserva aprovação e contador", async (t) => {
+function leftoverWarning(checkout) {
+  return `Aviso: a pasta temporária da revisão não foi removida: ${checkout} (EPERM cleanup). Apague-a à mão; o resultado da revisão não muda.`;
+}
+
+test("C10 falha de limpeza devolve o relatório ready, libera lock e preserva aprovação e contador", async (t) => {
   const f = fixture(t);
+  const warnings = [];
   let checkout;
   const deps = {
     ...f.deps,
@@ -143,59 +149,235 @@ test("C10 falha de limpeza libera lock e preserva aprovação e contador", async
       checkout = location;
       throw Object.assign(new Error("EPERM cleanup"), { code: "EPERM" });
     },
+    warn: (message) => warnings.push(message),
   };
   try {
-    await assert.rejects(review(f.cwd, f.options, deps), /EPERM cleanup/);
+    const report = await review(f.cwd, f.options, deps);
+    assert.equal(report.status, "ready");
     assert.equal(
       existsSync(join(f.cwd, ".git/code-review/issue-7.lock")),
       false,
     );
+    assert.equal(checkout, f.locations[0]);
+    assert.deepEqual(warnings, [leftoverWarning(checkout)]);
     const checked = await check(f.cwd, f.options, f.deps);
-    assert.equal(checked.report.status, "ready");
-    assert.equal((await review(f.cwd, f.options, deps)).status, "ready");
+    assert.deepEqual(checked.report, report);
+    assert.deepEqual(await review(f.cwd, f.options, deps), report);
     assert.equal(f.calls.length, 1);
     const state = JSON.parse(
       readFileSync(join(f.cwd, ".git/code-review/issue-7.state.json"), "utf8"),
     );
     assert.equal(state.attempts.length, 1);
+    assert.equal(warnings.length, 1);
   } finally {
     if (checkout) f.git("worktree", "remove", "--force", checkout);
   }
-  const failed = fixture(t);
-  let failedCheckout;
+});
+
+test("C10 falha de limpeza devolve o relatório changes_requested e avisa a pasta no stderr", async (t) => {
+  const f = fixture(t);
+  const stderr = t.mock.method(process.stderr, "write", () => true);
+  let checkout;
+  try {
+    const report = await review(f.cwd, f.options, {
+      ...f.deps,
+      execute: async ({ snapshot }) => ({
+        ...ready(snapshot),
+        status: "changes_requested",
+      }),
+      cleanup: (_cwd, location) => {
+        checkout = location;
+        throw new Error("EPERM cleanup");
+      },
+    });
+    assert.equal(report.status, "changes_requested");
+    const state = JSON.parse(
+      readFileSync(join(f.cwd, ".git/code-review/issue-7.state.json"), "utf8"),
+    );
+    assert.deepEqual(report, state.attempts[0].report);
+    assert.deepEqual(
+      stderr.mock.calls.map((call) => call.arguments[0]),
+      [`${leftoverWarning(checkout)}\n`],
+    );
+    assert.equal(
+      existsSync(join(f.cwd, ".git/code-review/issue-7.lock")),
+      false,
+    );
+  } finally {
+    if (checkout) f.git("worktree", "remove", "--force", checkout);
+  }
+});
+
+test("C10 falha de limpeza que não deixa a pasta devolve o relatório e não avisa", async (t) => {
+  const f = fixture(t);
+  const warnings = [];
+  const report = await review(f.cwd, f.options, {
+    ...f.deps,
+    cleanup: (_cwd, location) => {
+      f.git("worktree", "remove", "--force", location);
+      throw new Error("Command failed: git worktree remove");
+    },
+    warn: (message) => warnings.push(message),
+  });
+  assert.equal(report.status, "ready");
+  assert.equal(existsSync(f.locations[0]), false);
+  assert.deepEqual(warnings, []);
+  assert.equal(existsSync(join(f.cwd, ".git/code-review/issue-7.lock")), false);
+});
+
+test("C10 revisão falha seguida de falha de limpeza mostra o erro da revisão e libera lock", async (t) => {
+  const f = fixture(t);
+  const warnings = [];
+  let checkout;
   try {
     await assert.rejects(
-      review(failed.cwd, failed.options, {
-        ...failed.deps,
+      review(f.cwd, f.options, {
+        ...f.deps,
         execute: async () => {
           throw new Error("falha de revisão");
         },
         cleanup: (_cwd, location) => {
-          failedCheckout = location;
+          checkout = location;
           throw new Error("EPERM cleanup");
         },
+        warn: (message) => warnings.push(message),
       }),
-      /EPERM cleanup/,
+      { message: "falha de revisão" },
     );
     assert.equal(
-      existsSync(join(failed.cwd, ".git/code-review/issue-7.lock")),
+      existsSync(join(f.cwd, ".git/code-review/issue-7.lock")),
       false,
     );
-    await assert.rejects(
-      check(failed.cwd, failed.options, failed.deps),
-      /sem relatório/,
-    );
+    assert.deepEqual(warnings, [leftoverWarning(checkout)]);
+    await assert.rejects(check(f.cwd, f.options, f.deps), {
+      message: "Revisão sem relatório concluído.",
+    });
     const state = JSON.parse(
-      readFileSync(
-        join(failed.cwd, ".git/code-review/issue-7.state.json"),
-        "utf8",
-      ),
+      readFileSync(join(f.cwd, ".git/code-review/issue-7.state.json"), "utf8"),
     );
     assert.equal(state.attempts.length, 1);
     assert.equal(state.attempts[0].report, null);
   } finally {
-    if (failedCheckout)
-      failed.git("worktree", "remove", "--force", failedCheckout);
+    if (checkout) f.git("worktree", "remove", "--force", checkout);
+  }
+});
+
+// O cli.mjs chama review() sem dependências, então não há por onde injetar nada nele.
+// Para rodá-lo de verdade num processo, um gancho de resolução registrado só aqui troca
+// o "./review.mjs" que ele importa por um dublê, que chama o motor real com o revisor
+// falso e a limpeza que falha. O cli.mjs e o motor que rodam são os do repositório.
+function runCliWithFailingCleanup(f, outcome) {
+  const dir = join(f.cwd, ".checks/code-review/cli-doubles");
+  mkdirSync(dir, { recursive: true });
+  const location = join(dir, "location.txt");
+  const put = (name, text) => {
+    writeFileSync(join(dir, name), text);
+    return pathToFileURL(join(dir, name)).href;
+  };
+  const double = put(
+    "double.mjs",
+    `import { writeFileSync } from "node:fs";
+import * as engine from ${JSON.stringify(new URL("./review.mjs", import.meta.url).href)};
+export const { parseArgs, check, createPr } = engine;
+export const review = (cwd, options) =>
+  engine.review(cwd, options, {
+    fetch: () => {},
+    issue: () => (${JSON.stringify(issue)}),
+    authenticate: () => {},
+    execute: async ({ snapshot }) => {
+      if (${JSON.stringify(outcome)} === "failure") throw new Error("falha de revisão");
+      return { ...(${ready})(snapshot), status: ${JSON.stringify(outcome)} };
+    },
+    cleanup: (_cwd, checkout) => {
+      writeFileSync(${JSON.stringify(location)}, checkout);
+      throw new Error("EPERM cleanup");
+    },
+  });
+`,
+  );
+  const hooks = put(
+    "hooks.mjs",
+    `export function resolve(specifier, context, nextResolve) {
+  return specifier === "./review.mjs" && context.parentURL?.endsWith("/cli.mjs")
+    ? { url: ${JSON.stringify(double)}, shortCircuit: true }
+    : nextResolve(specifier, context);
+}
+`,
+  );
+  const preload = put(
+    "register.mjs",
+    `import { register } from "node:module";
+register(${JSON.stringify(hooks)});
+`,
+  );
+  const run = spawnSync(
+    process.execPath,
+    [
+      "--import",
+      preload,
+      fileURLToPath(new URL("./cli.mjs", import.meta.url)),
+      "review",
+      "--issue",
+      "7",
+      "--profile",
+      "light",
+    ],
+    { cwd: f.cwd, encoding: "utf8", windowsHide: true },
+  );
+  return {
+    status: run.status,
+    stdout: run.stdout,
+    stderr: run.stderr,
+    checkout: existsSync(location) ? readFileSync(location, "utf8") : undefined,
+  };
+}
+
+for (const [status, code] of [
+  ["ready", 0],
+  ["changes_requested", 2],
+])
+  test(`C11 comando com limpeza falha imprime o relatório ${status}, sai com ${code} e avisa a pasta no stderr`, (t) => {
+    const f = fixture(t);
+    const run = runCliWithFailingCleanup(f, status);
+    try {
+      const state = JSON.parse(
+        readFileSync(
+          join(f.cwd, ".git/code-review/issue-7.state.json"),
+          "utf8",
+        ),
+      );
+      assert.equal(state.attempts[0].report.status, status);
+      assert.equal(
+        run.stdout,
+        JSON.stringify(state.attempts[0].report, null, 2) + "\n",
+      );
+      assert.equal(run.status, code);
+      assert.equal(run.stderr, `${leftoverWarning(run.checkout)}\n`);
+      assert.equal(
+        existsSync(join(f.cwd, ".git/code-review/issue-7.lock")),
+        false,
+      );
+    } finally {
+      if (run.checkout) f.git("worktree", "remove", "--force", run.checkout);
+    }
+  });
+
+test("C11 comando com revisão falha e limpeza falha escreve o erro da revisão e sai com 1", (t) => {
+  const f = fixture(t);
+  const run = runCliWithFailingCleanup(f, "failure");
+  try {
+    assert.equal(run.stdout, "");
+    assert.equal(
+      run.stderr,
+      `${leftoverWarning(run.checkout)}\nCode review interrompido: falha de revisão\n`,
+    );
+    assert.equal(run.status, 1);
+    assert.equal(
+      existsSync(join(f.cwd, ".git/code-review/issue-7.lock")),
+      false,
+    );
+  } finally {
+    if (run.checkout) f.git("worktree", "remove", "--force", run.checkout);
   }
 });
 
@@ -345,8 +527,13 @@ test("C2 contexto ausente, árvore suja, caminho externo e issue errada são rec
 test("C3 revisão isolada entrega contexto e remove checkout sem tocar original", async (t) => {
   const f = fixture(t);
   const before = f.git("rev-parse", "HEAD");
-  const result = await review(f.cwd, f.options, f.deps);
+  const warnings = [];
+  const result = await review(f.cwd, f.options, {
+    ...f.deps,
+    warn: (message) => warnings.push(message),
+  });
   assert.equal(result.status, "ready");
+  assert.deepEqual(warnings, []);
   assert.equal(f.git("rev-parse", "HEAD"), before);
   assert.equal(f.git("status", "--porcelain"), "");
   assert.match(f.calls[0], /Valor deve ser 2/);
