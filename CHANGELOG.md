@@ -6,6 +6,12 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e as
 
 ## [Unreleased]
 
+## [0.2.12] - 2026-10-28
+
+Tag `v0.2.12`. Publica o npm `latest` e o catálogo oficial. `sheldon web` corrige Consulta,
+Revisão, Início e Fontes; a revisão local no Windows preserva o relatório quando a limpeza
+TEMP falha.
+
 ### Fixed
 
 - A revisão local não troca o relatório pelo erro EPERM ao apagar a pasta
